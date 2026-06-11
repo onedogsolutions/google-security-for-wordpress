@@ -1,0 +1,13 @@
+node_modules/
+build/
+.DS_Store
+*.zip
+*.log
+.eslintcache
+.parcel-cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.idea/
+.vscode/
+.gemini/
