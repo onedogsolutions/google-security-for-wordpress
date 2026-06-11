@@ -38,6 +38,7 @@ We recommend a default threshold of 0.5. If you encounter spam submissions, incr
 
 = 1.1.0 =
 * Tokens are now fetched on page load and refreshed automatically before expiry (and on checkout updates/errors), so checkout submissions triggered by payment gateway scripts (Stripe, PayPal smart buttons, express checkout) always carry a valid token. Fixes "Anti-spam verification token is missing" errors.
+* The frontend bootstrap is now dependency-free vanilla JavaScript, so performance plugins that delay or defer jQuery cannot delay token generation. Checkout fragment updates and error notices are detected via MutationObserver, with jQuery checkout events used as a progressive enhancement when available.
 * Added reCAPTCHA Enterprise support: select the Enterprise key type and verify tokens through the reCAPTCHA Enterprise assessments API using a Google Cloud project ID and API key.
 * Credential misconfiguration (invalid secret key, bad API key/project) is now logged to WooCommerce > Status > Logs and no longer blocks customers from checking out.
 

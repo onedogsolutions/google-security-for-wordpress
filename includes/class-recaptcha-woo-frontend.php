@@ -47,11 +47,13 @@ class Recaptcha_Woo_Frontend {
 			? 'https://www.google.com/recaptcha/enterprise.js'
 			: 'https://www.google.com/recaptcha/api.js';
 
-		// Register Google API script (jQuery dependency guarantees ordering for our inline bootstrap).
+		// Register Google API script. No jQuery dependency: the inline
+		// bootstrap is vanilla JS, so script optimizers that delay jQuery
+		// cannot delay token generation.
 		wp_register_script(
 			'google-recaptcha-v3',
 			$script_base . '?render=' . rawurlencode( $site_key ),
-			array( 'jquery' ),
+			array(),
 			RECAPTCHA_WOO_VERSION,
 			true
 		);
@@ -116,6 +118,12 @@ class Recaptcha_Woo_Frontend {
 	 * (Stripe, PayPal smart buttons, express checkout flows) always carry a
 	 * valid token even when they bypass the standard submit events.
 	 *
+	 * Written in vanilla JS with no jQuery dependency so script optimizers
+	 * that delay jQuery cannot delay token generation. Checkout fragment
+	 * replacements and error notices are detected with a MutationObserver
+	 * instead of WooCommerce's jQuery-only custom events; the jQuery event
+	 * bindings are kept as a progressive enhancement when jQuery is present.
+	 *
 	 * @param string $site_key The reCAPTCHA site key.
 	 * @return string Inline JavaScript.
 	 */
@@ -124,7 +132,7 @@ class Recaptcha_Woo_Frontend {
 
 		ob_start();
 		?>
-		(function($) {
+		(function() {
 			'use strict';
 
 			if (window.recaptchaWooInit) {
@@ -144,36 +152,64 @@ class Recaptcha_Woo_Frontend {
 				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
 			}
 
-			function fetchToken($input) {
-				var client = api();
-				var deferred = $.Deferred();
+			function fetchToken(input) {
+				return new Promise(function(resolve, reject) {
+					var client = api();
 
-				if (!client || !$input.length) {
-					return deferred.reject().promise();
-				}
+					if (!client || !input) {
+						reject();
+						return;
+					}
 
-				client.ready(function() {
-					client.execute(siteKey, { action: $input.data('recaptchaAction') || 'submit' }).then(
-						function(token) {
-							$input.val(token);
-							deferred.resolve(token);
-						},
-						function() {
-							deferred.reject();
-						}
-					);
+					client.ready(function() {
+						var action = input.getAttribute('data-recaptcha-action') || 'submit';
+						client.execute(siteKey, { action: action }).then(
+							function(token) {
+								input.value = token;
+								resolve(token);
+							},
+							reject
+						);
+					});
 				});
-
-				return deferred.promise();
 			}
+
+			function noop() {}
 
 			function refreshAll() {
-				$('.g-recaptcha-response').each(function() {
-					fetchToken($(this));
-				});
+				var inputs = document.querySelectorAll('.g-recaptcha-response');
+				for (var i = 0; i < inputs.length; i++) {
+					fetchToken(inputs[i]).catch(noop);
+				}
 			}
 
-			$(function() {
+			// Coalesce bursts of DOM mutations into a single refresh.
+			var refreshTimer = null;
+			function queueRefresh() {
+				if (refreshTimer) {
+					return;
+				}
+				refreshTimer = setTimeout(function() {
+					refreshTimer = null;
+					refreshAll();
+				}, 250);
+			}
+
+			function clearCheckoutTokens() {
+				var inputs = document.querySelectorAll('form.woocommerce-checkout .g-recaptcha-response');
+				for (var i = 0; i < inputs.length; i++) {
+					inputs[i].value = '';
+				}
+			}
+
+			function containsMatch(node, selector) {
+				if (node.nodeType !== 1) {
+					return false;
+				}
+				return node.matches(selector) || !!node.querySelector(selector);
+			}
+
+			function init() {
 				refreshAll();
 
 				setInterval(function() {
@@ -190,45 +226,82 @@ class Recaptcha_Woo_Frontend {
 				});
 
 				// WooCommerce replaces the payment fragment (and our hidden
-				// input) whenever the order review updates.
-				$(document.body).on('updated_checkout', refreshAll);
-
-				// Tokens are single use: a failed checkout attempt consumed
-				// the current one, so clear it and fetch a replacement.
-				$(document.body).on('checkout_error', function() {
-					$('form.woocommerce-checkout .g-recaptcha-response').val('');
-					refreshAll();
+				// input) whenever the order review updates, and inserts a
+				// notice group when a checkout attempt fails. Tokens are
+				// single use, so a failed attempt also needs a replacement.
+				var observer = new MutationObserver(function(mutations) {
+					for (var i = 0; i < mutations.length; i++) {
+						var added = mutations[i].addedNodes;
+						for (var j = 0; j < added.length; j++) {
+							if (containsMatch(added[j], '.g-recaptcha-response')) {
+								queueRefresh();
+								return;
+							}
+							if (containsMatch(added[j], '.woocommerce-NoticeGroup-checkout, .woocommerce-error')) {
+								clearCheckoutTokens();
+								queueRefresh();
+								return;
+							}
+						}
+					}
 				});
+				observer.observe(document.body, { childList: true, subtree: true });
 
 				// Fallback: intercept standard form submits (Login, Register)
-				// if the token is somehow still missing.
-				$(document).on('submit', 'form.login, form.register', function(e) {
-					var $form = $(this);
-					var $input = $form.find('.g-recaptcha-response');
+				// if the token is somehow still missing. The native
+				// form.submit() does not re-fire this listener.
+				document.addEventListener('submit', function(e) {
+					var form = e.target;
+					if (!form.matches || !form.matches('form.login, form.register')) {
+						return;
+					}
 
-					if ($input.length && !$input.val() && api()) {
+					var input = form.querySelector('.g-recaptcha-response');
+					if (input && !input.value && api()) {
 						e.preventDefault();
-						fetchToken($input).always(function() {
-							$form.trigger('submit');
-						});
+						e.stopPropagation();
+						var submit = function() {
+							form.submit();
+						};
+						fetchToken(input).then(submit, submit);
 					}
-				});
+				}, true);
 
-				// Fallback: intercept the WooCommerce checkout AJAX submission.
-				$(document.body).on('checkout_place_order', function() {
-					var $form = $('form.woocommerce-checkout');
-					var $input = $form.find('.g-recaptcha-response');
+				// Progressive enhancement: when jQuery is present, also hook
+				// WooCommerce's jQuery-only checkout events for immediate
+				// refreshes and a last-resort veto on the place-order event.
+				if (window.jQuery) {
+					var $ = window.jQuery;
 
-					if ($input.length && !$input.val() && api()) {
-						fetchToken($input).always(function() {
-							$form.trigger('submit');
-						});
-						return false;
-					}
-					return true;
-				});
-			});
-		})(jQuery);
+					$(document.body).on('updated_checkout', queueRefresh);
+
+					$(document.body).on('checkout_error', function() {
+						clearCheckoutTokens();
+						queueRefresh();
+					});
+
+					$(document.body).on('checkout_place_order', function() {
+						var $form = $('form.woocommerce-checkout');
+						var $input = $form.find('.g-recaptcha-response');
+
+						if ($input.length && !$input.val() && api()) {
+							var resubmit = function() {
+								$form.trigger('submit');
+							};
+							fetchToken($input.get(0)).then(resubmit, resubmit);
+							return false;
+						}
+						return true;
+					});
+				}
+			}
+
+			if ('loading' === document.readyState) {
+				document.addEventListener('DOMContentLoaded', init);
+			} else {
+				init();
+			}
+		})();
 		<?php
 		return ob_get_clean();
 	}
