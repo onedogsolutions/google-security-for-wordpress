@@ -3,7 +3,8 @@
  * Plugin Name: Google reCAPTCHA v3 for WooCommerce
  * Description: Google reCAPTCHA v3 integration for WooCommerce Login, Registration, and Checkout with smart key scavenging.
  * Version: 1.0.0
- * Author: Antigravity AI
+ * Author: One Dog Solutions
+ * Author URI: https://onedog.solutions/
  * Requires Plugins: woocommerce
  * Text Domain: google-recaptcha-v3-for-woocommerce
  * Domain Path: /languages
