@@ -17,6 +17,9 @@
 - Created `includes/class-recaptcha-woo-frontend.php` to inject the Google API scripts and hidden inputs onto WooCommerce login, registration, and checkout screens.
 - Created `includes/class-recaptcha-woo-verifier.php` to validate incoming reCAPTCHA tokens server-side using Google API and WP_Error handling.
 - Created standard plugin meta file `readme.txt`.
+- Optimized the database key scavenger flow: replaced the automatic, on-load database scanning query with an explicit user-triggered manual scan (`POST /recaptcha-woo/v1/scan-keys`).
+- Added check for `fluentform_settings` option within the key scavenger logic.
+- Introduced interactive frontend states (`isScanning`, `scanPerformed`, `discoveredData`) with user controls styled using Tailwind v4.
 
 ### Files Created/Modified
 - [x] [.gitignore](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/.gitignore)
@@ -40,5 +43,6 @@
 
 ### Current Status
 - Assets successfully built.
+- Manual scan integration for Smart Key Scavenger successfully completed and linted.
 - Ready to compile final ZIP plugin package for distribution.
 - Ready to push code to GitHub.

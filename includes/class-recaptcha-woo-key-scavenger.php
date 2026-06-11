@@ -23,6 +23,9 @@ class Recaptcha_Woo_Key_Scavenger {
 
 		// 1. Fluent Forms.
 		$fluent_settings = get_option( 'fluentform_global_settings' );
+		if ( ! is_array( $fluent_settings ) ) {
+			$fluent_settings = get_option( 'fluentform_settings' );
+		}
 		if ( is_array( $fluent_settings ) && isset( $fluent_settings['reCaptcha'] ) ) {
 			$re_captcha = $fluent_settings['reCaptcha'];
 			$site_key   = isset( $re_captcha['siteKey'] ) ? sanitize_text_field( $re_captcha['siteKey'] ) : '';

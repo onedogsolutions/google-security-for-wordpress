@@ -43,9 +43,9 @@ class Recaptcha_Woo_Rest_Api {
 
 		register_rest_route(
 			'recaptcha-woo/v1',
-			'/scavenge',
+			'/scan-keys',
 			array(
-				'methods'             => WP_REST_Server::READABLE,
+				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'scavenge_keys' ),
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
@@ -134,10 +134,31 @@ class Recaptcha_Woo_Rest_Api {
 	/**
 	 * Scavenge keys callback.
 	 *
-	 * @return WP_REST_Response REST response containing scavenged keys.
+	 * @return WP_REST_Response REST response containing scavenged keys status and payload.
 	 */
 	public function scavenge_keys() {
 		$keys = Recaptcha_Woo_Key_Scavenger::scan();
-		return new WP_REST_Response( $keys, 200 );
+
+		if ( ! empty( $keys ) ) {
+			$found = $keys[0];
+			return new WP_REST_Response(
+				array(
+					'success'    => true,
+					'keys_found' => true,
+					'source'     => $found['source'],
+					'site_key'   => $found['site_key'],
+					'secret_key' => $found['secret_key'],
+				),
+				200
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success'    => true,
+				'keys_found' => false,
+			),
+			200
+		);
 	}
 }
