@@ -1,5 +1,5 @@
 === Google reCAPTCHA v3 for WooCommerce ===
-Contributors: antigravity-ai
+Contributors: One Dog Solutions
 Tags: recaptcha, woocommerce, captcha, spam, security
 Requires at least: 5.8
 Tested up to: 6.4
