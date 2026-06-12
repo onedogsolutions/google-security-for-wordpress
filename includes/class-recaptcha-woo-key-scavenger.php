@@ -16,26 +16,42 @@ class Recaptcha_Woo_Key_Scavenger {
 	/**
 	 * Scavenges keys from various plugin settings in the database.
 	 *
+	 * Each result carries a 'version' ('v2', 'v3', or 'unknown') and an
+	 * 'importable' flag: v2 checkbox keys are rejected because this plugin
+	 * executes reCAPTCHA v3, which cannot use v2 site keys.
+	 *
 	 * @return array Discovered credentials.
 	 */
 	public static function scan() {
 		$results = array();
 
 		// 1. Fluent Forms.
-		$fluent_settings = get_option( 'fluentform_global_settings' );
-		if ( ! is_array( $fluent_settings ) ) {
-			$fluent_settings = get_option( 'fluentform_settings' );
+		// Credentials live in the dedicated _fluentform_reCaptcha_details
+		// option (keys: siteKey, secretKey, api_version).
+		$fluent_recaptcha = get_option( '_fluentform_reCaptcha_details' );
+		if ( ! is_array( $fluent_recaptcha ) ) {
+			// Fall back to legacy global settings shapes.
+			$fluent_settings = get_option( 'fluentform_global_settings' );
+			if ( ! is_array( $fluent_settings ) ) {
+				$fluent_settings = get_option( 'fluentform_settings' );
+			}
+			if ( is_array( $fluent_settings ) && isset( $fluent_settings['reCaptcha'] ) && is_array( $fluent_settings['reCaptcha'] ) ) {
+				$fluent_recaptcha = $fluent_settings['reCaptcha'];
+			}
 		}
-		if ( is_array( $fluent_settings ) && isset( $fluent_settings['reCaptcha'] ) ) {
-			$re_captcha = $fluent_settings['reCaptcha'];
-			$site_key   = isset( $re_captcha['siteKey'] ) ? sanitize_text_field( $re_captcha['siteKey'] ) : '';
-			$secret_key = isset( $re_captcha['secretKey'] ) ? sanitize_text_field( $re_captcha['secretKey'] ) : '';
+
+		if ( is_array( $fluent_recaptcha ) ) {
+			$site_key   = isset( $fluent_recaptcha['siteKey'] ) ? sanitize_text_field( $fluent_recaptcha['siteKey'] ) : '';
+			$secret_key = isset( $fluent_recaptcha['secretKey'] ) ? sanitize_text_field( $fluent_recaptcha['secretKey'] ) : '';
+			$version    = self::normalize_version( isset( $fluent_recaptcha['api_version'] ) ? $fluent_recaptcha['api_version'] : '' );
 
 			if ( ! empty( $site_key ) ) {
 				$results[] = array(
 					'source'     => 'Fluent Forms',
 					'site_key'   => $site_key,
 					'secret_key' => $secret_key,
+					'version'    => $version,
+					'importable' => 'v2' !== $version,
 				);
 			}
 		}
@@ -59,6 +75,8 @@ class Recaptcha_Woo_Key_Scavenger {
 					'source'     => 'Gravity Forms',
 					'site_key'   => $site_key,
 					'secret_key' => $secret_key,
+					'version'    => 'unknown',
+					'importable' => true,
 				);
 			}
 		}
@@ -75,6 +93,8 @@ class Recaptcha_Woo_Key_Scavenger {
 					'source'     => 'Beaver Builder Settings',
 					'site_key'   => $site_key,
 					'secret_key' => $secret_key,
+					'version'    => 'unknown',
+					'importable' => true,
 				);
 			}
 		}
@@ -111,6 +131,8 @@ class Recaptcha_Woo_Key_Scavenger {
 										'source'     => 'Beaver Builder Postmeta',
 										'site_key'   => $site_key,
 										'secret_key' => $secret_key,
+										'version'    => 'unknown',
+										'importable' => true,
 									);
 								}
 							}
@@ -135,10 +157,35 @@ class Recaptcha_Woo_Key_Scavenger {
 					'source'     => 'PowerPack Addons',
 					'site_key'   => $site_key,
 					'secret_key' => $secret_key,
+					'version'    => 'unknown',
+					'importable' => true,
 				);
 			}
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Normalize a plugin-specific reCAPTCHA version value to 'v2'/'v3'/'unknown'.
+	 *
+	 * Fluent Forms stores api_version as 2/3 (older releases used string
+	 * labels), so match defensively.
+	 *
+	 * @param mixed $raw Raw version value from another plugin's settings.
+	 * @return string Normalized version identifier.
+	 */
+	private static function normalize_version( $raw ) {
+		$value = strtolower( trim( (string) $raw ) );
+
+		if ( in_array( $value, array( '3', 'v3', 'v3_invisible' ), true ) ) {
+			return 'v3';
+		}
+
+		if ( in_array( $value, array( '2', 'v2', 'v2_visible', 'v2_invisible', 'v2_checkbox' ), true ) ) {
+			return 'v2';
+		}
+
+		return 'unknown';
 	}
 }
