@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, captcha, spam, security
 Requires at least: 5.8
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,6 +35,11 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 1.2.0 =
+* Fixed Fluent Forms key detection in the Smart Key Scavenger: keys are now read from the _fluentform_reCaptcha_details option that Fluent Forms actually uses (legacy global settings shapes are still checked as a fallback).
+* The scavenger now detects the reCAPTCHA version of Fluent Forms keys and blocks importing v2 (checkbox) keys, which are incompatible with this v3 plugin.
+* The key scan now lists every discovered configuration (e.g. both Gravity Forms and Fluent Forms) instead of only the first match, with per-source import buttons.
 
 = 1.1.1 =
 * Fixed "No route was found matching the URL and request method" when saving settings: the REST API routes were only registered in admin context, but /wp-json requests are not admin context, so the settings endpoints never existed. Routes now register on all requests.

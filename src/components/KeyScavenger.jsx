@@ -15,8 +15,8 @@ export default function KeyScavenger( { onImport } ) {
 		} )
 			.then( ( response ) => {
 				setScanPerformed( true );
-				if ( response.keys_found ) {
-					setDiscoveredData( response );
+				if ( response.keys_found && response.keys?.length ) {
+					setDiscoveredData( response.keys );
 				} else {
 					setDiscoveredData( null );
 				}
@@ -126,91 +126,117 @@ export default function KeyScavenger( { onImport } ) {
 
 				{ /* Discovered State (scanPerformed === true && discoveredData !== null) */ }
 				{ scanPerformed && ! isScanning && discoveredData && (
-					<div className="mt-6 overflow-hidden border border-gray-100 rounded-lg divide-y divide-gray-100 bg-gray-50/50 p-4">
-						<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-4 gap-x-6">
-							<div className="flex-1">
-								<div className="flex items-center gap-x-2">
-									<span className="text-sm font-semibold text-gray-900">
-										{ discoveredData.source }
-									</span>
-									<span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-										{ __(
-											'Found',
-											'google-recaptcha-v3-for-woocommerce'
-										) }
-									</span>
-								</div>
-								<div className="mt-2 space-y-1 text-xs text-gray-500">
-									<p>
-										<span className="font-medium">
+					<div className="mt-6 overflow-hidden border border-gray-100 rounded-lg divide-y divide-gray-100 bg-gray-50/50">
+						{ discoveredData.map( ( found ) => (
+							<div
+								key={ `${ found.source }-${ found.site_key }` }
+								className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-4 gap-x-6 p-4"
+							>
+								<div className="flex-1">
+									<div className="flex items-center gap-x-2">
+										<span className="text-sm font-semibold text-gray-900">
+											{ found.source }
+										</span>
+										<span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
 											{ __(
-												'Site Key: ',
+												'Found',
 												'google-recaptcha-v3-for-woocommerce'
 											) }
 										</span>
-										<code>
-											{ discoveredData.site_key
-												? `${ discoveredData.site_key.substring(
-														0,
-														10
-												  ) }...`
-												: '' }
-										</code>
-									</p>
-									{ discoveredData.secret_key ? (
+										{ found.version === 'v3' && (
+											<span className="inline-flex items-center rounded-md bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
+												v3
+											</span>
+										) }
+										{ found.version === 'v2' && (
+											<span className="inline-flex items-center rounded-md bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10">
+												v2
+											</span>
+										) }
+									</div>
+									<div className="mt-2 space-y-1 text-xs text-gray-500">
 										<p>
 											<span className="font-medium">
 												{ __(
-													'Secret Key: ',
+													'Site Key: ',
 													'google-recaptcha-v3-for-woocommerce'
 												) }
 											</span>
 											<code>
-												{ discoveredData.secret_key.substring(
-													0,
-													8
-												) }
-												...
+												{ found.site_key
+													? `${ found.site_key.substring(
+															0,
+															10
+													  ) }...`
+													: '' }
 											</code>
 										</p>
-									) : (
-										<p className="text-amber-600">
-											{ __(
-												'Secret Key is not stored globally (module-specific). You will need to enter it manually.',
-												'google-recaptcha-v3-for-woocommerce'
-											) }
-										</p>
-									) }
+										{ found.secret_key ? (
+											<p>
+												<span className="font-medium">
+													{ __(
+														'Secret Key: ',
+														'google-recaptcha-v3-for-woocommerce'
+													) }
+												</span>
+												<code>
+													{ found.secret_key.substring(
+														0,
+														8
+													) }
+													...
+												</code>
+											</p>
+										) : (
+											<p className="text-amber-600">
+												{ __(
+													'Secret Key is not stored globally (module-specific). You will need to enter it manually.',
+													'google-recaptcha-v3-for-woocommerce'
+												) }
+											</p>
+										) }
+										{ ! found.importable && (
+											<p className="text-red-600">
+												{ __(
+													'This is a reCAPTCHA v2 (checkbox) key. It cannot be used with this plugin, which requires v3 keys.',
+													'google-recaptcha-v3-for-woocommerce'
+												) }
+											</p>
+										) }
+									</div>
+								</div>
+
+								<div className="flex flex-col sm:flex-row items-center gap-3">
+									<button
+										type="button"
+										disabled={ ! found.importable }
+										onClick={ () =>
+											onImport(
+												found.site_key,
+												found.secret_key
+											)
+										}
+										className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-indigo-600 shadow-sm ring-1 ring-inset ring-indigo-300 hover:bg-indigo-50 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
+									>
+										{ __(
+											'Import Found Credentials',
+											'google-recaptcha-v3-for-woocommerce'
+										) }
+									</button>
 								</div>
 							</div>
-
-							<div className="flex flex-col sm:flex-row items-center gap-3">
-								<button
-									type="button"
-									onClick={ () =>
-										onImport(
-											discoveredData.site_key,
-											discoveredData.secret_key
-										)
-									}
-									className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-indigo-600 shadow-sm ring-1 ring-inset ring-indigo-300 hover:bg-indigo-50 transition cursor-pointer"
-								>
-									{ __(
-										'Import Found Credentials',
-										'google-recaptcha-v3-for-woocommerce'
-									) }
-								</button>
-								<button
-									type="button"
-									onClick={ handleInitiateScan }
-									className="text-xs font-medium text-indigo-600 hover:text-indigo-500 underline transition cursor-pointer"
-								>
-									{ __(
-										'Run Rescan',
-										'google-recaptcha-v3-for-woocommerce'
-									) }
-								</button>
-							</div>
+						) ) }
+						<div className="p-3 text-right">
+							<button
+								type="button"
+								onClick={ handleInitiateScan }
+								className="text-xs font-medium text-indigo-600 hover:text-indigo-500 underline transition cursor-pointer"
+							>
+								{ __(
+									'Run Rescan',
+									'google-recaptcha-v3-for-woocommerce'
+								) }
+							</button>
 						</div>
 					</div>
 				) }

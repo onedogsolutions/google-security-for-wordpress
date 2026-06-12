@@ -156,24 +156,11 @@ class Recaptcha_Woo_Rest_Api {
 	public function scavenge_keys() {
 		$keys = Recaptcha_Woo_Key_Scavenger::scan();
 
-		if ( ! empty( $keys ) ) {
-			$found = $keys[0];
-			return new WP_REST_Response(
-				array(
-					'success'    => true,
-					'keys_found' => true,
-					'source'     => $found['source'],
-					'site_key'   => $found['site_key'],
-					'secret_key' => $found['secret_key'],
-				),
-				200
-			);
-		}
-
 		return new WP_REST_Response(
 			array(
 				'success'    => true,
-				'keys_found' => false,
+				'keys_found' => ! empty( $keys ),
+				'keys'       => $keys,
 			),
 			200
 		);
