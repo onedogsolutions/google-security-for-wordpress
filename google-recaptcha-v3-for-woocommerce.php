@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google reCAPTCHA v3 for WooCommerce
  * Description: Google reCAPTCHA v3 integration for WooCommerce Login, Registration, and Checkout with smart key scavenging.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'RECAPTCHA_WOO_VERSION', '1.2.1' );
+define( 'RECAPTCHA_WOO_VERSION', '1.2.2' );
 define( 'RECAPTCHA_WOO_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RECAPTCHA_WOO_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'RECAPTCHA_WOO_FILE', __FILE__ );

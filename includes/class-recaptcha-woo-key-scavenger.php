@@ -57,7 +57,8 @@ class Recaptcha_Woo_Key_Scavenger {
 		}
 
 		// 2. Gravity Forms.
-		// Check both common Gravity Forms settings options.
+		// 2a. reCAPTCHA Add-On settings (stores v3 keys under
+		// version-suffixed field names).
 		$gf_settings = get_option( 'gravityformsaddon_gravityformsrecaptcha_settings' );
 		if ( ! is_array( $gf_settings ) ) {
 			$gf_settings = get_option( 'rg_gforms_setting' );
@@ -67,18 +68,46 @@ class Recaptcha_Woo_Key_Scavenger {
 		}
 
 		if ( is_array( $gf_settings ) ) {
-			$site_key   = isset( $gf_settings['site_key'] ) ? sanitize_text_field( $gf_settings['site_key'] ) : ( isset( $gf_settings['publickey'] ) ? sanitize_text_field( $gf_settings['publickey'] ) : '' );
-			$secret_key = isset( $gf_settings['secret_key'] ) ? sanitize_text_field( $gf_settings['secret_key'] ) : ( isset( $gf_settings['privatekey'] ) ? sanitize_text_field( $gf_settings['privatekey'] ) : '' );
+			$version    = 'unknown';
+			$site_key   = '';
+			$secret_key = '';
+
+			if ( ! empty( $gf_settings['site_key_v3'] ) ) {
+				$site_key   = sanitize_text_field( $gf_settings['site_key_v3'] );
+				$secret_key = isset( $gf_settings['secret_key_v3'] ) ? sanitize_text_field( $gf_settings['secret_key_v3'] ) : '';
+				$version    = 'v3';
+			} elseif ( ! empty( $gf_settings['site_key'] ) ) {
+				$site_key   = sanitize_text_field( $gf_settings['site_key'] );
+				$secret_key = isset( $gf_settings['secret_key'] ) ? sanitize_text_field( $gf_settings['secret_key'] ) : '';
+			} elseif ( ! empty( $gf_settings['publickey'] ) ) {
+				$site_key   = sanitize_text_field( $gf_settings['publickey'] );
+				$secret_key = isset( $gf_settings['privatekey'] ) ? sanitize_text_field( $gf_settings['privatekey'] ) : '';
+			}
 
 			if ( ! empty( $site_key ) ) {
 				$results[] = array(
 					'source'     => 'Gravity Forms',
 					'site_key'   => $site_key,
 					'secret_key' => $secret_key,
-					'version'    => 'unknown',
+					'version'    => $version,
 					'importable' => true,
 				);
 			}
+		}
+
+		// 2b. Gravity Forms classic core settings: the built-in CAPTCHA
+		// field stores its v2 keys as standalone string options.
+		$gf_public = get_option( 'rg_gforms_captcha_public_key' );
+		if ( is_string( $gf_public ) && '' !== trim( $gf_public ) ) {
+			$gf_private = get_option( 'rg_gforms_captcha_private_key' );
+
+			$results[] = array(
+				'source'     => 'Gravity Forms (Classic)',
+				'site_key'   => sanitize_text_field( $gf_public ),
+				'secret_key' => is_string( $gf_private ) ? sanitize_text_field( $gf_private ) : '',
+				'version'    => 'v2',
+				'importable' => false,
+			);
 		}
 
 		// 3. Beaver Builder.
