@@ -40,7 +40,7 @@ class Recaptcha_Woo_Verifier {
 			return $validation_error;
 		}
 
-		$result = $this->verify_token( 'login' );
+		$result = $this->verify_token( 'login', 'login' );
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $validation_error ) ) {
 				$validation_error = new WP_Error();
@@ -64,7 +64,7 @@ class Recaptcha_Woo_Verifier {
 			return $validation_errors;
 		}
 
-		$result = $this->verify_token( 'registration' );
+		$result = $this->verify_token( 'registration', 'register' );
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $validation_errors ) ) {
 				$validation_errors = new WP_Error();
@@ -86,7 +86,7 @@ class Recaptcha_Woo_Verifier {
 			return;
 		}
 
-		$result = $this->verify_token( 'checkout' );
+		$result = $this->verify_token( 'checkout', 'checkout' );
 		if ( is_wp_error( $result ) ) {
 			$errors->add( 'recaptcha_error', $result->get_error_message() );
 		}
@@ -98,10 +98,13 @@ class Recaptcha_Woo_Verifier {
 	 * Routes verification through the classic siteverify endpoint or the
 	 * reCAPTCHA Enterprise assessments API depending on the configured key type.
 	 *
-	 * @param string $context Target page context ('login', 'registration', 'checkout').
+	 * @param string $context         Threshold context. The configured threshold
+	 *                                is read from "recaptcha_woo_threshold_{$context}".
+	 * @param string $expected_action reCAPTCHA action name the frontend executed
+	 *                                with, validated for Enterprise assessments.
 	 * @return true|WP_Error Returns true on success, WP_Error object on failure.
 	 */
-	private function verify_token( $context ) {
+	public function verify_token( $context, $expected_action ) {
 		$key_type = get_option( 'recaptcha_woo_key_type', 'classic' );
 
 		// Skip verification if credentials are not configured to avoid blocking users.
@@ -127,7 +130,7 @@ class Recaptcha_Woo_Verifier {
 		}
 
 		$result = 'enterprise' === $key_type
-			? $this->assess_enterprise_token( $token, $context )
+			? $this->assess_enterprise_token( $token, $expected_action )
 			: $this->verify_classic_token( $token );
 
 		if ( true !== $result && ! is_wp_error( $result ) ) {
@@ -209,17 +212,14 @@ class Recaptcha_Woo_Verifier {
 	/**
 	 * Create a reCAPTCHA Enterprise assessment for the token.
 	 *
-	 * @param string $token   Submitted reCAPTCHA token.
-	 * @param string $context Target page context ('login', 'registration', 'checkout').
+	 * @param string $token           Submitted reCAPTCHA token.
+	 * @param string $expected_action reCAPTCHA action name the frontend executed with.
 	 * @return float|true|WP_Error Score on success, true to skip scoring, WP_Error on failure.
 	 */
-	private function assess_enterprise_token( $token, $context ) {
+	private function assess_enterprise_token( $token, $expected_action ) {
 		$project_id = get_option( 'recaptcha_woo_gcp_project_id', '' );
 		$api_key    = get_option( 'recaptcha_woo_gcp_api_key', '' );
 		$site_key   = get_option( 'recaptcha_woo_site_key', '' );
-
-		// The frontend executes with action 'register' on the registration form.
-		$expected_action = 'registration' === $context ? 'register' : $context;
 
 		$api_url = sprintf(
 			'https://recaptchaenterprise.googleapis.com/v1/projects/%s/assessments?key=%s',

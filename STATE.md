@@ -23,6 +23,8 @@
 - Reworked frontend token handling (v1.1.0): tokens are pre-fetched on page load and refreshed before the two-minute expiry, on `updated_checkout`, on `checkout_error`, and on tab refocus, so gateway-driven submissions (Stripe UPE, PayPal PPCP) always carry a valid token. Inline JS now attaches via `wp_add_inline_script` so it is never duplicated inside AJAX checkout fragments. The bootstrap is dependency-free vanilla JS (no jQuery): fragment replacements and checkout error notices are detected with a MutationObserver, and WooCommerce's jQuery checkout events (`updated_checkout`, `checkout_error`, `checkout_place_order` veto) are bound only as a progressive enhancement when jQuery is present.
 - Added reCAPTCHA Enterprise support (v1.1.0): new `key_type`, `gcp_project_id`, and `gcp_api_key` settings; frontend loads `enterprise.js` and uses `grecaptcha.enterprise`; verifier creates assessments via `recaptchaenterprise.googleapis.com` with expected-action checking.
 - Hardened verification failure modes (v1.1.0): credential misconfiguration (invalid secret, bad API key/project) logs a warning to the WooCommerce logger and fails open instead of blocking customers; expired/duplicate tokens return a dedicated "verification expired" message.
+- Added WordPress core screen support (v1.3.0): new `includes/class-recaptcha-woo-login.php` scores the wp-login.php sign in (`authenticate` filter), user registration (`registration_errors` filter), and lost password (`lostpassword_post` action) forms, each with its own threshold. Scripts and the token bootstrap are emitted directly in `login_footer` since wp-login.php skips the standard enqueue pipeline.
+- Made WooCommerce optional (v1.3.0): removed the `Requires Plugins: woocommerce` header, moved the settings page from the WooCommerce submenu to Settings -> reCAPTCHA v3 (`add_options_page`), switched the capability/REST permission from `manage_woocommerce` to `manage_options`, and gated the WooCommerce form toggles in the admin UI behind a `woocommerceActive` flag.
 
 ### Files Created/Modified
 - [x] [.gitignore](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/.gitignore)
@@ -41,6 +43,7 @@
 - [x] [src/styles/index.css](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/src/styles/index.css)
 - [x] [includes/class-recaptcha-woo-frontend.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-frontend.php)
 - [x] [includes/class-recaptcha-woo-verifier.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-verifier.php)
+- [x] [includes/class-recaptcha-woo-login.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-login.php)
 - [x] [readme.txt](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/readme.txt)
 - [x] [STATE.md](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/STATE.md)
 

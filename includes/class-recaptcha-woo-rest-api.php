@@ -58,7 +58,7 @@ class Recaptcha_Woo_Rest_Api {
 	 * @return bool True if authorized, false otherwise.
 	 */
 	public function check_permissions() {
-		return current_user_can( 'manage_woocommerce' );
+		return current_user_can( 'manage_options' );
 	}
 
 	/**
@@ -79,6 +79,12 @@ class Recaptcha_Woo_Rest_Api {
 			'threshold_login'        => get_option( 'recaptcha_woo_threshold_login', '0.5' ),
 			'threshold_registration' => get_option( 'recaptcha_woo_threshold_registration', '0.5' ),
 			'threshold_checkout'     => get_option( 'recaptcha_woo_threshold_checkout', '0.5' ),
+			'enable_wp_login'        => get_option( 'recaptcha_woo_enable_wp_login', '0' ),
+			'enable_wp_register'     => get_option( 'recaptcha_woo_enable_wp_register', '0' ),
+			'enable_wp_lostpassword' => get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ),
+			'threshold_wp_login'     => get_option( 'recaptcha_woo_threshold_wp_login', '0.5' ),
+			'threshold_wp_register'  => get_option( 'recaptcha_woo_threshold_wp_register', '0.5' ),
+			'threshold_wp_lostpassword' => get_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -117,32 +123,37 @@ class Recaptcha_Woo_Rest_Api {
 			update_option( 'recaptcha_woo_gcp_api_key', sanitize_text_field( $params['gcp_api_key'] ) );
 		}
 
-		// Toggles (Login, Registration, Checkout).
-		if ( isset( $params['enable_login'] ) ) {
-			update_option( 'recaptcha_woo_enable_login', $params['enable_login'] ? '1' : '0' );
-		}
-		if ( isset( $params['enable_registration'] ) ) {
-			update_option( 'recaptcha_woo_enable_registration', $params['enable_registration'] ? '1' : '0' );
-		}
-		if ( isset( $params['enable_checkout'] ) ) {
-			update_option( 'recaptcha_woo_enable_checkout', $params['enable_checkout'] ? '1' : '0' );
+		// Toggles for WooCommerce (Login, Registration, Checkout) and the
+		// WordPress core screens (Login, Registration, Lost Password).
+		$toggles = array(
+			'enable_login',
+			'enable_registration',
+			'enable_checkout',
+			'enable_wp_login',
+			'enable_wp_register',
+			'enable_wp_lostpassword',
+		);
+		foreach ( $toggles as $toggle ) {
+			if ( isset( $params[ $toggle ] ) ) {
+				update_option( 'recaptcha_woo_' . $toggle, $params[ $toggle ] ? '1' : '0' );
+			}
 		}
 
 		// Thresholds. Must validate they are floats between 0.0 and 1.0.
-		if ( isset( $params['threshold_login'] ) ) {
-			$val = floatval( $params['threshold_login'] );
-			$val = max( 0.0, min( 1.0, $val ) );
-			update_option( 'recaptcha_woo_threshold_login', strval( $val ) );
-		}
-		if ( isset( $params['threshold_registration'] ) ) {
-			$val = floatval( $params['threshold_registration'] );
-			$val = max( 0.0, min( 1.0, $val ) );
-			update_option( 'recaptcha_woo_threshold_registration', strval( $val ) );
-		}
-		if ( isset( $params['threshold_checkout'] ) ) {
-			$val = floatval( $params['threshold_checkout'] );
-			$val = max( 0.0, min( 1.0, $val ) );
-			update_option( 'recaptcha_woo_threshold_checkout', strval( $val ) );
+		$thresholds = array(
+			'threshold_login',
+			'threshold_registration',
+			'threshold_checkout',
+			'threshold_wp_login',
+			'threshold_wp_register',
+			'threshold_wp_lostpassword',
+		);
+		foreach ( $thresholds as $threshold ) {
+			if ( isset( $params[ $threshold ] ) ) {
+				$val = floatval( $params[ $threshold ] );
+				$val = max( 0.0, min( 1.0, $val ) );
+				update_option( 'recaptcha_woo_' . $threshold, strval( $val ) );
+			}
 		}
 
 		return $this->get_settings();
