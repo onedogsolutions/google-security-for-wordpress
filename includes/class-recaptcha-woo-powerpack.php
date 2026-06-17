@@ -16,6 +16,9 @@
  *  - Lost password has no such filter, so its admin-ajax action is guarded at
  *    an early priority instead.
  *
+ * When login protection is enabled, the module's own reCAPTCHA is stripped so
+ * this plugin's single, site-wide reCAPTCHA is the only one on the form.
+ *
  * These forms reuse the WordPress core toggles, thresholds, and verifier.
  * PowerPack supports classic v3 keys only, so configure a classic key type.
  *
@@ -50,6 +53,11 @@ class Recaptcha_Woo_Powerpack {
 
 		if ( '1' === get_option( 'recaptcha_woo_enable_wp_login', '0' ) ) {
 			add_filter( 'pp_login_form_process_login_errors', array( $this, 'validate_login' ), 10, 3 );
+
+			// Prefer this plugin's (site-wide) reCAPTCHA over the module's own:
+			// strip the module's reCAPTCHA so only our token field remains and
+			// our score is the one generated for the form.
+			add_filter( 'fl_builder_render_module_content', array( $this, 'replace_module_recaptcha' ), 10, 2 );
 		}
 
 		if ( '1' === get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ) ) {
@@ -59,6 +67,46 @@ class Recaptcha_Woo_Powerpack {
 			add_action( 'wp_ajax_pp_lf_process_lost_pass', array( $this, 'guard_lostpassword' ), 1 );
 			add_action( 'wp_ajax_nopriv_pp_lf_process_lost_pass', array( $this, 'guard_lostpassword' ), 1 );
 		}
+	}
+
+	/**
+	 * Remove the PowerPack Login Form module's own reCAPTCHA / hCaptcha.
+	 *
+	 * When this plugin protects the login form, its hidden token field is
+	 * already injected via the core `login_form` action and is submitted with
+	 * the module's FormData. Leaving the module's own captcha in place would
+	 * load a second reCAPTCHA (conflicting with ours) and fail validation once
+	 * its loader is suppressed. Stripping the captcha field makes the module
+	 * skip it entirely — client side (no `.pp-grecaptcha` element to execute)
+	 * and server side (no `recaptcha` flag posted) — so this plugin's
+	 * site-wide score is the only one generated.
+	 *
+	 * @param string $content The rendered module HTML.
+	 * @param object $module  The Beaver Builder module instance.
+	 * @return string Filtered module HTML.
+	 */
+	public function replace_module_recaptcha( $content, $module ) {
+		if ( ! is_object( $module ) || 'PPLoginFormModule' !== get_class( $module ) ) {
+			return $content;
+		}
+
+		// Drop the module's captcha field wrappers (single level of nesting).
+		$stripped = preg_replace(
+			'~<div class="pp-login-form-field pp-field-group pp-field-type-(?:re|h)captcha">.*?</div>\s*</div>~s',
+			'',
+			$content
+		);
+
+		if ( null !== $stripped ) {
+			$content = $stripped;
+
+			// The module still enqueues its captcha loader when enabled; remove
+			// it so only this plugin's reCAPTCHA script runs on the page.
+			wp_dequeue_script( 'g-recaptcha' );
+			wp_dequeue_script( 'h-captcha' );
+		}
+
+		return $content;
 	}
 
 	/**
