@@ -36,6 +36,7 @@ require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-login.php'
 // Third-party login plugins authenticate through admin-ajax (is_admin() is
 // true there), so their integrations must also load unconditionally.
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-xootix.php';
+require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-powerpack.php';
 // REST requests are not admin context (is_admin() is false for /wp-json),
 // so the REST API class must load unconditionally for its routes to exist.
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-rest-api.php';
@@ -86,6 +87,10 @@ function recaptcha_woo_init() {
 	// Extend the same protection to the Login/Signup Popup plugin's AJAX
 	// forms. Inert unless that plugin is active.
 	new Recaptcha_Woo_Xootix( $verifier );
+
+	// Extend the same protection to the PowerPack (Beaver Builder) Login Form
+	// module. Inert unless PowerPack is active.
+	new Recaptcha_Woo_Powerpack( $verifier );
 
 	// Routes only register when rest_api_init fires, so this is a no-op
 	// outside REST requests.

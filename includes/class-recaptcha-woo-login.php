@@ -102,6 +102,25 @@ class Recaptcha_Woo_Login {
 			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
 			esc_attr( $action )
 		);
+
+		// The `login_form` / `register_form` / `lostpassword_form` actions also
+		// fire on front-end forms rendered by other plugins (e.g. the PowerPack
+		// Login Form module). There the wp-login.php footer script path never
+		// runs, so load the shared API script and token bootstrap here to keep
+		// the field populated.
+		if ( ! $this->is_wp_login_page() ) {
+			Recaptcha_Woo_Assets::enqueue_api_script();
+			Recaptcha_Woo_Assets::add_refresh_bootstrap();
+		}
+	}
+
+	/**
+	 * Whether the current request is the core wp-login.php screen.
+	 *
+	 * @return bool True on wp-login.php.
+	 */
+	private function is_wp_login_page() {
+		return isset( $GLOBALS['pagenow'] ) && 'wp-login.php' === $GLOBALS['pagenow'];
 	}
 
 	/**

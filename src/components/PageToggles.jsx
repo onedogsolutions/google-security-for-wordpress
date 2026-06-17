@@ -222,7 +222,7 @@ export default function PageToggles( {
 	);
 
 	const wordpressDescription = __(
-		'Protects the wp-login.php sign in, registration, and lost password screens. When the Login/Signup Popup plugin is active, these toggles also cover its matching AJAX forms. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
+		'Protects the wp-login.php sign in, registration, and lost password screens. These toggles also cover matching forms from supported login plugins when active — the Login/Signup Popup plugin and the PowerPack (Beaver Builder) Login Form module. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
 		'google-recaptcha-v3-for-woocommerce'
 	);
 
