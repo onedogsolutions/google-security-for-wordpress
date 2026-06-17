@@ -21,6 +21,12 @@ export default function App() {
 			threshold_login: '0.5',
 			threshold_registration: '0.5',
 			threshold_checkout: '0.5',
+			enable_wp_login: '0',
+			enable_wp_register: '0',
+			enable_wp_lostpassword: '0',
+			threshold_wp_login: '0.5',
+			threshold_wp_register: '0.5',
+			threshold_wp_lostpassword: '0.5',
 		},
 	};
 
@@ -169,6 +175,7 @@ export default function App() {
 					<PageToggles
 						settings={ settings }
 						onChange={ handleSettingChange }
+						woocommerceActive={ !! initialData.woocommerceActive }
 					/>
 
 					{ /* Key Scavenger panel */ }

@@ -22,14 +22,13 @@ class Recaptcha_Woo_Admin {
 	}
 
 	/**
-	 * Register the submenu page.
+	 * Register the settings page under the core Settings menu.
 	 */
 	public function register_admin_page() {
-		add_submenu_page(
-			'woocommerce',
+		add_options_page(
 			__( 'reCAPTCHA v3 Settings', 'google-recaptcha-v3-for-woocommerce' ),
 			__( 'reCAPTCHA v3', 'google-recaptcha-v3-for-woocommerce' ),
-			'manage_woocommerce',
+			'manage_options',
 			'recaptcha-woo-admin',
 			array( $this, 'render_admin_page' )
 		);
@@ -55,8 +54,8 @@ class Recaptcha_Woo_Admin {
 	 * @param string $hook The current admin page hook.
 	 */
 	public function enqueue_admin_assets( $hook ) {
-		// Only load assets on our specific plugin submenu page.
-		if ( 'woocommerce_page_recaptcha-woo-admin' !== $hook ) {
+		// Only load assets on our specific settings page.
+		if ( 'settings_page_recaptcha-woo-admin' !== $hook ) {
 			return;
 		}
 
@@ -100,6 +99,12 @@ class Recaptcha_Woo_Admin {
 			'threshold_login'        => get_option( 'recaptcha_woo_threshold_login', '0.5' ),
 			'threshold_registration' => get_option( 'recaptcha_woo_threshold_registration', '0.5' ),
 			'threshold_checkout'     => get_option( 'recaptcha_woo_threshold_checkout', '0.5' ),
+			'enable_wp_login'        => get_option( 'recaptcha_woo_enable_wp_login', '0' ),
+			'enable_wp_register'     => get_option( 'recaptcha_woo_enable_wp_register', '0' ),
+			'enable_wp_lostpassword' => get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ),
+			'threshold_wp_login'     => get_option( 'recaptcha_woo_threshold_wp_login', '0.5' ),
+			'threshold_wp_register'  => get_option( 'recaptcha_woo_threshold_wp_register', '0.5' ),
+			'threshold_wp_lostpassword' => get_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' ),
 		);
 
 		// Localize script with REST endpoint variables and initial state.
@@ -107,9 +112,10 @@ class Recaptcha_Woo_Admin {
 			'recaptcha-woo-admin-js',
 			'recaptchaWooAdminData',
 			array(
-				'restUrl'  => esc_url_raw( rest_url( 'recaptcha-woo/v1' ) ),
-				'nonce'    => wp_create_nonce( 'wp_rest' ),
-				'settings' => $initial_settings,
+				'restUrl'            => esc_url_raw( rest_url( 'recaptcha-woo/v1' ) ),
+				'nonce'              => wp_create_nonce( 'wp_rest' ),
+				'settings'           => $initial_settings,
+				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 			)
 		);
 	}
