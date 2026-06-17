@@ -85,6 +85,7 @@ class Recaptcha_Woo_Rest_Api {
 			'threshold_wp_login'     => get_option( 'recaptcha_woo_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'recaptcha_woo_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' ),
+			'conflict_mode'          => get_option( 'recaptcha_woo_conflict_mode', 'off' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -154,6 +155,14 @@ class Recaptcha_Woo_Rest_Api {
 				$val = max( 0.0, min( 1.0, $val ) );
 				update_option( 'recaptcha_woo_' . $threshold, strval( $val ) );
 			}
+		}
+
+		// Conflict handling mode. Only known modes are accepted.
+		if ( isset( $params['conflict_mode'] ) ) {
+			$mode = in_array( $params['conflict_mode'], array( 'off', 'active', 'site' ), true )
+				? $params['conflict_mode']
+				: 'off';
+			update_option( 'recaptcha_woo_conflict_mode', $mode );
 		}
 
 		return $this->get_settings();

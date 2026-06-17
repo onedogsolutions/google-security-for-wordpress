@@ -28,6 +28,7 @@ define( 'RECAPTCHA_WOO_FILE', __FILE__ );
  */
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-key-scavenger.php';
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-assets.php';
+require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-conflict-guard.php';
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-verifier.php';
 // The WordPress core login/registration/lost-password screens run outside the
 // admin context (is_admin() is false on wp-login.php), so this class must load
@@ -70,6 +71,8 @@ function recaptcha_woo_activate() {
 	add_option( 'recaptcha_woo_threshold_wp_login', '0.5' );
 	add_option( 'recaptcha_woo_threshold_wp_register', '0.5' );
 	add_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' );
+	// Conflict handling: suppress other plugins' reCAPTCHA scripts.
+	add_option( 'recaptcha_woo_conflict_mode', 'off' );
 }
 register_activation_hook( __FILE__, 'recaptcha_woo_activate' );
 
@@ -91,6 +94,10 @@ function recaptcha_woo_init() {
 	// Extend the same protection to the PowerPack (Beaver Builder) Login Form
 	// module. Inert unless PowerPack is active.
 	new Recaptcha_Woo_Powerpack( $verifier );
+
+	// Suppress other plugins' reCAPTCHA scripts so this implementation is the
+	// only one on the page. Inert unless a conflict mode is configured.
+	new Recaptcha_Woo_Conflict_Guard();
 
 	// Routes only register when rest_api_init fires, so this is a no-op
 	// outside REST requests.

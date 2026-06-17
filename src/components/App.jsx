@@ -6,6 +6,7 @@ import StatusBadge from './StatusBadge';
 import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
 import KeyScavenger from './KeyScavenger';
+import Compatibility from './Compatibility';
 
 export default function App() {
 	const initialData = window.recaptchaWooAdminData || {
@@ -27,6 +28,7 @@ export default function App() {
 			threshold_wp_login: '0.5',
 			threshold_wp_register: '0.5',
 			threshold_wp_lostpassword: '0.5',
+			conflict_mode: 'off',
 		},
 	};
 
@@ -176,6 +178,12 @@ export default function App() {
 						settings={ settings }
 						onChange={ handleSettingChange }
 						woocommerceActive={ !! initialData.woocommerceActive }
+					/>
+
+					{ /* Conflict handling */ }
+					<Compatibility
+						settings={ settings }
+						onChange={ handleSettingChange }
 					/>
 
 					{ /* Key Scavenger panel */ }
