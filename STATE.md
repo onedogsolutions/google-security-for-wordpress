@@ -25,6 +25,8 @@
 - Hardened verification failure modes (v1.1.0): credential misconfiguration (invalid secret, bad API key/project) logs a warning to the WooCommerce logger and fails open instead of blocking customers; expired/duplicate tokens return a dedicated "verification expired" message.
 - Added WordPress core screen support (v1.3.0): new `includes/class-recaptcha-woo-login.php` scores the wp-login.php sign in (`authenticate` filter), user registration (`registration_errors` filter), and lost password (`lostpassword_post` action) forms, each with its own threshold. Scripts and the token bootstrap are emitted directly in `login_footer` since wp-login.php skips the standard enqueue pipeline.
 - Made WooCommerce optional (v1.3.0): removed the `Requires Plugins: woocommerce` header, moved the settings page from the WooCommerce submenu to Settings -> reCAPTCHA v3 (`add_options_page`), switched the capability/REST permission from `manage_woocommerce` to `manage_options`, and gated the WooCommerce form toggles in the admin UI behind a `woocommerceActive` flag.
+- Added shared `includes/class-recaptcha-woo-assets.php` (v1.3.0): centralizes the Google API script enqueue (classic/enterprise) and a reusable, vanilla-JS token refresh bootstrap that keeps every `.g-recaptcha-response` field populated (on load, before expiry, on refocus, and via MutationObserver for dynamically added fields).
+- Added Login/Signup Popup integration (v1.3.0): `includes/class-recaptcha-woo-xootix.php` injects the token field via the plugin's `xoo_el_form_end` template action and validates through its `xoo_el_process_login_errors` / `xoo_el_process_registration_errors` / `xoo_el_process_lostpw_errors` filters, reusing the WordPress core toggles, thresholds, and verifier. Inert unless `easy-login-woocommerce` is active.
 
 ### Files Created/Modified
 - [x] [.gitignore](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/.gitignore)
@@ -44,6 +46,8 @@
 - [x] [includes/class-recaptcha-woo-frontend.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-frontend.php)
 - [x] [includes/class-recaptcha-woo-verifier.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-verifier.php)
 - [x] [includes/class-recaptcha-woo-login.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-login.php)
+- [x] [includes/class-recaptcha-woo-assets.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-assets.php)
+- [x] [includes/class-recaptcha-woo-xootix.php](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/includes/class-recaptcha-woo-xootix.php)
 - [x] [readme.txt](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/readme.txt)
 - [x] [STATE.md](file:///Users/rwaterbury/Developer/google-recaptcha-v3-for-woocommerce/STATE.md)
 

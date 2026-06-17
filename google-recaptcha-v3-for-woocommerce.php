@@ -27,11 +27,15 @@ define( 'RECAPTCHA_WOO_FILE', __FILE__ );
  * Autoload classes or include them.
  */
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-key-scavenger.php';
+require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-assets.php';
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-verifier.php';
 // The WordPress core login/registration/lost-password screens run outside the
 // admin context (is_admin() is false on wp-login.php), so this class must load
 // unconditionally for its hooks to fire.
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-login.php';
+// Third-party login plugins authenticate through admin-ajax (is_admin() is
+// true there), so their integrations must also load unconditionally.
+require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-xootix.php';
 // REST requests are not admin context (is_admin() is false for /wp-json),
 // so the REST API class must load unconditionally for its routes to exist.
 require_once RECAPTCHA_WOO_PLUGIN_DIR . 'includes/class-recaptcha-woo-rest-api.php';
@@ -78,6 +82,10 @@ function recaptcha_woo_init() {
 	// Protect the WordPress core login, registration, and lost password
 	// screens. Hooks only fire on wp-login.php, so this is inert elsewhere.
 	new Recaptcha_Woo_Login( $verifier );
+
+	// Extend the same protection to the Login/Signup Popup plugin's AJAX
+	// forms. Inert unless that plugin is active.
+	new Recaptcha_Woo_Xootix( $verifier );
 
 	// Routes only register when rest_api_init fires, so this is a no-op
 	// outside REST requests.

@@ -221,6 +221,11 @@ export default function PageToggles( {
 		'google-recaptcha-v3-for-woocommerce'
 	);
 
+	const wordpressDescription = __(
+		'Protects the wp-login.php sign in, registration, and lost password screens. When the Login/Signup Popup plugin is active, these toggles also cover its matching AJAX forms. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
+		'google-recaptcha-v3-for-woocommerce'
+	);
+
 	return (
 		<>
 			<ToggleGroup
@@ -228,7 +233,7 @@ export default function PageToggles( {
 					'WordPress Core Forms',
 					'google-recaptcha-v3-for-woocommerce'
 				) }
-				description={ sharedDescription }
+				description={ wordpressDescription }
 				checkpoints={ wordpressCheckpoints }
 				settings={ settings }
 				onChange={ onChange }
