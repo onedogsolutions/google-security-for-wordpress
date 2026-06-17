@@ -105,6 +105,7 @@ class Recaptcha_Woo_Admin {
 			'threshold_wp_login'     => get_option( 'recaptcha_woo_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'recaptcha_woo_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' ),
+			'conflict_mode'          => get_option( 'recaptcha_woo_conflict_mode', 'off' ),
 		);
 
 		// Localize script with REST endpoint variables and initial state.

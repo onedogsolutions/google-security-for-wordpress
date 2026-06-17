@@ -44,6 +44,7 @@ We recommend a default threshold of 0.5. If you encounter spam submissions, incr
 * Added reCAPTCHA v3 scoring to the WordPress core screens served by wp-login.php: sign in, user registration, and lost password, each with its own score threshold.
 * Added integration with the Login/Signup Popup ( Inline Form + Woocommerce ) plugin (easy-login-woocommerce): its AJAX login, registration, and lost password forms are scored using the same WordPress form toggles and thresholds when that plugin is active.
 * Added integration with the PowerPack for Beaver Builder Login Form module: its login and lost password forms are scored using the same WordPress form toggles and thresholds when PowerPack is active. PowerPack supports classic v3 keys only, so configure a classic key type when using it.
+* Added reCAPTCHA conflict handling: optionally suppress reCAPTCHA scripts loaded by other plugins (such as Gravity Forms) so this plugin is the only reCAPTCHA on the page. Choose between disabled, only on pages where this plugin loads its own reCAPTCHA, or site-wide. Replaces hand-rolled wp_dequeue_script snippets and matches any Google reCAPTCHA loader by source.
 * The plugin now works without WooCommerce. The WooCommerce login, registration, and checkout options only appear when WooCommerce is active.
 * Moved the settings page out of the WooCommerce menu into Settings -> reCAPTCHA v3, and switched the required capability to manage_options.
 * Removed the WooCommerce plugin dependency header so the plugin can be installed on any WordPress site.
