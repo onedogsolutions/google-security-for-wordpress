@@ -1,6 +1,23 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 6 (Rebrand to Google Security for WordPress + Two-Factor Authentication)
+## Current Phase: Phase 8 (Fix 2FA login flow across all entry points + admin UI tweaks)
+
+### Phase 8 Modifications
+- Fixed a fatal error (HTTP 500) when an enrolled user logged in from a non-`wp-login.php` form (e.g. the WooCommerce "My Account" page). `GSWP_Two_Factor::maybe_start_challenge()` previously rendered the interstitial inline by calling `login_header()`/`login_footer()`, which only exist inside `wp-login.php`; on a front-end login they are undefined and fatal. The challenge is now always rendered on `wp-login.php`: `maybe_start_challenge()` clears the freshly issued auth cookie, stashes the in-progress login behind a single-use, HTTP-only cookie token (`gswp_2fa_pending`) backed by a 5-minute transient, and `wp_safe_redirect()`s to `wp-login.php?action=gswp_2fa`.
+- Closed a 2FA bypass on AJAX logins (the PowerPack Login Form module). `maybe_start_challenge()` used to `return` early on `wp_doing_ajax()`, leaving the auth cookie in place so the user was logged in with no second factor. It now clears the auth cookie and sets the pending cookie for AJAX logins too; a new `maybe_resume_challenge()` guard (hooked to both `login_init` and `template_redirect`) detects a logged-out visitor carrying a valid pending cookie and redirects them to the interstitial, so the half-finished AJAX login is forced through 2FA on the next page load.
+- Replaced the per-user login-nonce mechanism (`create_login_nonce()`/`verify_login_nonce()`, stored in user meta) with the cookie-token + transient "pending login" helpers (`store_pending_login()`, `get_pending_login()`, `clear_pending_login()`, `challenge_url()`, `cookie_path()`). The token is unguessable and HTTP-only, so it can only be minted by a successful password check, and the TOTP code is still required. `show_challenge()` no longer emits hidden `user_id`/`nonce`/`redirect`/`rememberme` fields (the cookie carries that state).
+- The post-2FA redirect now honours both `redirect_to` (wp-login.php) and `redirect` (WooCommerce My Account) request fields.
+- Admin settings screen (React): `TwoFactorNotice` now shows a "Two-Factor Authentication Settings" button linking to Settings → Two-Factor Auth (new `twoFactorSettingsUrl` localized from `GSWP_Admin`), placed above the "Set up 2FA from your user profile" link. Both button-styled links carry a `gswp-2fa-btn` class with a scoped CSS rule in `src/styles/index.css` forcing white text (including `:hover`/`:focus`), since WordPress admin's own `a` colour rules otherwise won over Tailwind's `text-white`.
+
+## Historical Phase: Phase 7 (Remove Key Scavenger + 2FA Profile Notice + Legacy Plugin Takeover)
+
+### Phase 7 Modifications
+- Removed the Smart Key Scavenger entirely: deleted `includes/class-gswp-key-scavenger.php` and `src/components/KeyScavenger.jsx`, dropped the `POST /gswp/v1/scan-keys` REST route and its `scavenge_keys()` callback, and removed the scavenger require/import wiring from the main file and `App.jsx`.
+- Added `src/components/TwoFactorNotice.jsx`: a dialogue/notice panel on the settings screen explaining that 2FA enrolment happens in the user Profile, with a button linking to `profile.php#gswp-2fa`. The admin localizer now passes a `profileUrl` to the React app.
+- Renamed the settings menu/page from "reCAPTCHA v3" to "Google Security" (`includes/class-gswp-admin.php`) and updated the React header accordingly.
+- On activation (`gswp_activate`), the plugin now imports the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin's `recaptcha_woo_*` options into the `gswp_*` keys via the shared `gswp_import_legacy_options()`, then deactivates and deletes that old plugin (matched by basename `google-recaptcha-v3-for-woocommerce/...`, text domain, or plugin name) with `deactivate_plugins()` + `delete_plugins()`. `gswp_maybe_migrate()` still imports options on every load as an upgrade safety net (without touching plugin files).
+
+## Historical Phase: Phase 6 (Rebrand to Google Security for WordPress + Two-Factor Authentication)
 
 ### Phase 6 Modifications (v2.0.0)
 - Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress". Renamed the main file to `google-security-for-wordpress.php` and all `includes/class-recaptcha-woo-*.php` files to `includes/class-gswp-*.php`.

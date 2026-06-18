@@ -47,4 +47,13 @@
   .gswp-admin-isolated input[type="range"]::-moz-range-thumb:hover {
     background: #4338ca;
   }
+
+  /* Keep button-styled links white: WordPress admin's own `a` colour rules
+     (including `a:hover`) otherwise win over Tailwind's text utility. */
+  .gswp-admin-isolated a.gswp-2fa-btn,
+  .gswp-admin-isolated a.gswp-2fa-btn:hover,
+  .gswp-admin-isolated a.gswp-2fa-btn:focus,
+  .gswp-admin-isolated a.gswp-2fa-btn:active {
+    color: #fff;
+  }
 }
