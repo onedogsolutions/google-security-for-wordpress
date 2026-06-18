@@ -1,6 +1,14 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 9 (2FA code-entry popup; settings consolidated into Google Security page)
+## Current Phase: Phase 10 (Fix 2FA popup not opening on cached AJAX-login sites)
+
+### Phase 10 Modifications (v2.0.1)
+- Fixed the 2FA code-entry popup failing to open on the live site (`maddogproducts.com`) while working on staging (`maddog.onedog.solutions`). Symptom: an enrolled user's login via the Login/Signup Popup (Xootix) AJAX form was correctly held server-side (our `WP_Error` text appeared inside the Xootix popup), but the authenticator modal never rendered (no `<div>`, no console error), locking the user out.
+- Root cause: `assets/js/gswp-2fa-modal.js` only opened the modal on a full-page reload (flag cookie already present) or after catching a native `submit` event on a password form, after which it polled the flag cookie for ~10s. The live site runs **FlyingPress** (page cache + "Delay JavaScript"); with the modal script deferred until user interaction and the Xootix login submitting over AJAX, the `submit`-triggered poll never started, so the held-login flag cookie was never observed. Staging has no such optimiser, so the timing happened to work.
+- Fix: replaced the `submit`-event-gated poll with a **life-of-page poll of the flag cookie** (`startPolling()`, every 500ms), plus the existing on-load check and a new `pageshow` (bfcache) check. The modal now opens the moment the server's held-login flag cookie appears — independent of which login form/plugin was used, any page cache, or deferred-script timing. `open()` is now idempotent (`isOpen` guard) so repeated polls don't re-focus or rebuild the modal.
+- Bumped version to 2.0.1 (main file header, `GSWP_VERSION`, `readme.txt`, `package.json`) so the asset's `GSWP_VERSION` cache-busting query arg forces FlyingPress/CDN/browser caches to fetch the new script. The popup assets are plain files served from `assets/` (not webpack-built), so no rebuild was required.
+
+## Historical Phase: Phase 9 (2FA code-entry popup; settings consolidated into Google Security page)
 
 ### Phase 9 Modifications
 - Replaced the redirect-based 2FA challenge (which caused an `ERR_TOO_MANY_REDIRECTS` loop and errored on My Account) with a **popup/modal flow that never redirects**. `GSWP_Two_Factor::enforce_second_factor()` hooks `authenticate` at priority 100: for an enrolled user it arms a single-use pending login (HTTP-only token cookie + transient + readable flag cookie) and returns a `WP_Error`, blocking the sign-in uniformly across wp-login.php, WooCommerce My Account, and the PowerPack AJAX login — no auth cookie is issued without the second factor, and nothing is rendered/redirected so front-end forms can't fatal.
