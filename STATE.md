@@ -1,6 +1,13 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 10 (Fix 2FA popup not opening on cached AJAX-login sites)
+## Current Phase: Phase 11 (2FA enrolment: inline submit button + scroll back to section)
+
+### Phase 11 Modifications (v2.0.2)
+- Added an "Enable two-factor authentication" submit button directly beneath the verification-code field in the first-time enrolment UI (`GSWP_Two_Factor::render_setup_rows()`, via `submit_button( …, 'primary', 'gswp_2fa_setup_submit', false )`). It lives inside the profile `<form>`, so it submits to the existing `save_profile()` handler — no new server logic. Previously the only submit control was the core "Update Profile" button at the very bottom of the long profile page.
+- After a setup submit, the page now returns to the authenticator section instead of the top of the page, so the one-time backup codes are immediately visible to copy. Implemented client-side: the backup-codes notice and the wrong-code error notice in `maybe_render_notices()` now carry a `gswp-2fa-scroll-target` class; the QR inline script (`get_qr_inline_js()`) gains a `scrollToSection()` that, on DOM ready, scrolls `#gswp-2fa` into view when that marker is present. A redirect-fragment approach was rejected because the profile POST→redirect→GET drops the URL fragment.
+- Bumped version to 2.0.2 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). Profile assets are plain files served from `assets/` (QR inline JS is generated in PHP), so no webpack rebuild was required.
+
+## Historical Phase: Phase 10 (Fix 2FA popup not opening on cached AJAX-login sites)
 
 ### Phase 10 Modifications (v2.0.1)
 - Fixed the 2FA code-entry popup failing to open on the live site (`maddogproducts.com`) while working on staging (`maddog.onedog.solutions`). Symptom: an enrolled user's login via the Login/Signup Popup (Xootix) AJAX form was correctly held server-side (our `WP_Error` text appeared inside the Xootix popup), but the authenticator modal never rendered (no `<div>`, no console error), locking the user out.
