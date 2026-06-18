@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,9 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.0.1 =
+* Fixed the two-factor code-entry popup failing to open on AJAX logins (e.g. the Login/Signup Popup) on sites with a page cache or JavaScript optimiser such as FlyingPress, which could lock enrolled users out. The popup now opens by polling the server's held-login flag cookie, independent of any form submit event or deferred-script timing.
 
 = 2.0.0 =
 * Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress" to reflect its broader scope. The settings menu is now **Settings -> Google Security**.
