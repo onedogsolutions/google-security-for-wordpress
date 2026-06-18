@@ -608,10 +608,25 @@ class GSWP_Two_Factor {
 			el.textContent = '';
 		}
 	}
-	if ( 'loading' === document.readyState ) {
-		document.addEventListener( 'DOMContentLoaded', draw );
-	} else {
+	function scrollToSection() {
+		// After a setup submit (backup codes shown or a wrong-code error), keep
+		// the user on the authenticator section instead of the top of the page.
+		if ( ! document.querySelector( '.gswp-2fa-scroll-target' ) ) {
+			return;
+		}
+		var anchor = document.getElementById( 'gswp-2fa' );
+		if ( anchor ) {
+			anchor.scrollIntoView();
+		}
+	}
+	function init() {
 		draw();
+		scrollToSection();
+	}
+	if ( 'loading' === document.readyState ) {
+		document.addEventListener( 'DOMContentLoaded', init );
+	} else {
+		init();
 	}
 } )();
 JS;
@@ -734,6 +749,7 @@ JS;
 			<td>
 				<input type="text" name="gswp_2fa_setup_code" id="gswp_2fa_setup_code" class="regular-text" inputmode="numeric" autocomplete="off" />
 				<p class="description"><?php esc_html_e( 'Enter the current 6-digit code and save your profile to enable two-factor authentication.', 'google-security-for-wordpress' ); ?></p>
+				<?php submit_button( __( 'Enable two-factor authentication', 'google-security-for-wordpress' ), 'primary', 'gswp_2fa_setup_submit', false ); ?>
 			</td>
 		</tr>
 		<?php
@@ -763,13 +779,13 @@ JS;
 		$error = get_transient( 'gswp_2fa_error_' . $user_id );
 		if ( $error ) {
 			delete_transient( 'gswp_2fa_error_' . $user_id );
-			echo '<div class="notice notice-error inline"><p>' . esc_html( $error ) . '</p></div>';
+			echo '<div class="notice notice-error inline gswp-2fa-scroll-target"><p>' . esc_html( $error ) . '</p></div>';
 		}
 
 		$codes = get_transient( 'gswp_2fa_codes_' . $user_id );
 		if ( is_array( $codes ) && $codes ) {
 			delete_transient( 'gswp_2fa_codes_' . $user_id );
-			echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__( 'Save your backup codes', 'google-security-for-wordpress' ) . '</strong> — ' . esc_html__( 'each can be used once if you lose access to your authenticator. They will not be shown again.', 'google-security-for-wordpress' ) . '</p><p style="font-family:monospace;font-size:14px;line-height:1.8;">';
+			echo '<div class="notice notice-warning inline gswp-2fa-scroll-target"><p><strong>' . esc_html__( 'Save your backup codes', 'google-security-for-wordpress' ) . '</strong> — ' . esc_html__( 'each can be used once if you lose access to your authenticator. They will not be shown again.', 'google-security-for-wordpress' ) . '</p><p style="font-family:monospace;font-size:14px;line-height:1.8;">';
 			echo esc_html( implode( '   ', $codes ) );
 			echo '</p></div>';
 		}
