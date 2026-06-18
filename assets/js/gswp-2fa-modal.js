@@ -3,9 +3,16 @@
  *
  * When a 2FA-enrolled user submits any login form, the server holds the login
  * (blocked at `authenticate`) and sets a readable flag cookie. This script
- * detects that flag — on page load (form reload) or shortly after a login form
- * submit (AJAX logins that never reload) — opens a popup for the code, and
- * completes the login by posting the code to admin-ajax.
+ * detects that flag — on page load (full-reload logins) or by continuously
+ * polling the cookie (AJAX logins, e.g. the Login/Signup Popup, that never
+ * reload) — opens a popup for the code, and completes the login by posting the
+ * code to admin-ajax.
+ *
+ * The cookie is polled rather than triggered off a form `submit` event so the
+ * flow is robust to page caches and JavaScript optimisers (e.g. FlyingPress's
+ * "Delay JavaScript") and to login plugins that submit over AJAX without
+ * emitting a catchable native submit event. The poll opens the modal the moment
+ * the server's held-login flag cookie appears, whichever form was used.
  *
  * @package Google_Security_For_WordPress
  */
@@ -96,8 +103,14 @@
 		} );
 	}
 
+	var isOpen = false;
+
 	function open() {
+		if ( isOpen ) {
+			return;
+		}
 		build();
+		isOpen = true;
 		overlay.classList.add( 'is-open' );
 		document.body.classList.add( 'gswp-2fa-lock' );
 		setTimeout( function () {
@@ -106,6 +119,7 @@
 	}
 
 	function close() {
+		isOpen = false;
 		if ( overlay ) {
 			overlay.classList.remove( 'is-open' );
 			document.body.classList.remove( 'gswp-2fa-lock' );
@@ -167,49 +181,39 @@
 			} );
 	}
 
-	var watching = false;
-	function watchForChallenge() {
-		if ( watching ) {
+	var polling = false;
+	function startPolling() {
+		if ( polling ) {
 			return;
 		}
-		watching = true;
-		var tries = 0;
-		var iv = setInterval( function () {
-			tries++;
+		polling = true;
+		// Continuously watch for the server's held-login flag cookie. This covers
+		// full-reload logins (flag already present) and AJAX logins (flag appears
+		// on the response with no page reload), independent of any submit event,
+		// page cache, or deferred-script timing. Reading a cookie is cheap, so a
+		// life-of-page poll is fine; the modal is idempotent once open.
+		setInterval( function () {
 			if ( hasFlag() ) {
-				clearInterval( iv );
-				watching = false;
 				open();
-			} else if ( tries > 40 ) {
-				// ~10s.
-				clearInterval( iv );
-				watching = false;
 			}
-		}, 250 );
+		}, 500 );
 	}
 
 	function init() {
 		// Full page reload after a held login: the flag is already set.
 		if ( hasFlag() ) {
 			open();
-			return;
 		}
-
-		// AJAX logins never reload, so watch for the flag appearing after a
-		// password form is submitted.
-		var forms = document.querySelectorAll( 'form' );
-		Array.prototype.forEach.call( forms, function ( form ) {
-			if ( form.querySelector( 'input[type="password"]' ) ) {
-				form.addEventListener(
-					'submit',
-					function () {
-						watchForChallenge();
-					},
-					true
-				);
-			}
-		} );
+		startPolling();
 	}
+
+	// A bfcache restore (e.g. back button) may surface a pending challenge that
+	// was armed after this page first loaded.
+	window.addEventListener( 'pageshow', function () {
+		if ( hasFlag() ) {
+			open();
+		}
+	} );
 
 	if ( document.readyState === 'loading' ) {
 		document.addEventListener( 'DOMContentLoaded', init );
