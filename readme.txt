@@ -26,14 +26,14 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
 * **Flexible Page-Specific Thresholds**: Configure custom reCAPTCHA score thresholds individually for every protected form.
-* **Key Scavenging Onboarding**: Discovers existing reCAPTCHA keys registered by Gravity Forms, Fluent Forms, Beaver Builder, and PowerPack so you can import them with a single click.
+* **Seamless Upgrade**: On activation, automatically imports the site keys and settings from the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin, then deactivates and removes that old plugin.
 * **Zero Overhead Frontend**: Only loads JavaScript on active target pages to maintain optimal client-side page speed.
 
 == Installation ==
 
 1. Upload the plugin files to the `/wp-content/plugins/google-security-for-wordpress` directory, or install the plugin through the WordPress plugins screen directly.
 2. Activate the plugin.
-3. Navigate to **Settings -> reCAPTCHA v3** to configure your site keys, protected forms, and score thresholds.
+3. Navigate to **Settings -> Google Security** to configure your site keys, protected forms, and score thresholds.
 4. Navigate to **Settings -> Two-Factor Auth** to enable two-factor authentication and (optionally) require it for specific roles.
 5. Each user enables 2FA from **Users -> Profile -> Two-Factor Authentication**.
 
@@ -54,10 +54,13 @@ We recommend a default threshold of 0.5. If you encounter spam submissions, incr
 == Changelog ==
 
 = 2.0.0 =
-* Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress" to reflect its broader scope. Existing settings are migrated automatically.
+* Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress" to reflect its broader scope. The settings menu is now **Settings -> Google Security**.
+* On activation, the plugin now imports the site keys and settings from the old "Google reCAPTCHA v3 for WooCommerce" plugin, then deactivates and deletes that old plugin automatically.
 * Added two-factor authentication (TOTP) compatible with Google Authenticator and other authenticator apps: per-user enrolment from the profile screen (QR code or manual setup key), a second-factor login challenge, single-use backup codes, and optional role-based enforcement.
+* The settings screen now links directly to your profile for two-factor enrolment.
 * Administrators can reset another user's two-factor authentication from the user-edit screen.
 * XML-RPC logins are blocked for accounts with two-factor authentication enabled, closing a bypass of the second factor.
+* Removed the experimental key-scavenging onboarding flow.
 
 = 1.3.0 =
 * Added reCAPTCHA v3 scoring to the WordPress core screens served by wp-login.php: sign in, user registration, and lost password, each with its own score threshold.
