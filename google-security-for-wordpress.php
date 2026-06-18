@@ -26,7 +26,6 @@ define( 'GSWP_FILE', __FILE__ );
 /**
  * Autoload classes or include them.
  */
-require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-key-scavenger.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-conflict-guard.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
@@ -90,11 +89,22 @@ function gswp_default_options() {
 
 /**
  * Activate the plugin.
+ *
+ * On activation we seed the default options, pull any credentials saved by the
+ * predecessor "Google reCAPTCHA v3 for WooCommerce" plugin into the new option
+ * keys, and then deactivate and delete that old plugin if it is still installed
+ * so only this rebranded version remains.
  */
 function gswp_activate() {
 	foreach ( gswp_default_options() as $suffix => $default ) {
 		add_option( 'gswp_' . $suffix, $default );
 	}
+
+	// Import keys/settings from the legacy plugin's options.
+	gswp_import_legacy_options();
+
+	// Remove the old plugin now that its settings have been carried over.
+	gswp_remove_legacy_plugin();
 
 	// Record the schema version so the migration routine is a no-op on fresh
 	// installs.
@@ -103,19 +113,15 @@ function gswp_activate() {
 register_activation_hook( __FILE__, 'gswp_activate' );
 
 /**
- * Migrate settings stored under the plugin's previous option prefix.
+ * Copy settings stored under the plugin's previous option prefix.
  *
  * Earlier releases (the "Google reCAPTCHA v3 for WooCommerce" plugin) stored
  * settings under the recaptcha_woo_ prefix. Copy any of those values over to the
- * new gswp_ prefix once, so the install keeps its configuration after the
- * rename, then delete the legacy options so the database is left holding only
- * the gswp_ keys.
+ * new gswp_ prefix, so the install keeps its configuration after the rename,
+ * then delete the legacy options so the database is left holding only the gswp_
+ * keys.
  */
-function gswp_maybe_migrate() {
-	if ( get_option( 'gswp_db_version' ) === GSWP_VERSION ) {
-		return;
-	}
-
+function gswp_import_legacy_options() {
 	foreach ( gswp_default_options() as $suffix => $default ) {
 		$new_key = 'gswp_' . $suffix;
 		$old_key = 'recaptcha_woo_' . $suffix;
@@ -134,6 +140,65 @@ function gswp_maybe_migrate() {
 		// to migrate.
 		add_option( $new_key, $default );
 	}
+}
+
+/**
+ * Deactivate and delete the predecessor reCAPTCHA v3 plugin if it is present.
+ *
+ * Matches the old plugin by its known file path, text domain, or plugin name so
+ * a renamed install folder is still caught, while never touching this plugin's
+ * own file.
+ */
+function gswp_remove_legacy_plugin() {
+	if ( ! function_exists( 'get_plugins' ) || ! function_exists( 'deactivate_plugins' ) || ! function_exists( 'delete_plugins' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	}
+	// delete_plugins() relies on the filesystem abstraction.
+	if ( ! function_exists( 'request_filesystem_credentials' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+	}
+
+	$self            = plugin_basename( GSWP_FILE );
+	$known_basename  = 'google-recaptcha-v3-for-woocommerce/google-recaptcha-v3-for-woocommerce.php';
+	$legacy_plugins  = array();
+
+	foreach ( get_plugins() as $basename => $data ) {
+		if ( $basename === $self ) {
+			continue;
+		}
+
+		$name   = isset( $data['Name'] ) ? $data['Name'] : '';
+		$domain = isset( $data['TextDomain'] ) ? $data['TextDomain'] : '';
+
+		if ( $basename === $known_basename
+			|| 'google-recaptcha-v3-for-woocommerce' === $domain
+			|| 'Google reCAPTCHA v3 for WooCommerce' === $name ) {
+			$legacy_plugins[] = $basename;
+		}
+	}
+
+	if ( empty( $legacy_plugins ) ) {
+		return;
+	}
+
+	// Deactivate silently (skip the deactivation hooks of the old plugin) and
+	// then delete its files.
+	deactivate_plugins( $legacy_plugins, true );
+	delete_plugins( $legacy_plugins );
+}
+
+/**
+ * Migrate settings stored under the plugin's previous option prefix.
+ *
+ * Runs on every load as a safety net for upgrades that bypass the activation
+ * hook, copying any lingering recaptcha_woo_ options into the gswp_ keys.
+ */
+function gswp_maybe_migrate() {
+	if ( get_option( 'gswp_db_version' ) === GSWP_VERSION ) {
+		return;
+	}
+
+	gswp_import_legacy_options();
 
 	update_option( 'gswp_db_version', GSWP_VERSION );
 }

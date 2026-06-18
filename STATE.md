@@ -1,6 +1,14 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 6 (Rebrand to Google Security for WordPress + Two-Factor Authentication)
+## Current Phase: Phase 7 (Remove Key Scavenger + 2FA Profile Notice + Legacy Plugin Takeover)
+
+### Phase 7 Modifications
+- Removed the Smart Key Scavenger entirely: deleted `includes/class-gswp-key-scavenger.php` and `src/components/KeyScavenger.jsx`, dropped the `POST /gswp/v1/scan-keys` REST route and its `scavenge_keys()` callback, and removed the scavenger require/import wiring from the main file and `App.jsx`.
+- Added `src/components/TwoFactorNotice.jsx`: a dialogue/notice panel on the settings screen explaining that 2FA enrolment happens in the user Profile, with a button linking to `profile.php#gswp-2fa`. The admin localizer now passes a `profileUrl` to the React app.
+- Renamed the settings menu/page from "reCAPTCHA v3" to "Google Security" (`includes/class-gswp-admin.php`) and updated the React header accordingly.
+- On activation (`gswp_activate`), the plugin now imports the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin's `recaptcha_woo_*` options into the `gswp_*` keys via the shared `gswp_import_legacy_options()`, then deactivates and deletes that old plugin (matched by basename `google-recaptcha-v3-for-woocommerce/...`, text domain, or plugin name) with `deactivate_plugins()` + `delete_plugins()`. `gswp_maybe_migrate()` still imports options on every load as an upgrade safety net (without touching plugin files).
+
+## Historical Phase: Phase 6 (Rebrand to Google Security for WordPress + Two-Factor Authentication)
 
 ### Phase 6 Modifications (v2.0.0)
 - Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress". Renamed the main file to `google-security-for-wordpress.php` and all `includes/class-recaptcha-woo-*.php` files to `includes/class-gswp-*.php`.

@@ -2,7 +2,7 @@
 /**
  * REST API Class
  *
- * Exposes REST API endpoints for settings management and key scavenging.
+ * Exposes REST API endpoints for settings management.
  *
  * @package Google_Security_For_WordPress
  */
@@ -38,16 +38,6 @@ class GSWP_Rest_Api {
 					'callback'            => array( $this, 'update_settings' ),
 					'permission_callback' => array( $this, 'check_permissions' ),
 				),
-			)
-		);
-
-		register_rest_route(
-			'gswp/v1',
-			'/scan-keys',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'scavenge_keys' ),
-				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
 	}
@@ -166,23 +156,5 @@ class GSWP_Rest_Api {
 		}
 
 		return $this->get_settings();
-	}
-
-	/**
-	 * Scavenge keys callback.
-	 *
-	 * @return WP_REST_Response REST response containing scavenged keys status and payload.
-	 */
-	public function scavenge_keys() {
-		$keys = GSWP_Key_Scavenger::scan();
-
-		return new WP_REST_Response(
-			array(
-				'success'    => true,
-				'keys_found' => ! empty( $keys ),
-				'keys'       => $keys,
-			),
-			200
-		);
 	}
 }
