@@ -29,6 +29,8 @@ export default function App() {
 			threshold_wp_register: '0.5',
 			threshold_wp_lostpassword: '0.5',
 			conflict_mode: 'off',
+			tfa_enabled: '1',
+			tfa_enforced_roles: [],
 		},
 	};
 
@@ -170,10 +172,12 @@ export default function App() {
 						onChange={ handleSettingChange }
 					/>
 
-					{ /* Two-Factor Authentication notice */ }
+					{ /* Two-Factor Authentication settings */ }
 					<TwoFactorNotice
 						profileUrl={ initialData.profileUrl }
-						settingsUrl={ initialData.twoFactorSettingsUrl }
+						settings={ settings }
+						onChange={ handleSettingChange }
+						roles={ initialData.roles }
 					/>
 				</div>
 

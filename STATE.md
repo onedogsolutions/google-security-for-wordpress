@@ -1,6 +1,15 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 8 (Fix 2FA login flow across all entry points + admin UI tweaks)
+## Current Phase: Phase 9 (2FA code-entry popup; settings consolidated into Google Security page)
+
+### Phase 9 Modifications
+- Replaced the redirect-based 2FA challenge (which caused an `ERR_TOO_MANY_REDIRECTS` loop and errored on My Account) with a **popup/modal flow that never redirects**. `GSWP_Two_Factor::enforce_second_factor()` hooks `authenticate` at priority 100: for an enrolled user it arms a single-use pending login (HTTP-only token cookie + transient + readable flag cookie) and returns a `WP_Error`, blocking the sign-in uniformly across wp-login.php, WooCommerce My Account, and the PowerPack AJAX login — no auth cookie is issued without the second factor, and nothing is rendered/redirected so front-end forms can't fatal.
+- Added a plain-JS popup (`assets/js/gswp-2fa-modal.js` + `assets/css/gswp-2fa-modal.css`, enqueued on wp-login.php via `login_enqueue_scripts` and on logged-out front-end pages via `wp_enqueue_scripts`). It opens automatically when the readable flag cookie is present (full-page-reload logins) or shortly after a password form is submitted (AJAX logins that never reload), collects the code, and completes the login by posting to the `gswp_2fa_verify` admin-ajax endpoint, then navigates to the returned redirect.
+- `ajax_verify()` is authorised by the unguessable HTTP-only pending token (not a WP nonce — a page cache such as FlyingPress would serve a stale nonce on logged-out pages). The pending cookies are set `SameSite=Lax` (the CSRF defence), and failed guesses are capped at 5 before the held login is discarded. Replay is still blocked via the last-used TOTP time step.
+- Removed the redirect/interstitial machinery (`maybe_start_challenge`, `handle_challenge`, `maybe_resume_challenge`, `show_challenge`, `challenge_url`) and the `login_form_gswp_2fa` / `wp_login` / `template_redirect` hooks.
+- Consolidated the 2FA settings into the Google Security React screen and removed the standalone Settings → Two-Factor Auth submenu (deleted `includes/class-gswp-two-factor-admin.php`). The master switch (`tfa_enabled`) and per-role enforcement (`tfa_enforced_roles`) are now read/written through the existing REST settings route (`class-gswp-rest-api.php`) and rendered inside `src/components/TwoFactorNotice.jsx` (toggle + role checkboxes), with the role list passed via the admin localizer (`roles`).
+
+## Historical Phase: Phase 8 (Fix 2FA login flow across all entry points + admin UI tweaks)
 
 ### Phase 8 Modifications
 - Fixed a fatal error (HTTP 500) when an enrolled user logged in from a non-`wp-login.php` form (e.g. the WooCommerce "My Account" page). `GSWP_Two_Factor::maybe_start_challenge()` previously rendered the interstitial inline by calling `login_header()`/`login_footer()`, which only exist inside `wp-login.php`; on a front-end login they are undefined and fatal. The challenge is now always rendered on `wp-login.php`: `maybe_start_challenge()` clears the freshly issued auth cookie, stashes the in-progress login behind a single-use, HTTP-only cookie token (`gswp_2fa_pending`) backed by a 5-minute transient, and `wp_safe_redirect()`s to `wp-login.php?action=gswp_2fa`.

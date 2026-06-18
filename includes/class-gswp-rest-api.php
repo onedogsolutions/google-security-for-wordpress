@@ -76,6 +76,9 @@ class GSWP_Rest_Api {
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
+			// Two-factor authentication.
+			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
+			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -153,6 +156,19 @@ class GSWP_Rest_Api {
 				? $params['conflict_mode']
 				: 'off';
 			update_option( 'gswp_conflict_mode', $mode );
+		}
+
+		// Two-factor: master switch.
+		if ( isset( $params['tfa_enabled'] ) ) {
+			update_option( 'gswp_2fa_enabled', $params['tfa_enabled'] ? '1' : '0' );
+		}
+
+		// Two-factor: roles required to enrol, validated against real roles.
+		if ( isset( $params['tfa_enforced_roles'] ) ) {
+			$submitted = is_array( $params['tfa_enforced_roles'] ) ? $params['tfa_enforced_roles'] : array();
+			$valid     = array_keys( wp_roles()->get_names() );
+			$roles     = array_values( array_intersect( array_map( 'sanitize_key', $submitted ), $valid ) );
+			update_option( 'gswp_2fa_enforced_roles', $roles );
 		}
 
 		return $this->get_settings();
