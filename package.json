@@ -1,7 +1,7 @@
 {
-  "name": "google-recaptcha-v3-for-woocommerce",
-  "version": "1.3.0",
-  "description": "Google reCAPTCHA v3 scoring for WordPress core and WooCommerce login, registration, lost password, and checkout forms with smart key scavenging.",
+  "name": "google-security-for-wordpress",
+  "version": "2.0.0",
+  "description": "A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the login, registration, lost password, and WooCommerce checkout forms, plus TOTP two-factor authentication compatible with Google Authenticator.",
   "main": "build/index.js",
   "scripts": {
     "start": "wp-scripts start",

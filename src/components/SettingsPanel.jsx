@@ -11,18 +11,18 @@ export default function SettingsPanel( { settings, onChange } ) {
 	const keyTypes = [
 		{
 			id: 'classic',
-			label: __( 'Classic v3', 'google-recaptcha-v3-for-woocommerce' ),
+			label: __( 'Classic v3', 'google-security-for-wordpress' ),
 			description: __(
 				'Site key + secret key. Also works with keys created in Google Cloud Console when using the legacy secret key.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 		},
 		{
 			id: 'enterprise',
-			label: __( 'Enterprise', 'google-recaptcha-v3-for-woocommerce' ),
+			label: __( 'Enterprise', 'google-security-for-wordpress' ),
 			description: __(
 				'reCAPTCHA Enterprise assessments via a Google Cloud project ID and API key.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 		},
 	];
@@ -33,18 +33,18 @@ export default function SettingsPanel( { settings, onChange } ) {
 				<h2 className="text-base font-semibold leading-7 text-gray-900">
 					{ __(
 						'API Credentials',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ isEnterprise
 						? __(
 								'Enter your reCAPTCHA Enterprise site key, Google Cloud project ID, and an API key with access to the reCAPTCHA Enterprise API. Manage keys in the ',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 						  )
 						: __(
 								'Enter your Google reCAPTCHA v3 API keys. You can register your site and generate keys in the ',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 						  ) }
 					<a
 						href={
@@ -59,11 +59,11 @@ export default function SettingsPanel( { settings, onChange } ) {
 						{ isEnterprise
 							? __(
 									'Google Cloud Console',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 							  )
 							: __(
 									'Google reCAPTCHA Admin Console',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 							  ) }
 					</a>
 					.
@@ -74,7 +74,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 					<legend className="block text-sm font-medium leading-6 text-gray-900">
 						{ __(
 							'Key Type',
-							'google-recaptcha-v3-for-woocommerce'
+							'google-security-for-wordpress'
 						) }
 					</legend>
 					<div className="mt-1.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -119,7 +119,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 						>
 							{ __(
 								'Site Key',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</label>
 						<div className="mt-1.5">
@@ -145,7 +145,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 							>
 								{ __(
 									'Secret Key',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 								) }
 							</label>
 							<div className="mt-1.5">
@@ -173,7 +173,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 								>
 									{ __(
 										'Google Cloud Project ID',
-										'google-recaptcha-v3-for-woocommerce'
+										'google-security-for-wordpress'
 									) }
 								</label>
 								<div className="mt-1.5">
@@ -201,7 +201,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 								>
 									{ __(
 										'Google Cloud API Key',
-										'google-recaptcha-v3-for-woocommerce'
+										'google-security-for-wordpress'
 									) }
 								</label>
 								<div className="mt-1.5">
@@ -223,7 +223,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 								<p className="mt-1.5 text-xs leading-5 text-gray-500">
 									{ __(
 										'The API key must have the reCAPTCHA Enterprise API enabled. Restrict it to that API in Google Cloud Console.',
-										'google-recaptcha-v3-for-woocommerce'
+										'google-security-for-wordpress'
 									) }
 								</p>
 							</div>

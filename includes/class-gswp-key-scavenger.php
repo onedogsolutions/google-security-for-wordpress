@@ -4,14 +4,14 @@
  *
  * Scavenges existing reCAPTCHA keys from other popular plugins.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Key_Scavenger {
+class GSWP_Key_Scavenger {
 
 	/**
 	 * Scavenges keys from various plugin settings in the database.

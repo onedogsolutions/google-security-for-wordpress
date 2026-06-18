@@ -7,18 +7,18 @@ export default function StatusBadge( { settings } ) {
 			? !! settings.gcp_project_id && !! settings.gcp_api_key
 			: !! settings.secret_key;
 
-	let label = __( 'Inactive', 'google-recaptcha-v3-for-woocommerce' );
+	let label = __( 'Inactive', 'google-security-for-wordpress' );
 	let badgeClass = 'bg-red-50 text-red-700 ring-red-600/10';
 	let dotClass = 'bg-red-600';
 
 	if ( hasSite && hasSecret ) {
-		label = __( 'Active', 'google-recaptcha-v3-for-woocommerce' );
+		label = __( 'Active', 'google-security-for-wordpress' );
 		badgeClass = 'bg-green-50 text-green-700 ring-green-600/20';
 		dotClass = 'bg-green-600';
 	} else if ( hasSite || hasSecret ) {
 		label = __(
 			'Incomplete Configuration',
-			'google-recaptcha-v3-for-woocommerce'
+			'google-security-for-wordpress'
 		);
 		badgeClass = 'bg-amber-50 text-amber-700 ring-amber-600/20';
 		dotClass = 'bg-amber-600';
@@ -27,7 +27,7 @@ export default function StatusBadge( { settings } ) {
 	return (
 		<div className="flex items-center gap-x-2">
 			<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-				{ __( 'Status:', 'google-recaptcha-v3-for-woocommerce' ) }
+				{ __( 'Status:', 'google-security-for-wordpress' ) }
 			</span>
 			<span
 				className={ `inline-flex items-center gap-x-1.5 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${ badgeClass }` }

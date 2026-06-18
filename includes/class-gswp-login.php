@@ -7,43 +7,43 @@
  * These screens are independent of WooCommerce, so this works on any
  * WordPress install.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Login {
+class GSWP_Login {
 
 	/**
 	 * Shared verifier used to score submitted tokens.
 	 *
-	 * @var Recaptcha_Woo_Verifier
+	 * @var GSWP_Verifier
 	 */
 	private $verifier;
 
 	/**
 	 * Constructor.
 	 *
-	 * @param Recaptcha_Woo_Verifier $verifier Token verifier instance.
+	 * @param GSWP_Verifier $verifier Token verifier instance.
 	 */
-	public function __construct( Recaptcha_Woo_Verifier $verifier ) {
+	public function __construct( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_login', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_login', '0' ) ) {
 			add_action( 'login_form', array( $this, 'inject_login_field' ) );
 			// Priority 30 runs after the core username/password checks so the
 			// reCAPTCHA result layers on top of normal authentication.
 			add_filter( 'authenticate', array( $this, 'validate_login' ), 30, 3 );
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_register', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_register', '0' ) ) {
 			add_action( 'register_form', array( $this, 'inject_register_field' ) );
 			add_filter( 'registration_errors', array( $this, 'validate_register' ), 10, 3 );
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
 			add_action( 'lostpassword_form', array( $this, 'inject_lostpassword_field' ) );
 			add_action( 'lostpassword_post', array( $this, 'validate_lostpassword' ), 10, 1 );
 		}
@@ -61,9 +61,9 @@ class Recaptcha_Woo_Login {
 	 * @return bool True when at least one screen is enabled.
 	 */
 	private function is_any_enabled() {
-		return '1' === get_option( 'recaptcha_woo_enable_wp_login', '0' )
-			|| '1' === get_option( 'recaptcha_woo_enable_wp_register', '0' )
-			|| '1' === get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' );
+		return '1' === get_option( 'gswp_enable_wp_login', '0' )
+			|| '1' === get_option( 'gswp_enable_wp_register', '0' )
+			|| '1' === get_option( 'gswp_enable_wp_lostpassword', '0' );
 	}
 
 	/**
@@ -93,7 +93,7 @@ class Recaptcha_Woo_Login {
 	 * @param string $action The reCAPTCHA action name for this form.
 	 */
 	private function inject_field( $action ) {
-		$site_key = get_option( 'recaptcha_woo_site_key', '' );
+		$site_key = get_option( 'gswp_site_key', '' );
 		if ( empty( $site_key ) ) {
 			return;
 		}
@@ -109,8 +109,8 @@ class Recaptcha_Woo_Login {
 		// runs, so load the shared API script and token bootstrap here to keep
 		// the field populated.
 		if ( ! $this->is_wp_login_page() ) {
-			Recaptcha_Woo_Assets::enqueue_api_script();
-			Recaptcha_Woo_Assets::add_refresh_bootstrap();
+			GSWP_Assets::enqueue_api_script();
+			GSWP_Assets::add_refresh_bootstrap();
 		}
 	}
 
@@ -207,12 +207,12 @@ class Recaptcha_Woo_Login {
 	 * matter how long the screen sits open.
 	 */
 	public function print_scripts() {
-		$site_key = get_option( 'recaptcha_woo_site_key', '' );
+		$site_key = get_option( 'gswp_site_key', '' );
 		if ( empty( $site_key ) ) {
 			return;
 		}
 
-		$is_enterprise = 'enterprise' === get_option( 'recaptcha_woo_key_type', 'classic' );
+		$is_enterprise = 'enterprise' === get_option( 'gswp_key_type', 'classic' );
 		$script_base   = $is_enterprise
 			? 'https://www.google.com/recaptcha/enterprise.js'
 			: 'https://www.google.com/recaptcha/api.js';
@@ -242,10 +242,10 @@ class Recaptcha_Woo_Login {
 		(function() {
 			'use strict';
 
-			if (window.recaptchaWooLoginInit) {
+			if (window.gswpLoginInit) {
 				return;
 			}
-			window.recaptchaWooLoginInit = true;
+			window.gswpLoginInit = true;
 
 			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
 			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;

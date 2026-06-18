@@ -4,14 +4,14 @@
  *
  * Intercepts WooCommerce login, registration, and checkout actions to verify reCAPTCHA tokens.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Verifier {
+class GSWP_Verifier {
 
 	/**
 	 * Constructor.
@@ -36,7 +36,7 @@ class Recaptcha_Woo_Verifier {
 	 * @return WP_Error Filtered validation errors.
 	 */
 	public function validate_login( $validation_error, $username, $password ) {
-		if ( '1' !== get_option( 'recaptcha_woo_enable_login', '0' ) ) {
+		if ( '1' !== get_option( 'gswp_enable_login', '0' ) ) {
 			return $validation_error;
 		}
 
@@ -60,7 +60,7 @@ class Recaptcha_Woo_Verifier {
 	 * @return WP_Error Filtered validation errors.
 	 */
 	public function validate_registration( $validation_errors, $username, $email ) {
-		if ( '1' !== get_option( 'recaptcha_woo_enable_registration', '0' ) ) {
+		if ( '1' !== get_option( 'gswp_enable_registration', '0' ) ) {
 			return $validation_errors;
 		}
 
@@ -82,7 +82,7 @@ class Recaptcha_Woo_Verifier {
 	 * @param WP_Error $errors Validation errors object.
 	 */
 	public function validate_checkout( $data, $errors ) {
-		if ( '1' !== get_option( 'recaptcha_woo_enable_checkout', '0' ) ) {
+		if ( '1' !== get_option( 'gswp_enable_checkout', '0' ) ) {
 			return;
 		}
 
@@ -99,21 +99,21 @@ class Recaptcha_Woo_Verifier {
 	 * reCAPTCHA Enterprise assessments API depending on the configured key type.
 	 *
 	 * @param string $context         Threshold context. The configured threshold
-	 *                                is read from "recaptcha_woo_threshold_{$context}".
+	 *                                is read from "gswp_threshold_{$context}".
 	 * @param string $expected_action reCAPTCHA action name the frontend executed
 	 *                                with, validated for Enterprise assessments.
 	 * @return true|WP_Error Returns true on success, WP_Error object on failure.
 	 */
 	public function verify_token( $context, $expected_action ) {
-		$key_type = get_option( 'recaptcha_woo_key_type', 'classic' );
+		$key_type = get_option( 'gswp_key_type', 'classic' );
 
 		// Skip verification if credentials are not configured to avoid blocking users.
 		if ( 'enterprise' === $key_type ) {
-			$configured = '' !== get_option( 'recaptcha_woo_gcp_project_id', '' )
-				&& '' !== get_option( 'recaptcha_woo_gcp_api_key', '' )
-				&& '' !== get_option( 'recaptcha_woo_site_key', '' );
+			$configured = '' !== get_option( 'gswp_gcp_project_id', '' )
+				&& '' !== get_option( 'gswp_gcp_api_key', '' )
+				&& '' !== get_option( 'gswp_site_key', '' );
 		} else {
-			$configured = '' !== get_option( 'recaptcha_woo_secret_key', '' );
+			$configured = '' !== get_option( 'gswp_secret_key', '' );
 		}
 
 		if ( ! $configured ) {
@@ -125,7 +125,7 @@ class Recaptcha_Woo_Verifier {
 		if ( empty( $token ) ) {
 			return new WP_Error(
 				'recaptcha_missing',
-				__( '<strong>Error:</strong> Anti-spam verification token is missing. Please refresh the page and try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Anti-spam verification token is missing. Please refresh the page and try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -135,12 +135,12 @@ class Recaptcha_Woo_Verifier {
 
 		if ( true !== $result && ! is_wp_error( $result ) ) {
 			// Score returned: check it against the configured threshold.
-			$threshold = floatval( get_option( 'recaptcha_woo_threshold_' . $context, '0.5' ) );
+			$threshold = floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) );
 
 			if ( floatval( $result ) < $threshold ) {
 				return new WP_Error(
 					'recaptcha_low_score',
-					__( '<strong>Error:</strong> Verification score too low. Submission rejected as potential spam.', 'google-recaptcha-v3-for-woocommerce' )
+					__( '<strong>Error:</strong> Verification score too low. Submission rejected as potential spam.', 'google-security-for-wordpress' )
 				);
 			}
 
@@ -157,7 +157,7 @@ class Recaptcha_Woo_Verifier {
 	 * @return float|true|WP_Error Score on success, true to skip scoring, WP_Error on failure.
 	 */
 	private function verify_classic_token( $token ) {
-		$secret_key = get_option( 'recaptcha_woo_secret_key', '' );
+		$secret_key = get_option( 'gswp_secret_key', '' );
 
 		$response = wp_remote_post(
 			'https://www.google.com/recaptcha/api/siteverify',
@@ -174,7 +174,7 @@ class Recaptcha_Woo_Verifier {
 		if ( is_wp_error( $response ) ) {
 			return new WP_Error(
 				'recaptcha_api_failed',
-				__( '<strong>Error:</strong> Failed to connect to Google reCAPTCHA service. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Failed to connect to Google reCAPTCHA service. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -184,7 +184,7 @@ class Recaptcha_Woo_Verifier {
 		if ( ! is_array( $data ) || ! isset( $data['success'] ) ) {
 			return new WP_Error(
 				'recaptcha_invalid_response',
-				__( '<strong>Error:</strong> Invalid verification response. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Invalid verification response. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -202,7 +202,7 @@ class Recaptcha_Woo_Verifier {
 
 			return new WP_Error(
 				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -217,9 +217,9 @@ class Recaptcha_Woo_Verifier {
 	 * @return float|true|WP_Error Score on success, true to skip scoring, WP_Error on failure.
 	 */
 	private function assess_enterprise_token( $token, $expected_action ) {
-		$project_id = get_option( 'recaptcha_woo_gcp_project_id', '' );
-		$api_key    = get_option( 'recaptcha_woo_gcp_api_key', '' );
-		$site_key   = get_option( 'recaptcha_woo_site_key', '' );
+		$project_id = get_option( 'gswp_gcp_project_id', '' );
+		$api_key    = get_option( 'gswp_gcp_api_key', '' );
+		$site_key   = get_option( 'gswp_site_key', '' );
 
 		$api_url = sprintf(
 			'https://recaptchaenterprise.googleapis.com/v1/projects/%s/assessments?key=%s',
@@ -248,7 +248,7 @@ class Recaptcha_Woo_Verifier {
 		if ( is_wp_error( $response ) ) {
 			return new WP_Error(
 				'recaptcha_api_failed',
-				__( '<strong>Error:</strong> Failed to connect to Google reCAPTCHA service. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Failed to connect to Google reCAPTCHA service. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -273,20 +273,20 @@ class Recaptcha_Woo_Verifier {
 			if ( in_array( $reason, array( 'EXPIRED', 'DUPE' ), true ) ) {
 				return new WP_Error(
 					'recaptcha_expired',
-					__( '<strong>Error:</strong> Anti-spam verification expired. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+					__( '<strong>Error:</strong> Anti-spam verification expired. Please try again.', 'google-security-for-wordpress' )
 				);
 			}
 
 			return new WP_Error(
 				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
 		if ( isset( $token_properties['action'] ) && $token_properties['action'] !== $expected_action ) {
 			return new WP_Error(
 				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-recaptcha-v3-for-woocommerce' )
+				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -309,7 +309,7 @@ class Recaptcha_Woo_Verifier {
 	 */
 	private function log( $message ) {
 		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'recaptcha-woo' ) );
+			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
 		}
 	}
 }
