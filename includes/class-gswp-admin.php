@@ -118,6 +118,7 @@ class GSWP_Admin {
 				'settings'           => $initial_settings,
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
+				'twoFactorSettingsUrl' => esc_url_raw( admin_url( 'options-general.php?page=' . GSWP_Two_Factor_Admin::PAGE_SLUG ) ),
 			)
 		);
 	}
