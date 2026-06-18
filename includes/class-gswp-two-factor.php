@@ -33,6 +33,10 @@ class GSWP_Two_Factor {
 	/** Cookie carrying the single-use token for an in-progress challenge. */
 	const COOKIE_PENDING = 'gswp_2fa_pending';
 
+	/** Readable (non-HTTP-only) flag cookie that tells the front-end script a
+	 * challenge is pending so it can open the code popup. Carries no secret. */
+	const COOKIE_FLAG = 'gswp_2fa_challenge';
+
 	/** Transient key prefix storing the pending login behind that token. */
 	const PENDING_PREFIX = 'gswp_2fa_pending_';
 
@@ -47,18 +51,19 @@ class GSWP_Two_Factor {
 			return;
 		}
 
-		// Login challenge.
-		add_action( 'wp_login', array( $this, 'maybe_start_challenge' ), 10, 2 );
-		add_action( 'login_form_gswp_2fa', array( $this, 'handle_challenge' ) );
-		// Resume an interrupted challenge. A login that began over AJAX (e.g.
-		// the PowerPack login module) or that redirected elsewhere can't be
-		// sent to the interstitial from inside wp_signon(); these guards catch
-		// the half-finished login on the next page load and force the prompt.
-		add_action( 'login_init', array( $this, 'maybe_resume_challenge' ) );
-		add_action( 'template_redirect', array( $this, 'maybe_resume_challenge' ) );
-		// Close the XML-RPC bypass: programmatic logins cannot satisfy an
-		// interactive challenge, so block them for enrolled users.
-		add_filter( 'authenticate', array( $this, 'block_non_interactive' ), 99, 3 );
+		// Second-factor enforcement. Blocking at `authenticate` (after the
+		// password and reCAPTCHA checks) holds the login uniformly across every
+		// entry point — wp-login.php, the WooCommerce My Account form, and AJAX
+		// logins such as the PowerPack module — without any redirect. The code
+		// is then collected by a popup that completes the login over AJAX.
+		add_filter( 'authenticate', array( $this, 'enforce_second_factor' ), 100, 3 );
+		// AJAX endpoint the popup posts the code to.
+		add_action( 'wp_ajax_nopriv_gswp_2fa_verify', array( $this, 'ajax_verify' ) );
+		add_action( 'wp_ajax_gswp_2fa_verify', array( $this, 'ajax_verify' ) );
+		// Load the popup assets on wp-login.php and on logged-out front-end pages
+		// (where a login form — My Account, PowerPack, etc. — may live).
+		add_action( 'login_enqueue_scripts', array( $this, 'enqueue_modal_assets' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_modal_assets' ) );
 
 		// Profile enrolment UI.
 		add_action( 'show_user_profile', array( $this, 'render_profile_section' ) );
@@ -147,134 +152,90 @@ class GSWP_Two_Factor {
 	 * ------------------------------------------------------------------- */
 
 	/**
-	 * After a successful password login, interpose the second-factor challenge.
+	 * Hold an enrolled user's login until the second factor is supplied.
 	 *
-	 * The interstitial itself is rendered on wp-login.php (where login_header()
-	 * exists), so here we only discard the freshly issued auth cookie, stash the
-	 * in-progress login behind a single-use cookie token, and send the browser
-	 * to the prompt. Doing the redirect — rather than echoing the form inline —
-	 * is what lets this work from every login entry point: wp-login.php, the
-	 * WooCommerce "My Account" form (a front-end POST where login_header() is
-	 * undefined and would fatal), and AJAX forms such as the PowerPack login
-	 * module (where echoing a form is impossible).
+	 * Runs on `authenticate` after the password (and reCAPTCHA) checks. When the
+	 * user has 2FA and the login is interactive, it arms a single-use pending
+	 * token (cookie + transient) and returns a WP_Error to block the sign-in.
+	 * Because this fires inside wp_signon() for every entry point, no auth cookie
+	 * is ever issued without the second factor — closing the AJAX bypass — and
+	 * nothing is rendered or redirected, so front-end forms can't fatal. The
+	 * popup then collects the code and completes the login via ajax_verify().
 	 *
-	 * @param string  $user_login Username.
-	 * @param WP_User $user       Authenticated user.
+	 * @param null|WP_User|WP_Error $user     Auth result so far.
+	 * @param string                $username Username (unused).
+	 * @param string                $password Password (unused).
+	 * @return null|WP_User|WP_Error
 	 */
-	public function maybe_start_challenge( $user_login, $user ) {
+	public function enforce_second_factor( $user, $username, $password ) {
 		if ( ! ( $user instanceof WP_User ) || ! self::user_has_2fa( $user->ID ) ) {
-			return;
+			return $user;
 		}
 
-		// Programmatic logins (cron, REST, XML-RPC) can never satisfy an
-		// interactive challenge. XML-RPC is already blocked in authenticate;
-		// for the rest, leave the login untouched so it fails closed elsewhere
-		// rather than stranding a half-finished challenge.
+		// Programmatic logins can't answer an interactive challenge. XML-RPC is
+		// blocked outright by block_non_interactive(); REST/application-password
+		// and cron logins are left to authenticate normally (by design).
 		if ( wp_doing_cron()
 			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
 			|| ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) ) {
-			return;
+			return $user;
 		}
 
-		// wp-login.php uses `redirect_to`; the WooCommerce My Account form uses
-		// `redirect`. Honour either so the post-2FA landing page is correct.
+		// wp-login.php uses `redirect_to`; WooCommerce/PowerPack use `redirect`.
 		if ( isset( $_REQUEST['redirect_to'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			$redirect_to = wp_unslash( $_REQUEST['redirect_to'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$redirect_to = wp_unslash( $_REQUEST['redirect_to'] ); // phpcs:ignore WordPress.Security.NonceVerification
 		} elseif ( isset( $_REQUEST['redirect'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			$redirect_to = wp_unslash( $_REQUEST['redirect'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$redirect_to = wp_unslash( $_REQUEST['redirect'] ); // phpcs:ignore WordPress.Security.NonceVerification
 		} else {
-			$redirect_to = admin_url();
+			$redirect_to = '';
 		}
 		$rememberme = ! empty( $_REQUEST['rememberme'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
-		// Discard the auth cookie WordPress just set; it is re-issued only once
-		// the second factor is verified. This is the line that prevents a 2FA
-		// bypass when the login was initiated over AJAX or a front-end form
-		// instead of wp-login.php.
-		wp_clear_auth_cookie();
-
-		// Stash the in-progress login so the interstitial can resume it.
 		$this->store_pending_login( $user->ID, $redirect_to, $rememberme );
 
-		// AJAX logins control their own response and cannot be redirected from
-		// here; the auth cookie is cleared and the pending cookie set, so
-		// maybe_resume_challenge() forces the prompt on the next page load.
-		if ( wp_doing_ajax() ) {
-			return;
-		}
-
-		wp_safe_redirect( $this->challenge_url() );
-		exit;
+		return new WP_Error(
+			'gswp_2fa_required',
+			__( 'Enter the code from your authenticator app to finish signing in.', 'google-security-for-wordpress' )
+		);
 	}
 
 	/**
-	 * Render the prompt, or verify a submitted code (login_form_gswp_2fa).
+	 * Verify the popup's submitted code and complete the login (AJAX).
 	 *
-	 * Runs only on wp-login.php, so login_header()/login_footer() are available.
+	 * Authorised by the single-use pending cookie token (so a password check
+	 * must have already succeeded); the TOTP/backup code is the second factor.
 	 */
-	public function handle_challenge() {
+	public function ajax_verify() {
 		$pending = $this->get_pending_login();
 		$user    = $pending ? get_user_by( 'id', $pending['user_id'] ) : false;
 
-		// No valid pending challenge (expired, consumed, or forged): start over.
 		if ( ! $user || ! self::user_has_2fa( $user->ID ) ) {
 			$this->clear_pending_login();
-			wp_safe_redirect( wp_login_url() );
-			exit;
+			wp_send_json_error( __( 'Your session expired. Please sign in again.', 'google-security-for-wordpress' ) );
 		}
 
-		// A GET (or any request without a submitted code) shows the prompt.
-		if ( ! isset( $_POST['gswp_2fa_code'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$this->show_challenge( $user );
-			exit;
+		// Cap guesses against the held login before requiring a fresh sign-in.
+		if ( isset( $pending['attempts'] ) && (int) $pending['attempts'] >= 5 ) {
+			$this->clear_pending_login();
+			wp_send_json_error( __( 'Too many attempts. Please sign in again.', 'google-security-for-wordpress' ) );
 		}
 
-		$code = sanitize_text_field( wp_unslash( $_POST['gswp_2fa_code'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$code = isset( $_POST['code'] ) ? sanitize_text_field( wp_unslash( $_POST['code'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		if ( ! $this->verify_user_code( $user->ID, $code ) ) {
-			$this->show_challenge( $user, __( 'Invalid verification code. Please try again.', 'google-security-for-wordpress' ) );
-			exit;
+			$this->bump_pending_attempts( $pending );
+			wp_send_json_error( __( 'Invalid verification code. Please try again.', 'google-security-for-wordpress' ) );
 		}
 
-		// Second factor verified: consume the pending login and complete it.
-		$redirect_to = wp_validate_redirect( $pending['redirect_to'], admin_url() );
-		$rememberme  = ! empty( $pending['rememberme'] );
+		// Second factor verified: consume the pending login and sign the user in.
+		$rememberme = ! empty( $pending['rememberme'] );
+		$default    = user_can( $user, 'manage_options' ) ? admin_url() : home_url( '/' );
+		$redirect   = ! empty( $pending['redirect_to'] ) ? $pending['redirect_to'] : $default;
+		$redirect   = wp_validate_redirect( $redirect, $default );
+
 		$this->clear_pending_login();
 		wp_set_auth_cookie( $user->ID, $rememberme );
 
-		wp_safe_redirect( $redirect_to );
-		exit;
-	}
-
-	/**
-	 * Force the prompt for a login that began but never reached wp-login.php.
-	 *
-	 * Hooked to both login_init and template_redirect: when a user is not
-	 * logged in yet carries a valid pending-challenge cookie, redirect them to
-	 * the interstitial. This is what closes the AJAX bypass — after a PowerPack
-	 * (or similar) AJAX login the auth cookie is already cleared, so the user
-	 * lands here logged-out with the pending cookie and is sent to the prompt.
-	 */
-	public function maybe_resume_challenge() {
-		if ( is_user_logged_in() ) {
-			return;
-		}
-
-		// On wp-login.php only the plain sign-in screen should resume the
-		// challenge; leave the challenge action itself, logout, lost password,
-		// registration, etc. untouched.
-		if ( did_action( 'login_init' ) ) {
-			$action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : 'login'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			if ( 'login' !== $action ) {
-				return;
-			}
-		}
-
-		if ( empty( $_COOKIE[ self::COOKIE_PENDING ] ) || ! $this->get_pending_login() ) {
-			return;
-		}
-
-		wp_safe_redirect( $this->challenge_url() );
-		exit;
+		wp_send_json_success( array( 'redirect' => $redirect ) );
 	}
 
 	/**
@@ -300,36 +261,64 @@ class GSWP_Two_Factor {
 		return $user;
 	}
 
-	/**
-	 * Render the interstitial challenge screen and exit.
-	 *
-	 * The pending login (user, redirect target, "remember me") is carried by the
-	 * single-use cookie token, so the form needs no identifying hidden fields.
-	 *
-	 * @param WP_User $user  User being challenged (for context only).
-	 * @param string  $error Optional error message to display.
-	 */
-	private function show_challenge( $user, $error = '' ) {
-		// login_header()/login_footer() are defined by wp-login.php, which is the
-		// only context this method runs in.
-		login_header( __( 'Two-Factor Authentication', 'google-security-for-wordpress' ) );
+	/* ---------------------------------------------------------------------
+	 * Code-entry popup assets
+	 * ------------------------------------------------------------------- */
 
-		if ( $error ) {
-			echo '<div id="login_error">' . wp_kses_post( $error ) . '</div>';
+	/**
+	 * Enqueue the popup assets on logged-out front-end pages.
+	 *
+	 * Loaded ahead of any login so the script is already present to detect a
+	 * challenge — including AJAX logins (e.g. PowerPack) that never reload.
+	 */
+	public function maybe_enqueue_modal_assets() {
+		if ( is_user_logged_in() ) {
+			return;
 		}
-		?>
-		<form name="gswp_2fa_form" id="loginform" action="<?php echo esc_url( site_url( 'wp-login.php?action=gswp_2fa', 'login_post' ) ); ?>" method="post">
-			<p><?php esc_html_e( 'Enter the 6-digit code from your authenticator app. You can also enter a backup code.', 'google-security-for-wordpress' ); ?></p>
-			<p>
-				<label for="gswp_2fa_code"><?php esc_html_e( 'Authentication code', 'google-security-for-wordpress' ); ?></label>
-				<input type="text" name="gswp_2fa_code" id="gswp_2fa_code" class="input" inputmode="numeric" autocomplete="one-time-code" autofocus="autofocus" />
-			</p>
-			<p class="submit">
-				<input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="<?php esc_attr_e( 'Verify', 'google-security-for-wordpress' ); ?>" />
-			</p>
-		</form>
-		<?php
-		login_footer( 'gswp_2fa_code' );
+		$this->enqueue_modal_assets();
+	}
+
+	/**
+	 * Register, enqueue, and localise the code-entry popup script and styles.
+	 */
+	public function enqueue_modal_assets() {
+		if ( wp_script_is( 'gswp-2fa-modal', 'enqueued' ) ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'gswp-2fa-modal',
+			GSWP_PLUGIN_URL . 'assets/css/gswp-2fa-modal.css',
+			array(),
+			GSWP_VERSION
+		);
+
+		wp_enqueue_script(
+			'gswp-2fa-modal',
+			GSWP_PLUGIN_URL . 'assets/js/gswp-2fa-modal.js',
+			array(),
+			GSWP_VERSION,
+			true
+		);
+
+		wp_localize_script(
+			'gswp-2fa-modal',
+			'gswp2fa',
+			array(
+				'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
+				'flagCookie' => self::COOKIE_FLAG,
+				'home'       => home_url( '/' ),
+				'i18n'       => array(
+					'title'   => __( 'Two-Factor Authentication', 'google-security-for-wordpress' ),
+					'desc'    => __( 'Enter the 6-digit code from your authenticator app. You can also enter a backup code.', 'google-security-for-wordpress' ),
+					'label'   => __( 'Authentication code', 'google-security-for-wordpress' ),
+					'verify'  => __( 'Verify', 'google-security-for-wordpress' ),
+					'cancel'  => __( 'Cancel', 'google-security-for-wordpress' ),
+					'empty'   => __( 'Enter your authentication code.', 'google-security-for-wordpress' ),
+					'invalid' => __( 'Invalid verification code. Please try again.', 'google-security-for-wordpress' ),
+				),
+			)
+		);
 	}
 
 	/**
@@ -362,16 +351,7 @@ class GSWP_Two_Factor {
 	 * ------------------------------------------------------------------- */
 
 	/**
-	 * The wp-login.php URL that renders the challenge.
-	 *
-	 * @return string
-	 */
-	private function challenge_url() {
-		return site_url( 'wp-login.php?action=gswp_2fa', 'login' );
-	}
-
-	/**
-	 * The cookie path used for the pending-challenge token.
+	 * The cookie path used for the pending-challenge cookies.
 	 *
 	 * Broad enough to be sent on both wp-login.php and front-end forms.
 	 *
@@ -386,7 +366,8 @@ class GSWP_Two_Factor {
 	 *
 	 * The token is unguessable and the cookie is HTTP-only, so it can only be
 	 * issued by a successful password login; an attacker cannot forge their way
-	 * to a victim's challenge (and the code itself is still required).
+	 * to a victim's challenge (and the code itself is still required). A separate
+	 * readable flag cookie (no secret) signals the front-end popup to open.
 	 *
 	 * @param int    $user_id     User ID.
 	 * @param string $redirect_to Post-login redirect target.
@@ -401,16 +382,49 @@ class GSWP_Two_Factor {
 				'user_id'     => (int) $user_id,
 				'redirect_to' => (string) $redirect_to,
 				'rememberme'  => (bool) $rememberme,
+				'attempts'    => 0,
 			),
 			self::PENDING_TTL
 		);
 
-		if ( ! headers_sent() ) {
-			setcookie( self::COOKIE_PENDING, $token, time() + self::PENDING_TTL, $this->cookie_path(), COOKIE_DOMAIN, is_ssl(), true );
-		}
+		$this->set_pending_cookies( $token, time() + self::PENDING_TTL );
 
 		// Make the token readable within the same request (e.g. AJAX logins).
 		$_COOKIE[ self::COOKIE_PENDING ] = $token;
+		$_COOKIE[ self::COOKIE_FLAG ]    = '1';
+	}
+
+	/**
+	 * Emit (or expire) the pending-challenge cookies.
+	 *
+	 * SameSite=Lax is the CSRF defence: a cross-site POST to the verify endpoint
+	 * won't carry the token, so the unguessable HTTP-only token can only be
+	 * presented by a same-site request that followed a real password login. This
+	 * is deliberately not a WP nonce, which a page cache (e.g. FlyingPress) would
+	 * serve stale on logged-out pages.
+	 *
+	 * @param string $token   Token value ('1'/empty when expiring).
+	 * @param int    $expires Unix expiry timestamp.
+	 */
+	private function set_pending_cookies( $token, $expires ) {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		$base = array(
+			'expires'  => $expires,
+			'path'     => $this->cookie_path(),
+			'domain'   => COOKIE_DOMAIN,
+			'secure'   => is_ssl(),
+			'httponly' => true,
+			'samesite' => 'Lax',
+		);
+
+		setcookie( self::COOKIE_PENDING, $token, $base );
+
+		// The flag carries no secret and must be readable by the popup script.
+		$base['httponly'] = false;
+		setcookie( self::COOKIE_FLAG, '' === $token ? '' : '1', $base );
 	}
 
 	/**
@@ -441,11 +455,23 @@ class GSWP_Two_Factor {
 			delete_transient( self::PENDING_PREFIX . $token );
 		}
 
-		if ( ! headers_sent() ) {
-			setcookie( self::COOKIE_PENDING, ' ', time() - YEAR_IN_SECONDS, $this->cookie_path(), COOKIE_DOMAIN, is_ssl(), true );
-		}
+		$this->set_pending_cookies( '', time() - YEAR_IN_SECONDS );
 
-		unset( $_COOKIE[ self::COOKIE_PENDING ] );
+		unset( $_COOKIE[ self::COOKIE_PENDING ], $_COOKIE[ self::COOKIE_FLAG ] );
+	}
+
+	/**
+	 * Record a failed verification attempt against the current pending login.
+	 *
+	 * @param array $pending Current pending-login data.
+	 */
+	private function bump_pending_attempts( $pending ) {
+		$token = isset( $_COOKIE[ self::COOKIE_PENDING ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE_PENDING ] ) ) : '';
+		if ( '' === $token ) {
+			return;
+		}
+		$pending['attempts'] = isset( $pending['attempts'] ) ? (int) $pending['attempts'] + 1 : 1;
+		set_transient( self::PENDING_PREFIX . $token, $pending, self::PENDING_TTL );
 	}
 
 	/* ---------------------------------------------------------------------

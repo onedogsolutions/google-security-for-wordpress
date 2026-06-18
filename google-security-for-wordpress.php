@@ -48,7 +48,6 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-two-factor.php';
 
 if ( is_admin() ) {
 	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-admin.php';
-	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-two-factor-admin.php';
 } else {
 	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-frontend.php';
 }
@@ -237,7 +236,6 @@ function gswp_init() {
 
 	if ( is_admin() ) {
 		new GSWP_Admin();
-		new GSWP_Two_Factor_Admin();
 	} else {
 		new GSWP_Frontend();
 	}

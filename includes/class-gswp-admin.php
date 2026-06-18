@@ -106,6 +106,8 @@ class GSWP_Admin {
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
+			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
+			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 		);
 
 		// Localize script with REST endpoint variables and initial state.
@@ -118,7 +120,7 @@ class GSWP_Admin {
 				'settings'           => $initial_settings,
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
-				'twoFactorSettingsUrl' => esc_url_raw( admin_url( 'options-general.php?page=' . GSWP_Two_Factor_Admin::PAGE_SLUG ) ),
+				'roles'              => wp_roles()->get_names(),
 			)
 		);
 	}
