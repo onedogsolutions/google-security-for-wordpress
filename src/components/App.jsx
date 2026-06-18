@@ -171,7 +171,10 @@ export default function App() {
 					/>
 
 					{ /* Two-Factor Authentication notice */ }
-					<TwoFactorNotice profileUrl={ initialData.profileUrl } />
+					<TwoFactorNotice
+						profileUrl={ initialData.profileUrl }
+						settingsUrl={ initialData.twoFactorSettingsUrl }
+					/>
 				</div>
 
 				{ /* Form Submission Bar */ }
