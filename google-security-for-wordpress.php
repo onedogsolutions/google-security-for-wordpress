@@ -107,8 +107,9 @@ register_activation_hook( __FILE__, 'gswp_activate' );
  *
  * Earlier releases (the "Google reCAPTCHA v3 for WooCommerce" plugin) stored
  * settings under the recaptcha_woo_ prefix. Copy any of those values over to the
- * new gswp_ prefix once, so existing installs keep their configuration after the
- * rename. The old options are left in place as a safety net.
+ * new gswp_ prefix once, so the install keeps its configuration after the
+ * rename, then delete the legacy options so the database is left holding only
+ * the gswp_ keys.
  */
 function gswp_maybe_migrate() {
 	if ( get_option( 'gswp_db_version' ) === GSWP_VERSION ) {
@@ -119,11 +120,14 @@ function gswp_maybe_migrate() {
 		$new_key = 'gswp_' . $suffix;
 		$old_key = 'recaptcha_woo_' . $suffix;
 
-		// Only migrate keys the legacy plugin actually used (the 2FA keys never
-		// existed there) and only when the new key has not been set yet.
 		$old_value = get_option( $old_key, null );
-		if ( null !== $old_value && false === get_option( $new_key, false ) ) {
-			update_option( $new_key, $old_value );
+		if ( null !== $old_value ) {
+			// Carry the legacy value over only when the new key is unset, then
+			// remove the legacy option so no stale rows remain.
+			if ( false === get_option( $new_key, false ) ) {
+				update_option( $new_key, $old_value );
+			}
+			delete_option( $old_key );
 		}
 
 		// Ensure the new key exists with its default even when there was nothing
