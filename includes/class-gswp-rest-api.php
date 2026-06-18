@@ -4,14 +4,14 @@
  *
  * Exposes REST API endpoints for settings management and key scavenging.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Rest_Api {
+class GSWP_Rest_Api {
 
 	/**
 	 * Constructor.
@@ -25,7 +25,7 @@ class Recaptcha_Woo_Rest_Api {
 	 */
 	public function register_routes() {
 		register_rest_route(
-			'recaptcha-woo/v1',
+			'gswp/v1',
 			'/settings',
 			array(
 				array(
@@ -42,7 +42,7 @@ class Recaptcha_Woo_Rest_Api {
 		);
 
 		register_rest_route(
-			'recaptcha-woo/v1',
+			'gswp/v1',
 			'/scan-keys',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -68,24 +68,24 @@ class Recaptcha_Woo_Rest_Api {
 	 */
 	public function get_settings() {
 		$settings = array(
-			'site_key'               => get_option( 'recaptcha_woo_site_key', '' ),
-			'secret_key'             => get_option( 'recaptcha_woo_secret_key', '' ),
-			'key_type'               => get_option( 'recaptcha_woo_key_type', 'classic' ),
-			'gcp_project_id'         => get_option( 'recaptcha_woo_gcp_project_id', '' ),
-			'gcp_api_key'            => get_option( 'recaptcha_woo_gcp_api_key', '' ),
-			'enable_login'           => get_option( 'recaptcha_woo_enable_login', '0' ),
-			'enable_registration'    => get_option( 'recaptcha_woo_enable_registration', '0' ),
-			'enable_checkout'        => get_option( 'recaptcha_woo_enable_checkout', '0' ),
-			'threshold_login'        => get_option( 'recaptcha_woo_threshold_login', '0.5' ),
-			'threshold_registration' => get_option( 'recaptcha_woo_threshold_registration', '0.5' ),
-			'threshold_checkout'     => get_option( 'recaptcha_woo_threshold_checkout', '0.5' ),
-			'enable_wp_login'        => get_option( 'recaptcha_woo_enable_wp_login', '0' ),
-			'enable_wp_register'     => get_option( 'recaptcha_woo_enable_wp_register', '0' ),
-			'enable_wp_lostpassword' => get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ),
-			'threshold_wp_login'     => get_option( 'recaptcha_woo_threshold_wp_login', '0.5' ),
-			'threshold_wp_register'  => get_option( 'recaptcha_woo_threshold_wp_register', '0.5' ),
-			'threshold_wp_lostpassword' => get_option( 'recaptcha_woo_threshold_wp_lostpassword', '0.5' ),
-			'conflict_mode'          => get_option( 'recaptcha_woo_conflict_mode', 'off' ),
+			'site_key'               => get_option( 'gswp_site_key', '' ),
+			'secret_key'             => get_option( 'gswp_secret_key', '' ),
+			'key_type'               => get_option( 'gswp_key_type', 'classic' ),
+			'gcp_project_id'         => get_option( 'gswp_gcp_project_id', '' ),
+			'gcp_api_key'            => get_option( 'gswp_gcp_api_key', '' ),
+			'enable_login'           => get_option( 'gswp_enable_login', '0' ),
+			'enable_registration'    => get_option( 'gswp_enable_registration', '0' ),
+			'enable_checkout'        => get_option( 'gswp_enable_checkout', '0' ),
+			'threshold_login'        => get_option( 'gswp_threshold_login', '0.5' ),
+			'threshold_registration' => get_option( 'gswp_threshold_registration', '0.5' ),
+			'threshold_checkout'     => get_option( 'gswp_threshold_checkout', '0.5' ),
+			'enable_wp_login'        => get_option( 'gswp_enable_wp_login', '0' ),
+			'enable_wp_register'     => get_option( 'gswp_enable_wp_register', '0' ),
+			'enable_wp_lostpassword' => get_option( 'gswp_enable_wp_lostpassword', '0' ),
+			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
+			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
+			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -102,26 +102,26 @@ class Recaptcha_Woo_Rest_Api {
 
 		// Sanitize and update Site Key.
 		if ( isset( $params['site_key'] ) ) {
-			update_option( 'recaptcha_woo_site_key', sanitize_text_field( $params['site_key'] ) );
+			update_option( 'gswp_site_key', sanitize_text_field( $params['site_key'] ) );
 		}
 
 		// Sanitize and update Secret Key.
 		if ( isset( $params['secret_key'] ) ) {
-			update_option( 'recaptcha_woo_secret_key', sanitize_text_field( $params['secret_key'] ) );
+			update_option( 'gswp_secret_key', sanitize_text_field( $params['secret_key'] ) );
 		}
 
 		// Key type. Only 'classic' or 'enterprise' are valid.
 		if ( isset( $params['key_type'] ) ) {
 			$key_type = 'enterprise' === $params['key_type'] ? 'enterprise' : 'classic';
-			update_option( 'recaptcha_woo_key_type', $key_type );
+			update_option( 'gswp_key_type', $key_type );
 		}
 
 		// Sanitize and update Enterprise credentials.
 		if ( isset( $params['gcp_project_id'] ) ) {
-			update_option( 'recaptcha_woo_gcp_project_id', sanitize_text_field( $params['gcp_project_id'] ) );
+			update_option( 'gswp_gcp_project_id', sanitize_text_field( $params['gcp_project_id'] ) );
 		}
 		if ( isset( $params['gcp_api_key'] ) ) {
-			update_option( 'recaptcha_woo_gcp_api_key', sanitize_text_field( $params['gcp_api_key'] ) );
+			update_option( 'gswp_gcp_api_key', sanitize_text_field( $params['gcp_api_key'] ) );
 		}
 
 		// Toggles for WooCommerce (Login, Registration, Checkout) and the
@@ -136,7 +136,7 @@ class Recaptcha_Woo_Rest_Api {
 		);
 		foreach ( $toggles as $toggle ) {
 			if ( isset( $params[ $toggle ] ) ) {
-				update_option( 'recaptcha_woo_' . $toggle, $params[ $toggle ] ? '1' : '0' );
+				update_option( 'gswp_' . $toggle, $params[ $toggle ] ? '1' : '0' );
 			}
 		}
 
@@ -153,7 +153,7 @@ class Recaptcha_Woo_Rest_Api {
 			if ( isset( $params[ $threshold ] ) ) {
 				$val = floatval( $params[ $threshold ] );
 				$val = max( 0.0, min( 1.0, $val ) );
-				update_option( 'recaptcha_woo_' . $threshold, strval( $val ) );
+				update_option( 'gswp_' . $threshold, strval( $val ) );
 			}
 		}
 
@@ -162,7 +162,7 @@ class Recaptcha_Woo_Rest_Api {
 			$mode = in_array( $params['conflict_mode'], array( 'off', 'active', 'site' ), true )
 				? $params['conflict_mode']
 				: 'off';
-			update_option( 'recaptcha_woo_conflict_mode', $mode );
+			update_option( 'gswp_conflict_mode', $mode );
 		}
 
 		return $this->get_settings();
@@ -174,7 +174,7 @@ class Recaptcha_Woo_Rest_Api {
 	 * @return WP_REST_Response REST response containing scavenged keys status and payload.
 	 */
 	public function scavenge_keys() {
-		$keys = Recaptcha_Woo_Key_Scavenger::scan();
+		$keys = GSWP_Key_Scavenger::scan();
 
 		return new WP_REST_Response(
 			array(

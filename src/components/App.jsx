@@ -9,7 +9,7 @@ import KeyScavenger from './KeyScavenger';
 import Compatibility from './Compatibility';
 
 export default function App() {
-	const initialData = window.recaptchaWooAdminData || {
+	const initialData = window.gswpAdminData || {
 		settings: {
 			site_key: '',
 			secret_key: '',
@@ -44,7 +44,7 @@ export default function App() {
 		}
 
 		// Load fresh settings from database to ensure up-to-date state
-		apiFetch( { path: '/recaptcha-woo/v1/settings' } )
+		apiFetch( { path: '/gswp/v1/settings' } )
 			.then( ( data ) => {
 				setSettings( data );
 			} )
@@ -73,7 +73,7 @@ export default function App() {
 		showToast(
 			__(
 				'Credentials imported. Make sure to save changes!',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			'info'
 		);
@@ -93,7 +93,7 @@ export default function App() {
 		setIsSaving( true );
 
 		apiFetch( {
-			path: '/recaptcha-woo/v1/settings',
+			path: '/gswp/v1/settings',
 			method: 'POST',
 			data: settings,
 		} )
@@ -103,7 +103,7 @@ export default function App() {
 				showToast(
 					__(
 						'Settings saved successfully!',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					),
 					'success'
 				);
@@ -114,7 +114,7 @@ export default function App() {
 					err.message ||
 						__(
 							'Failed to save settings. Please try again.',
-							'google-recaptcha-v3-for-woocommerce'
+							'google-security-for-wordpress'
 						),
 					'error'
 				);
@@ -149,13 +149,13 @@ export default function App() {
 					<h1 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl tracking-tight">
 						{ __(
 							'Google reCAPTCHA v3',
-							'google-recaptcha-v3-for-woocommerce'
+							'google-security-for-wordpress'
 						) }
 					</h1>
 					<p className="mt-1 text-sm text-gray-500">
 						{ __(
 							'Secure customer endpoints with invisible spam protection.',
-							'google-recaptcha-v3-for-woocommerce'
+							'google-security-for-wordpress'
 						) }
 					</p>
 				</div>
@@ -220,13 +220,13 @@ export default function App() {
 								</svg>
 								{ __(
 									'Saving…',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 								) }
 							</>
 						) : (
 							__(
 								'Save Settings',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							)
 						) }
 					</button>

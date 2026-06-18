@@ -24,11 +24,11 @@ function Checkpoint( { checkpoint, settings, onChange } ) {
 						{ isEnabled
 							? __(
 									'Enabled',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 							  )
 							: __(
 									'Disabled',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 							  ) }
 					</span>
 					<button
@@ -59,7 +59,7 @@ function Checkpoint( { checkpoint, settings, onChange } ) {
 							<span>
 								{ __(
 									'Score Threshold',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 								) }
 							</span>
 							<span className="font-semibold text-indigo-600">
@@ -137,11 +137,11 @@ export default function PageToggles( {
 			id: 'wp_login',
 			title: __(
 				'WordPress Login',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Scores sign in attempts on wp-login.php to deter brute force and credential stuffing.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_wp_login',
 			thresholdKey: 'threshold_wp_login',
@@ -150,11 +150,11 @@ export default function PageToggles( {
 			id: 'wp_register',
 			title: __(
 				'WordPress Registration',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Blocks automated account creation on the WordPress user registration form.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_wp_register',
 			thresholdKey: 'threshold_wp_register',
@@ -163,11 +163,11 @@ export default function PageToggles( {
 			id: 'wp_lostpassword',
 			title: __(
 				'WordPress Lost Password',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Protects the lost password form from automated reset requests and enumeration.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_wp_lostpassword',
 			thresholdKey: 'threshold_wp_lostpassword',
@@ -179,11 +179,11 @@ export default function PageToggles( {
 			id: 'login',
 			title: __(
 				'WooCommerce Customer Login',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Protects the customer login form from brute force attacks and credentials stuffing.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_login',
 			thresholdKey: 'threshold_login',
@@ -192,11 +192,11 @@ export default function PageToggles( {
 			id: 'registration',
 			title: __(
 				'WooCommerce Customer Registration',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Prevents spam bots and bulk automated user registrations on your store.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_registration',
 			thresholdKey: 'threshold_registration',
@@ -205,11 +205,11 @@ export default function PageToggles( {
 			id: 'checkout',
 			title: __(
 				'WooCommerce Checkout Process',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Guards order processing and payment gateways against automated checkout/carding abuse.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			toggleKey: 'enable_checkout',
 			thresholdKey: 'threshold_checkout',
@@ -218,12 +218,12 @@ export default function PageToggles( {
 
 	const sharedDescription = __(
 		'Enable reCAPTCHA v3 on target forms and customize the spam verification threshold. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
-		'google-recaptcha-v3-for-woocommerce'
+		'google-security-for-wordpress'
 	);
 
 	const wordpressDescription = __(
 		'Protects the wp-login.php sign in, registration, and lost password screens. These toggles also cover matching forms from supported login plugins when active — the Login/Signup Popup plugin and the PowerPack (Beaver Builder) Login Form module. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
-		'google-recaptcha-v3-for-woocommerce'
+		'google-security-for-wordpress'
 	);
 
 	return (
@@ -231,7 +231,7 @@ export default function PageToggles( {
 			<ToggleGroup
 				title={ __(
 					'WordPress Core Forms',
-					'google-recaptcha-v3-for-woocommerce'
+					'google-security-for-wordpress'
 				) }
 				description={ wordpressDescription }
 				checkpoints={ wordpressCheckpoints }
@@ -243,7 +243,7 @@ export default function PageToggles( {
 				<ToggleGroup
 					title={ __(
 						'WooCommerce Forms',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 					description={ sharedDescription }
 					checkpoints={ wooCheckpoints }

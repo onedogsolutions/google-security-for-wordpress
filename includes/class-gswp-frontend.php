@@ -4,14 +4,14 @@
  *
  * Handles public enqueuing of the Google reCAPTCHA scripts and form hidden inputs.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Frontend {
+class GSWP_Frontend {
 
 	/**
 	 * Constructor.
@@ -20,15 +20,15 @@ class Recaptcha_Woo_Frontend {
 		add_action( 'wp_enqueue_scripts', array( $this, 'register_scripts' ) );
 
 		// Check if forms are enabled and hook accordingly.
-		if ( '1' === get_option( 'recaptcha_woo_enable_login', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_login', '0' ) ) {
 			add_action( 'woocommerce_login_form_end', array( $this, 'inject_login_field' ) );
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_registration', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_registration', '0' ) ) {
 			add_action( 'woocommerce_register_form_end', array( $this, 'inject_registration_field' ) );
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_checkout', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_checkout', '0' ) ) {
 			add_action( 'woocommerce_review_order_before_submit', array( $this, 'inject_checkout_field' ) );
 		}
 	}
@@ -37,13 +37,13 @@ class Recaptcha_Woo_Frontend {
 	 * Register the Google reCAPTCHA v3 script.
 	 */
 	public function register_scripts() {
-		$site_key = get_option( 'recaptcha_woo_site_key', '' );
+		$site_key = get_option( 'gswp_site_key', '' );
 		if ( empty( $site_key ) ) {
 			return;
 		}
 
 		// Enterprise site keys must load enterprise.js; classic v3 keys use api.js.
-		$script_base = 'enterprise' === get_option( 'recaptcha_woo_key_type', 'classic' )
+		$script_base = 'enterprise' === get_option( 'gswp_key_type', 'classic' )
 			? 'https://www.google.com/recaptcha/enterprise.js'
 			: 'https://www.google.com/recaptcha/api.js';
 
@@ -54,7 +54,7 @@ class Recaptcha_Woo_Frontend {
 			'google-recaptcha-v3',
 			$script_base . '?render=' . rawurlencode( $site_key ),
 			array(),
-			RECAPTCHA_WOO_VERSION,
+			GSWP_VERSION,
 			true
 		);
 	}
@@ -86,7 +86,7 @@ class Recaptcha_Woo_Frontend {
 	 * @param string $action The reCAPTCHA action name for this form.
 	 */
 	public function inject_recaptcha_field( $action ) {
-		$site_key = get_option( 'recaptcha_woo_site_key', '' );
+		$site_key = get_option( 'gswp_site_key', '' );
 		if ( empty( $site_key ) ) {
 			return;
 		}
@@ -128,17 +128,17 @@ class Recaptcha_Woo_Frontend {
 	 * @return string Inline JavaScript.
 	 */
 	private function get_inline_js( $site_key ) {
-		$is_enterprise = 'enterprise' === get_option( 'recaptcha_woo_key_type', 'classic' );
+		$is_enterprise = 'enterprise' === get_option( 'gswp_key_type', 'classic' );
 
 		ob_start();
 		?>
 		(function() {
 			'use strict';
 
-			if (window.recaptchaWooInit) {
+			if (window.gswpInit) {
 				return;
 			}
-			window.recaptchaWooInit = true;
+			window.gswpInit = true;
 
 			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
 			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;

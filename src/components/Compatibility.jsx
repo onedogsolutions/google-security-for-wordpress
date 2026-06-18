@@ -9,29 +9,29 @@ export default function Compatibility( { settings, onChange } ) {
 	const modes = [
 		{
 			id: 'off',
-			label: __( 'Disabled', 'google-recaptcha-v3-for-woocommerce' ),
+			label: __( 'Disabled', 'google-security-for-wordpress' ),
 			description: __(
 				'Leave other plugins to load their own reCAPTCHA scripts.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 		},
 		{
 			id: 'active',
 			label: __(
 				'On this plugin’s reCAPTCHA pages',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 			description: __(
 				'Recommended. Remove other reCAPTCHA scripts only on pages where this plugin already loads its own, so standalone forms elsewhere keep working.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 		},
 		{
 			id: 'site',
-			label: __( 'Site-wide', 'google-recaptcha-v3-for-woocommerce' ),
+			label: __( 'Site-wide', 'google-security-for-wordpress' ),
 			description: __(
 				'Remove other plugins’ reCAPTCHA on every front-end page. Use only when you have removed reCAPTCHA from those plugins’ forms, or their submissions may fail.',
-				'google-recaptcha-v3-for-woocommerce'
+				'google-security-for-wordpress'
 			),
 		},
 	];
@@ -42,13 +42,13 @@ export default function Compatibility( { settings, onChange } ) {
 				<h2 className="text-base font-semibold leading-7 text-gray-900">
 					{ __(
 						'reCAPTCHA Conflict Handling',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
 						'Google recommends loading reCAPTCHA only once per page. Suppress reCAPTCHA scripts from other plugins (such as Gravity Forms) so this implementation is the only one running.',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 				</p>
 
@@ -56,7 +56,7 @@ export default function Compatibility( { settings, onChange } ) {
 					<legend className="sr-only">
 						{ __(
 							'Conflict handling mode',
-							'google-recaptcha-v3-for-woocommerce'
+							'google-security-for-wordpress'
 						) }
 					</legend>
 					<div className="space-y-3">

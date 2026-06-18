@@ -10,7 +10,7 @@ export default function KeyScavenger( { onImport } ) {
 	const handleInitiateScan = () => {
 		setIsScanning( true );
 		apiFetch( {
-			path: '/recaptcha-woo/v1/scan-keys',
+			path: '/gswp/v1/scan-keys',
 			method: 'POST',
 		} )
 			.then( ( response ) => {
@@ -36,13 +36,13 @@ export default function KeyScavenger( { onImport } ) {
 				<h2 className="text-base font-semibold leading-7 text-gray-900">
 					{ __(
 						'Smart Key Scavenger',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
 						'We scanned your website database for existing Google reCAPTCHA configurations from other plugins. You can instantly import them with a single click.',
-						'google-recaptcha-v3-for-woocommerce'
+						'google-security-for-wordpress'
 					) }
 				</p>
 
@@ -65,13 +65,13 @@ export default function KeyScavenger( { onImport } ) {
 						<h3 className="mt-2 text-sm font-semibold text-gray-900">
 							{ __(
 								'Scan for Existing Keys',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</h3>
 						<p className="mt-1 text-xs text-gray-500">
 							{ __(
 								'Click below to search your local database for reCAPTCHA configurations from Fluent Forms, Gravity Forms, Beaver Builder, and PowerPack Addons.',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</p>
 						<button
@@ -81,7 +81,7 @@ export default function KeyScavenger( { onImport } ) {
 						>
 							{ __(
 								'Scan Website for Keys',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</button>
 					</div>
@@ -112,13 +112,13 @@ export default function KeyScavenger( { onImport } ) {
 						<span className="text-sm font-medium text-gray-900">
 							{ __(
 								'Scanning website database…',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</span>
 						<span className="text-xs text-gray-500 mt-1">
 							{ __(
 								'Please wait, this may take a moment.',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</span>
 					</div>
@@ -140,7 +140,7 @@ export default function KeyScavenger( { onImport } ) {
 										<span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
 											{ __(
 												'Found',
-												'google-recaptcha-v3-for-woocommerce'
+												'google-security-for-wordpress'
 											) }
 										</span>
 										{ found.version === 'v3' && (
@@ -159,7 +159,7 @@ export default function KeyScavenger( { onImport } ) {
 											<span className="font-medium">
 												{ __(
 													'Site Key: ',
-													'google-recaptcha-v3-for-woocommerce'
+													'google-security-for-wordpress'
 												) }
 											</span>
 											<code>
@@ -176,7 +176,7 @@ export default function KeyScavenger( { onImport } ) {
 												<span className="font-medium">
 													{ __(
 														'Secret Key: ',
-														'google-recaptcha-v3-for-woocommerce'
+														'google-security-for-wordpress'
 													) }
 												</span>
 												<code>
@@ -191,7 +191,7 @@ export default function KeyScavenger( { onImport } ) {
 											<p className="text-amber-600">
 												{ __(
 													'Secret Key is not stored globally (module-specific). You will need to enter it manually.',
-													'google-recaptcha-v3-for-woocommerce'
+													'google-security-for-wordpress'
 												) }
 											</p>
 										) }
@@ -199,7 +199,7 @@ export default function KeyScavenger( { onImport } ) {
 											<p className="text-red-600">
 												{ __(
 													'This is a reCAPTCHA v2 (checkbox) key. It cannot be used with this plugin, which requires v3 keys.',
-													'google-recaptcha-v3-for-woocommerce'
+													'google-security-for-wordpress'
 												) }
 											</p>
 										) }
@@ -220,7 +220,7 @@ export default function KeyScavenger( { onImport } ) {
 									>
 										{ __(
 											'Import Found Credentials',
-											'google-recaptcha-v3-for-woocommerce'
+											'google-security-for-wordpress'
 										) }
 									</button>
 								</div>
@@ -234,7 +234,7 @@ export default function KeyScavenger( { onImport } ) {
 							>
 								{ __(
 									'Run Rescan',
-									'google-recaptcha-v3-for-woocommerce'
+									'google-security-for-wordpress'
 								) }
 							</button>
 						</div>
@@ -260,13 +260,13 @@ export default function KeyScavenger( { onImport } ) {
 						<h3 className="mt-2 text-sm font-semibold text-gray-900">
 							{ __(
 								'No keys detected',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</h3>
 						<p className="mt-1 text-xs text-gray-500">
 							{ __(
 								'No existing reCAPTCHA keys were found on this site from supported plugins.',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</p>
 						<button
@@ -276,7 +276,7 @@ export default function KeyScavenger( { onImport } ) {
 						>
 							{ __(
 								'Run Rescan',
-								'google-recaptcha-v3-for-woocommerce'
+								'google-security-for-wordpress'
 							) }
 						</button>
 					</div>

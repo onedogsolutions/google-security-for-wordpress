@@ -6,14 +6,14 @@
  * refresh bootstrap so multiple integrations (WooCommerce, the Login/Signup
  * Popup plugin, Beaver Builder modules) can share one implementation.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Assets {
+class GSWP_Assets {
 
 	/**
 	 * Script handle for the Google reCAPTCHA API.
@@ -26,7 +26,7 @@ class Recaptcha_Woo_Assets {
 	 * @return string Site key, or empty string when unset.
 	 */
 	public static function site_key() {
-		return get_option( 'recaptcha_woo_site_key', '' );
+		return get_option( 'gswp_site_key', '' );
 	}
 
 	/**
@@ -35,7 +35,7 @@ class Recaptcha_Woo_Assets {
 	 * @return bool True for Enterprise, false for classic v3.
 	 */
 	public static function is_enterprise() {
-		return 'enterprise' === get_option( 'recaptcha_woo_key_type', 'classic' );
+		return 'enterprise' === get_option( 'gswp_key_type', 'classic' );
 	}
 
 	/**
@@ -62,7 +62,7 @@ class Recaptcha_Woo_Assets {
 				self::HANDLE,
 				$script_base . '?render=' . rawurlencode( $site_key ),
 				array(),
-				RECAPTCHA_WOO_VERSION,
+				GSWP_VERSION,
 				true
 			);
 		}
@@ -108,10 +108,10 @@ class Recaptcha_Woo_Assets {
 		(function() {
 			'use strict';
 
-			if (window.recaptchaWooRefreshInit) {
+			if (window.gswpRefreshInit) {
 				return;
 			}
-			window.recaptchaWooRefreshInit = true;
+			window.gswpRefreshInit = true;
 
 			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
 			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;

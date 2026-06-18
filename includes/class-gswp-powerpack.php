@@ -7,7 +7,7 @@
  *
  * The module's forms fire the WordPress core `login_form` and
  * `lostpassword_form` actions, so the hidden token field is injected by
- * Recaptcha_Woo_Login. The module then serializes the whole form with FormData
+ * GSWP_Login. The module then serializes the whole form with FormData
  * before submitting over admin-ajax, so the token reaches the server. This
  * class validates that token:
  *
@@ -22,28 +22,28 @@
  * These forms reuse the WordPress core toggles, thresholds, and verifier.
  * PowerPack supports classic v3 keys only, so configure a classic key type.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Powerpack {
+class GSWP_Powerpack {
 
 	/**
 	 * Shared verifier used to score submitted tokens.
 	 *
-	 * @var Recaptcha_Woo_Verifier
+	 * @var GSWP_Verifier
 	 */
 	private $verifier;
 
 	/**
 	 * Constructor.
 	 *
-	 * @param Recaptcha_Woo_Verifier $verifier Token verifier instance.
+	 * @param GSWP_Verifier $verifier Token verifier instance.
 	 */
-	public function __construct( Recaptcha_Woo_Verifier $verifier ) {
+	public function __construct( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
 
 		// PowerPack for Beaver Builder must be active.
@@ -51,7 +51,7 @@ class Recaptcha_Woo_Powerpack {
 			return;
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_login', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_login', '0' ) ) {
 			add_filter( 'pp_login_form_process_login_errors', array( $this, 'validate_login' ), 10, 3 );
 
 			// Prefer this plugin's (site-wide) reCAPTCHA over the module's own:
@@ -60,7 +60,7 @@ class Recaptcha_Woo_Powerpack {
 			add_filter( 'fl_builder_render_module_content', array( $this, 'replace_module_recaptcha' ), 10, 2 );
 		}
 
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
 			// The lost password handler exposes no validation filter, so guard
 			// its admin-ajax action before the module processes it (its handler
 			// runs at the default priority of 10).

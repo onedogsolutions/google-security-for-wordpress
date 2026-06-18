@@ -10,19 +10,19 @@
  * the user, and a template action inside each form, so no request sniffing is
  * required. These forms reuse the WordPress core form toggles and thresholds.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Xootix {
+class GSWP_Xootix {
 
 	/**
 	 * Shared verifier used to score submitted tokens.
 	 *
-	 * @var Recaptcha_Woo_Verifier
+	 * @var GSWP_Verifier
 	 */
 	private $verifier;
 
@@ -35,17 +35,17 @@ class Recaptcha_Woo_Xootix {
 	private $forms = array(
 		'login'        => array(
 			'action'  => 'login',
-			'enable'  => 'recaptcha_woo_enable_wp_login',
+			'enable'  => 'gswp_enable_wp_login',
 			'context' => 'wp_login',
 		),
 		'register'     => array(
 			'action'  => 'register',
-			'enable'  => 'recaptcha_woo_enable_wp_register',
+			'enable'  => 'gswp_enable_wp_register',
 			'context' => 'wp_register',
 		),
 		'lostPassword' => array(
 			'action'  => 'lostpassword',
-			'enable'  => 'recaptcha_woo_enable_wp_lostpassword',
+			'enable'  => 'gswp_enable_wp_lostpassword',
 			'context' => 'wp_lostpassword',
 		),
 	);
@@ -53,9 +53,9 @@ class Recaptcha_Woo_Xootix {
 	/**
 	 * Constructor.
 	 *
-	 * @param Recaptcha_Woo_Verifier $verifier Token verifier instance.
+	 * @param GSWP_Verifier $verifier Token verifier instance.
 	 */
-	public function __construct( Recaptcha_Woo_Verifier $verifier ) {
+	public function __construct( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
 
 		// The Login/Signup Popup plugin must be active.
@@ -73,13 +73,13 @@ class Recaptcha_Woo_Xootix {
 
 		// Validate before the plugin authenticates. These filters run inside
 		// the plugin's admin-ajax handler, so they register in all contexts.
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_login', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_login', '0' ) ) {
 			add_filter( 'xoo_el_process_login_errors', array( $this, 'validate_login' ), 10, 2 );
 		}
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_register', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_register', '0' ) ) {
 			add_filter( 'xoo_el_process_registration_errors', array( $this, 'validate_register' ), 10, 4 );
 		}
-		if ( '1' === get_option( 'recaptcha_woo_enable_wp_lostpassword', '0' ) ) {
+		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
 			add_filter( 'xoo_el_process_lostpw_errors', array( $this, 'validate_lostpassword' ), 10, 1 );
 		}
 
@@ -116,7 +116,7 @@ class Recaptcha_Woo_Xootix {
 			return;
 		}
 
-		if ( empty( Recaptcha_Woo_Assets::site_key() ) ) {
+		if ( empty( GSWP_Assets::site_key() ) ) {
 			return;
 		}
 
@@ -190,8 +190,8 @@ class Recaptcha_Woo_Xootix {
 			return;
 		}
 
-		if ( Recaptcha_Woo_Assets::enqueue_api_script() ) {
-			Recaptcha_Woo_Assets::add_refresh_bootstrap();
+		if ( GSWP_Assets::enqueue_api_script() ) {
+			GSWP_Assets::add_refresh_bootstrap();
 		}
 	}
 }

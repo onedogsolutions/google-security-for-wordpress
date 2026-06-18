@@ -1,36 +1,49 @@
-=== Google reCAPTCHA v3 for WooCommerce ===
+=== Google Security for WordPress ===
 Contributors: One Dog Solutions
-Tags: recaptcha, woocommerce, captcha, spam, security
+Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Google reCAPTCHA v3 scoring for the WordPress login, registration, and lost password screens plus the WooCommerce Login, Registration, and Checkout forms, with page-specific thresholds and automated key discovery. Works with or without WooCommerce.
+A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the login, registration, lost password, and WooCommerce checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
 
 == Description ==
 
-Google reCAPTCHA v3 for WooCommerce provides a seamless, invisible security layer to protect your authentication and customer endpoints from automated abuse. Shield the WordPress login, registration, and lost password screens — and, when WooCommerce is active, the customer login, registration, and checkout flows — from carding, credentials brute-forcing, and spam accounts.
+Google Security for WordPress bundles two complementary layers of protection for your site's accounts:
 
-WooCommerce is optional: install the plugin on any WordPress site to protect the core wp-login.php screens. When WooCommerce is present, the additional store forms become available automatically.
+1. **Invisible bot scoring** with Google reCAPTCHA v3 on the WordPress login, registration, and lost password screens — and, when WooCommerce is active, the customer login, registration, and checkout flows — to stop carding, credential brute-forcing, and spam accounts.
+2. **Two-factor authentication (2FA)** using time-based one-time passwords (TOTP), compatible with Google Authenticator, Authy, 1Password, and Microsoft Authenticator. No external service, account, or API is required — TOTP runs entirely on your site.
+
+WooCommerce is optional: install the plugin on any WordPress site to protect the core wp-login.php screens and add 2FA. When WooCommerce is present, the additional store forms become available automatically.
 
 = Features =
 * **WordPress Core Screen Protection**: Scores the wp-login.php sign in, user registration, and lost password forms out of the box, with no WooCommerce required.
 * **WooCommerce Support**: When WooCommerce is active, also protects the customer Login, Registration, and Checkout forms.
-* **Complete Isolation**: Clean styling that matches modern admin dashboards without bleeding Tailwind resets into core WordPress screens.
-* **Flexible Page-Specific Thresholds**: Configure custom score thresholds individually for every protected form.
+* **Two-Factor Authentication (Google Authenticator)**: Users enrol from their profile by scanning a QR code (or entering the setup key manually) and confirming a code. A second-factor challenge is then required at login.
+* **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
+* **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
+* **Flexible Page-Specific Thresholds**: Configure custom reCAPTCHA score thresholds individually for every protected form.
 * **Key Scavenging Onboarding**: Discovers existing reCAPTCHA keys registered by Gravity Forms, Fluent Forms, Beaver Builder, and PowerPack so you can import them with a single click.
 * **Zero Overhead Frontend**: Only loads JavaScript on active target pages to maintain optimal client-side page speed.
 
 == Installation ==
 
-1. Upload the plugin files to the `/wp-content/plugins/google-recaptcha-v3-for-woocommerce` directory, or install the plugin through the WordPress plugins screen directly.
+1. Upload the plugin files to the `/wp-content/plugins/google-security-for-wordpress` directory, or install the plugin through the WordPress plugins screen directly.
 2. Activate the plugin.
 3. Navigate to **Settings -> reCAPTCHA v3** to configure your site keys, protected forms, and score thresholds.
+4. Navigate to **Settings -> Two-Factor Auth** to enable two-factor authentication and (optionally) require it for specific roles.
+5. Each user enables 2FA from **Users -> Profile -> Two-Factor Authentication**.
 
 == Frequently Asked Questions ==
+
+= Do I need a Google account or API for two-factor authentication? =
+No. "Google Authenticator" support means the industry-standard TOTP algorithm (RFC 6238). The codes are generated and verified entirely on your own site, and any compatible app (Google Authenticator, Authy, 1Password, Microsoft Authenticator) will work.
+
+= What happens if a user loses their phone? =
+They can use one of the single-use backup codes shown when they enrolled. An administrator can also reset a user's 2FA from the user-edit screen to restore access.
 
 = Does this work with WooCommerce checkout blocks? =
 Currently, this plugin supports the classic shortcode-based checkout pages.
@@ -39,6 +52,12 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.0.0 =
+* Renamed the plugin from "Google reCAPTCHA v3 for WooCommerce" to "Google Security for WordPress" to reflect its broader scope. Existing settings are migrated automatically.
+* Added two-factor authentication (TOTP) compatible with Google Authenticator and other authenticator apps: per-user enrolment from the profile screen (QR code or manual setup key), a second-factor login challenge, single-use backup codes, and optional role-based enforcement.
+* Administrators can reset another user's two-factor authentication from the user-edit screen.
+* XML-RPC logins are blocked for accounts with two-factor authentication enabled, closing a bypass of the second factor.
 
 = 1.3.0 =
 * Added reCAPTCHA v3 scoring to the WordPress core screens served by wp-login.php: sign in, user registration, and lost password, each with its own score threshold.

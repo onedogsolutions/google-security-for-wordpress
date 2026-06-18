@@ -12,20 +12,20 @@
  * source loads Google reCAPTCHA at render time, which is robust across plugins
  * and versions.
  *
- * Modes (recaptcha_woo_conflict_mode):
+ * Modes (gswp_conflict_mode):
  *  - 'off'    : do nothing (default).
  *  - 'active' : suppress others only on pages where this plugin loads its own
  *               reCAPTCHA. Standalone reCAPTCHA on other pages keeps working.
  *  - 'site'   : suppress others on every front-end page.
  *
- * @package Google_Recaptcha_V3_For_WooCommerce
+ * @package Google_Security_For_WordPress
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Recaptcha_Woo_Conflict_Guard {
+class GSWP_Conflict_Guard {
 
 	/**
 	 * Active suppression mode ('active' or 'site').
@@ -65,7 +65,7 @@ class Recaptcha_Woo_Conflict_Guard {
 	 * Constructor.
 	 */
 	public function __construct() {
-		$mode = get_option( 'recaptcha_woo_conflict_mode', 'off' );
+		$mode = get_option( 'gswp_conflict_mode', 'off' );
 
 		if ( 'active' !== $mode && 'site' !== $mode ) {
 			return;
@@ -110,7 +110,7 @@ class Recaptcha_Woo_Conflict_Guard {
 	 */
 	private function should_suppress( $handle, $src ) {
 		// Never suppress this plugin's own script.
-		if ( Recaptcha_Woo_Assets::HANDLE === $handle ) {
+		if ( GSWP_Assets::HANDLE === $handle ) {
 			return false;
 		}
 
@@ -137,7 +137,7 @@ class Recaptcha_Woo_Conflict_Guard {
 	 * @return bool True when this plugin's script is in the queue.
 	 */
 	private function our_recaptcha_active() {
-		return wp_script_is( Recaptcha_Woo_Assets::HANDLE, 'enqueued' )
-			|| wp_script_is( Recaptcha_Woo_Assets::HANDLE, 'done' );
+		return wp_script_is( GSWP_Assets::HANDLE, 'enqueued' )
+			|| wp_script_is( GSWP_Assets::HANDLE, 'done' );
 	}
 }
