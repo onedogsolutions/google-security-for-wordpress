@@ -26,8 +26,8 @@ class GSWP_Admin {
 	 */
 	public function register_admin_page() {
 		add_options_page(
-			__( 'reCAPTCHA v3 Settings', 'google-security-for-wordpress' ),
-			__( 'reCAPTCHA v3', 'google-security-for-wordpress' ),
+			__( 'Google Security Settings', 'google-security-for-wordpress' ),
+			__( 'Google Security', 'google-security-for-wordpress' ),
 			'manage_options',
 			'gswp-admin',
 			array( $this, 'render_admin_page' )
@@ -117,6 +117,8 @@ class GSWP_Admin {
 				'nonce'              => wp_create_nonce( 'wp_rest' ),
 				'settings'           => $initial_settings,
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
+				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
+				'twoFactorSettingsUrl' => esc_url_raw( admin_url( 'options-general.php?page=' . GSWP_Two_Factor_Admin::PAGE_SLUG ) ),
 			)
 		);
 	}

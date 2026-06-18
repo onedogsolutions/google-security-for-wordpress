@@ -5,8 +5,8 @@ import apiFetch from '@wordpress/api-fetch';
 import StatusBadge from './StatusBadge';
 import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
-import KeyScavenger from './KeyScavenger';
 import Compatibility from './Compatibility';
+import TwoFactorNotice from './TwoFactorNotice';
 
 export default function App() {
 	const initialData = window.gswpAdminData || {
@@ -61,22 +61,6 @@ export default function App() {
 			...prev,
 			[ key ]: value,
 		} ) );
-	};
-
-	// Import credentials from scavenger
-	const handleImport = ( siteKey, secretKey ) => {
-		setSettings( ( prev ) => ( {
-			...prev,
-			site_key: siteKey,
-			secret_key: secretKey || prev.secret_key,
-		} ) );
-		showToast(
-			__(
-				'Credentials imported. Make sure to save changes!',
-				'google-security-for-wordpress'
-			),
-			'info'
-		);
 	};
 
 	// Helper to show alert
@@ -148,13 +132,13 @@ export default function App() {
 				<div className="min-w-0 flex-1">
 					<h1 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl tracking-tight">
 						{ __(
-							'Google reCAPTCHA v3',
+							'Google Security',
 							'google-security-for-wordpress'
 						) }
 					</h1>
 					<p className="mt-1 text-sm text-gray-500">
 						{ __(
-							'Secure customer endpoints with invisible spam protection.',
+							'Invisible reCAPTCHA v3 spam protection plus two-factor authentication.',
 							'google-security-for-wordpress'
 						) }
 					</p>
@@ -186,8 +170,11 @@ export default function App() {
 						onChange={ handleSettingChange }
 					/>
 
-					{ /* Key Scavenger panel */ }
-					<KeyScavenger onImport={ handleImport } />
+					{ /* Two-Factor Authentication notice */ }
+					<TwoFactorNotice
+						profileUrl={ initialData.profileUrl }
+						settingsUrl={ initialData.twoFactorSettingsUrl }
+					/>
 				</div>
 
 				{ /* Form Submission Bar */ }
