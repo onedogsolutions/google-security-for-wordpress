@@ -6,6 +6,7 @@ import StatusBadge from './StatusBadge';
 import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
+import TransactionDefense from './TransactionDefense';
 import TwoFactorNotice from './TwoFactorNotice';
 
 export default function App() {
@@ -22,6 +23,9 @@ export default function App() {
 			threshold_login: '0.5',
 			threshold_registration: '0.5',
 			threshold_checkout: '0.5',
+			txn_defense: '0',
+			txn_block: '0',
+			threshold_txn: '0.8',
 			enable_wp_login: '0',
 			enable_wp_register: '0',
 			enable_wp_lostpassword: '0',
@@ -165,6 +169,14 @@ export default function App() {
 						onChange={ handleSettingChange }
 						woocommerceActive={ !! initialData.woocommerceActive }
 					/>
+
+					{ /* Transaction defense (Enterprise + WooCommerce only) */ }
+					{ !! initialData.woocommerceActive && (
+						<TransactionDefense
+							settings={ settings }
+							onChange={ handleSettingChange }
+						/>
+					) }
 
 					{ /* Conflict handling */ }
 					<Compatibility

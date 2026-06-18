@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.2
+Stable tag: 2.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,6 +22,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 = Features =
 * **WordPress Core Screen Protection**: Scores the wp-login.php sign in, user registration, and lost password forms out of the box, with no WooCommerce required.
 * **WooCommerce Support**: When WooCommerce is active, also protects the customer Login, Registration, and Checkout forms.
+* **Transaction Defense (reCAPTCHA Enterprise)**: When using an Enterprise key, sends the order's billing/shipping address, amount, line items, and payment method with each checkout assessment to power Google's Fraud Prevention model, optionally blocks high-risk transactions, and annotates each order's outcome (legitimate/fraudulent) so the model keeps learning.
 * **Two-Factor Authentication (Google Authenticator)**: Users enrol from their profile by scanning a QR code (or entering the setup key manually) and confirming a code. A second-factor challenge is then required at login.
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
@@ -52,6 +53,9 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.1.0 =
+* Added reCAPTCHA Enterprise Transaction defense for WooCommerce checkout. The plugin now sends payment transaction data (billing/shipping address, amount, currency, line items, and payment method) with each Enterprise checkout assessment so Google returns a Fraud Prevention verdict, and annotates each order's outcome (completed = legitimate, refunded/cancelled/failed = fraudulent) to train the model. A new Transaction Defense settings panel adds an opt-in toggle to block high-risk transactions above a configurable risk threshold. Enterprise key type and WooCommerce required; disabled by default.
 
 = 2.0.2 =
 * Added an "Enable two-factor authentication" button directly beneath the authenticator setup field, so users no longer have to scroll to the bottom of the profile page to submit their first verification code. After submitting, the page returns to the authenticator section — where the one-time backup codes are shown — instead of jumping to the top of the page.

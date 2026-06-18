@@ -14,6 +14,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 class GSWP_Verifier {
 
 	/**
+	 * Resource name of the most recent Enterprise assessment, e.g.
+	 * "projects/123/assessments/abc". Captured so a checkout can be tied to
+	 * its assessment and annotated later. Empty when none was created.
+	 *
+	 * @var string
+	 */
+	private $last_assessment_name = '';
+
+	/**
+	 * The fraudPreventionAssessment block from the most recent Enterprise
+	 * assessment response, or null when Transaction defense returned nothing.
+	 *
+	 * @var array|null
+	 */
+	private $last_fraud_assessment = null;
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -86,10 +103,19 @@ class GSWP_Verifier {
 			return;
 		}
 
-		$result = $this->verify_token( 'checkout', 'checkout' );
+		// Attach payment transaction data so reCAPTCHA Enterprise Transaction
+		// defense can return a fraudPreventionAssessment. Empty for classic
+		// keys, when the feature is off, or when the minimum fields are absent.
+		$event_extra = $this->build_checkout_event_extra();
+
+		$result = $this->verify_token( 'checkout', 'checkout', $event_extra );
 		if ( is_wp_error( $result ) ) {
 			$errors->add( 'recaptcha_error', $result->get_error_message() );
 		}
+
+		// Interpret the Transaction defense verdict: record the risk, stash the
+		// assessment name for annotation, and optionally block high-risk orders.
+		$this->process_fraud_prevention( $errors );
 	}
 
 	/**
@@ -102,9 +128,16 @@ class GSWP_Verifier {
 	 *                                is read from "gswp_threshold_{$context}".
 	 * @param string $expected_action reCAPTCHA action name the frontend executed
 	 *                                with, validated for Enterprise assessments.
+	 * @param array  $event_extra     Extra fields merged into the Enterprise
+	 *                                assessment "event" (e.g. transactionData).
+	 *                                Ignored for classic verification.
 	 * @return true|WP_Error Returns true on success, WP_Error object on failure.
 	 */
-	public function verify_token( $context, $expected_action ) {
+	public function verify_token( $context, $expected_action, $event_extra = array() ) {
+		// Reset any verdict captured by a previous call on this request.
+		$this->last_assessment_name  = '';
+		$this->last_fraud_assessment = null;
+
 		$key_type = get_option( 'gswp_key_type', 'classic' );
 
 		// Skip verification if credentials are not configured to avoid blocking users.
@@ -130,7 +163,7 @@ class GSWP_Verifier {
 		}
 
 		$result = 'enterprise' === $key_type
-			? $this->assess_enterprise_token( $token, $expected_action )
+			? $this->assess_enterprise_token( $token, $expected_action, $event_extra )
 			: $this->verify_classic_token( $token );
 
 		if ( true !== $result && ! is_wp_error( $result ) ) {
@@ -214,9 +247,11 @@ class GSWP_Verifier {
 	 *
 	 * @param string $token           Submitted reCAPTCHA token.
 	 * @param string $expected_action reCAPTCHA action name the frontend executed with.
+	 * @param array  $event_extra     Extra fields merged into the "event" object,
+	 *                                such as transactionData and fraudPrevention.
 	 * @return float|true|WP_Error Score on success, true to skip scoring, WP_Error on failure.
 	 */
-	private function assess_enterprise_token( $token, $expected_action ) {
+	private function assess_enterprise_token( $token, $expected_action, $event_extra = array() ) {
 		$project_id = get_option( 'gswp_gcp_project_id', '' );
 		$api_key    = get_option( 'gswp_gcp_api_key', '' );
 		$site_key   = get_option( 'gswp_site_key', '' );
@@ -227,21 +262,22 @@ class GSWP_Verifier {
 			rawurlencode( $api_key )
 		);
 
+		$event = array_merge(
+			array(
+				'token'          => $token,
+				'siteKey'        => $site_key,
+				'expectedAction' => $expected_action,
+				'userIpAddress'  => $this->get_remote_ip(),
+			),
+			is_array( $event_extra ) ? $event_extra : array()
+		);
+
 		$response = wp_remote_post(
 			$api_url,
 			array(
 				'timeout' => 10,
 				'headers' => array( 'Content-Type' => 'application/json' ),
-				'body'    => wp_json_encode(
-					array(
-						'event' => array(
-							'token'          => $token,
-							'siteKey'        => $site_key,
-							'expectedAction' => $expected_action,
-							'userIpAddress'  => $this->get_remote_ip(),
-						),
-					)
-				),
+				'body'    => wp_json_encode( array( 'event' => $event ) ),
 			)
 		);
 
@@ -262,6 +298,15 @@ class GSWP_Verifier {
 			$detail = is_array( $data ) && isset( $data['error']['message'] ) ? $data['error']['message'] : 'no detail';
 			$this->log( 'Enterprise assessment request failed with HTTP ' . $status . ' (' . $detail . '). Check the GCP project ID and API key in WooCommerce > reCAPTCHA v3. Verification was skipped.' );
 			return true;
+		}
+
+		// Capture the assessment name (for later annotation) and the Transaction
+		// defense verdict, when the integration is complete enough to return one.
+		if ( isset( $data['name'] ) ) {
+			$this->last_assessment_name = sanitize_text_field( $data['name'] );
+		}
+		if ( isset( $data['fraudPreventionAssessment'] ) && is_array( $data['fraudPreventionAssessment'] ) ) {
+			$this->last_fraud_assessment = $data['fraudPreventionAssessment'];
 		}
 
 		$token_properties = isset( $data['tokenProperties'] ) && is_array( $data['tokenProperties'] ) ? $data['tokenProperties'] : array();
@@ -291,6 +336,231 @@ class GSWP_Verifier {
 		}
 
 		return isset( $data['riskAnalysis']['score'] ) ? floatval( $data['riskAnalysis']['score'] ) : 0.0;
+	}
+
+	/**
+	 * Build the extra Enterprise event fields for a checkout assessment.
+	 *
+	 * Assembles reCAPTCHA Enterprise transactionData from the posted checkout
+	 * fields and the WooCommerce cart so Transaction defense can score the
+	 * payment. Returns an empty array (no transaction data) unless every
+	 * precondition holds: an Enterprise key, the feature enabled, an available
+	 * cart, and the minimum fields Google requires (billing region + postal
+	 * code + payment method). Without that minimum the assessment API rejects
+	 * the request with HTTP 400, which would also skip the reCAPTCHA score.
+	 *
+	 * @return array Event fields to merge (transactionData, fraudPrevention), or empty.
+	 */
+	private function build_checkout_event_extra() {
+		if ( 'enterprise' !== get_option( 'gswp_key_type', 'classic' ) ) {
+			return array();
+		}
+		if ( '1' !== get_option( 'gswp_txn_defense', '0' ) ) {
+			return array();
+		}
+		if ( ! function_exists( 'WC' ) || ! WC()->cart ) {
+			return array();
+		}
+
+		$billing  = $this->build_address( 'billing' );
+		$shipping = $this->build_address( 'shipping' );
+
+		// WooCommerce reuses the billing address when "ship to a different
+		// address" is unchecked, in which case the shipping_* fields are blank.
+		if ( empty( $shipping['regionCode'] ) && empty( $shipping['postalCode'] ) ) {
+			$shipping = $billing;
+		}
+
+		$payment_method = $this->posted_field( 'payment_method' );
+
+		// Enforce Google's documented minimum; otherwise omit transaction data
+		// entirely and let the assessment run as a plain reCAPTCHA score.
+		if ( empty( $billing['regionCode'] ) || empty( $billing['postalCode'] ) || '' === $payment_method ) {
+			return array();
+		}
+
+		$transaction_data = array(
+			'paymentMethod'  => $payment_method,
+			'currencyCode'   => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : '',
+			'value'          => (float) WC()->cart->get_total( 'edit' ),
+			'shippingValue'  => (float) WC()->cart->get_shipping_total(),
+			'billingAddress' => $billing,
+		);
+
+		if ( ! empty( $shipping['regionCode'] ) || ! empty( $shipping['postalCode'] ) ) {
+			$transaction_data['shippingAddress'] = $shipping;
+		}
+
+		$user = $this->build_transaction_user();
+		if ( ! empty( $user ) ) {
+			$transaction_data['user'] = $user;
+		}
+
+		$items = $this->build_transaction_items();
+		if ( ! empty( $items ) ) {
+			$transaction_data['items'] = $items;
+		}
+
+		return array(
+			'transactionData' => $transaction_data,
+			// Force the fraud assessment regardless of the console toggle state.
+			'fraudPrevention' => 'ENABLED',
+		);
+	}
+
+	/**
+	 * Read a posted checkout field, unslashed and sanitized.
+	 *
+	 * @param string $key Field name in $_POST.
+	 * @return string Sanitized value, or '' when absent.
+	 */
+	private function posted_field( $key ) {
+		// Nonce verification is handled by WooCommerce checkout before this
+		// validation hook fires; we only read fields it has already accepted.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		return isset( $_POST[ $key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) : '';
+	}
+
+	/**
+	 * Build a reCAPTCHA Enterprise Address from posted billing/shipping fields.
+	 *
+	 * @param string $prefix Either "billing" or "shipping".
+	 * @return array Address fields keyed for the assessment API.
+	 */
+	private function build_address( $prefix ) {
+		$first = $this->posted_field( $prefix . '_first_name' );
+		$last  = $this->posted_field( $prefix . '_last_name' );
+
+		$lines = array_values(
+			array_filter(
+				array(
+					$this->posted_field( $prefix . '_address_1' ),
+					$this->posted_field( $prefix . '_address_2' ),
+				)
+			)
+		);
+
+		$address = array(
+			'recipient'          => trim( $first . ' ' . $last ),
+			'locality'           => $this->posted_field( $prefix . '_city' ),
+			'administrativeArea' => $this->posted_field( $prefix . '_state' ),
+			'regionCode'         => $this->posted_field( $prefix . '_country' ),
+			'postalCode'         => $this->posted_field( $prefix . '_postcode' ),
+		);
+
+		if ( ! empty( $lines ) ) {
+			$address['address'] = $lines;
+		}
+
+		// Drop empties so the payload only carries what we actually have.
+		return array_filter(
+			$address,
+			static function ( $value ) {
+				return '' !== $value && array() !== $value;
+			}
+		);
+	}
+
+	/**
+	 * Build the transactionData.user block for the payer.
+	 *
+	 * @return array User fields keyed for the assessment API, or empty.
+	 */
+	private function build_transaction_user() {
+		$user  = array();
+		$email = $this->posted_field( 'billing_email' );
+
+		if ( '' !== $email ) {
+			$user['email'] = $email;
+		}
+
+		if ( is_user_logged_in() ) {
+			$current = wp_get_current_user();
+			$user['accountId']     = (string) $current->ID;
+			$user['emailVerified'] = true;
+
+			$registered = strtotime( $current->user_registered );
+			if ( $registered ) {
+				$user['creationMs'] = (string) ( $registered * 1000 );
+			}
+		}
+
+		return $user;
+	}
+
+	/**
+	 * Build the transactionData.items list from the WooCommerce cart.
+	 *
+	 * @return array List of item arrays keyed for the assessment API.
+	 */
+	private function build_transaction_items() {
+		$items = array();
+
+		foreach ( WC()->cart->get_cart() as $cart_item ) {
+			$product  = isset( $cart_item['data'] ) ? $cart_item['data'] : null;
+			$quantity = isset( $cart_item['quantity'] ) ? (int) $cart_item['quantity'] : 0;
+
+			if ( ! $product || $quantity < 1 ) {
+				continue;
+			}
+
+			// Per-item price after line discounts.
+			$line_total = isset( $cart_item['line_total'] ) ? (float) $cart_item['line_total'] : 0.0;
+
+			$items[] = array(
+				'name'     => $product->get_name(),
+				'value'    => $quantity > 0 ? round( $line_total / $quantity, 2 ) : 0.0,
+				'quantity' => (string) $quantity,
+			);
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Act on the Transaction defense verdict captured during the assessment.
+	 *
+	 * Logs the transaction risk, hands the assessment name to the annotation
+	 * layer via the WooCommerce session (the order does not exist yet), and,
+	 * when enabled, blocks orders whose risk meets the configured threshold.
+	 *
+	 * @param WP_Error $errors WooCommerce checkout validation errors object.
+	 */
+	private function process_fraud_prevention( $errors ) {
+		if ( null === $this->last_fraud_assessment ) {
+			return;
+		}
+
+		$risk = isset( $this->last_fraud_assessment['transactionRisk'] )
+			? floatval( $this->last_fraud_assessment['transactionRisk'] )
+			: null;
+
+		// Carry the assessment name and risk to the order via the session so the
+		// annotation layer can label the outcome once the order is created.
+		if ( '' !== $this->last_assessment_name && function_exists( 'WC' ) && WC()->session ) {
+			WC()->session->set( 'gswp_assessment_name', $this->last_assessment_name );
+			if ( null !== $risk ) {
+				WC()->session->set( 'gswp_transaction_risk', $risk );
+			}
+		}
+
+		if ( null === $risk ) {
+			return;
+		}
+
+		$this->log( sprintf( 'Transaction defense risk %.2f for assessment %s.', $risk, $this->last_assessment_name ) );
+
+		// Optional, opt-in blocking. transactionRisk is a fraud probability:
+		// closer to 1.0 is riskier, so block when it meets the threshold.
+		if ( '1' === get_option( 'gswp_txn_block', '0' ) ) {
+			$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
+			if ( $risk >= $threshold ) {
+				$errors->add(
+					'recaptcha_transaction_risk',
+					__( '<strong>Error:</strong> This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )
+				);
+			}
+		}
 	}
 
 	/**
