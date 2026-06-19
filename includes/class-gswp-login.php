@@ -140,7 +140,14 @@ class GSWP_Login {
 			return $user;
 		}
 
-		$result = $this->verifier->verify_token( 'wp_login', 'login' );
+		// At priority 30 the core password check (priority 20) has already run,
+		// so $user is the resolved WP_User on a correct password; otherwise fall
+		// back to the submitted login name for the Account Defender identifier.
+		$identifier = ( $user instanceof WP_User )
+			? $user
+			: ( isset( $_POST['log'] ) ? sanitize_text_field( wp_unslash( $_POST['log'] ) ) : null ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		$result = $this->verifier->verify_token( 'wp_login', 'login', array(), $identifier );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -157,7 +164,7 @@ class GSWP_Login {
 	 * @return WP_Error Filtered registration errors.
 	 */
 	public function validate_register( $errors, $sanitized_user = '', $user_email = '' ) {
-		$result = $this->verifier->verify_token( 'wp_register', 'register' );
+		$result = $this->verifier->verify_token( 'wp_register', 'register', array(), $user_email );
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $errors ) ) {
 				$errors = new WP_Error();

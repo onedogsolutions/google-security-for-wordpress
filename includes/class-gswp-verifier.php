@@ -31,6 +31,14 @@ class GSWP_Verifier {
 	private $last_fraud_assessment = null;
 
 	/**
+	 * The accountDefenderAssessment block from the most recent Enterprise
+	 * assessment response, or null when Account Defender returned nothing.
+	 *
+	 * @var array|null
+	 */
+	private $last_account_assessment = null;
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -57,7 +65,7 @@ class GSWP_Verifier {
 			return $validation_error;
 		}
 
-		$result = $this->verify_token( 'login', 'login' );
+		$result = $this->verify_token( 'login', 'login', array(), $username );
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $validation_error ) ) {
 				$validation_error = new WP_Error();
@@ -81,7 +89,7 @@ class GSWP_Verifier {
 			return $validation_errors;
 		}
 
-		$result = $this->verify_token( 'registration', 'register' );
+		$result = $this->verify_token( 'registration', 'register', array(), $email );
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $validation_errors ) ) {
 				$validation_errors = new WP_Error();
@@ -131,12 +139,24 @@ class GSWP_Verifier {
 	 * @param array  $event_extra     Extra fields merged into the Enterprise
 	 *                                assessment "event" (e.g. transactionData).
 	 *                                Ignored for classic verification.
+	 * @param mixed  $account_identifier Optional WP_User, user ID, login, or email
+	 *                                identifying the account, used to attach
+	 *                                Account Defender userInfo on login/register
+	 *                                assessments.
 	 * @return true|WP_Error Returns true on success, WP_Error object on failure.
 	 */
-	public function verify_token( $context, $expected_action, $event_extra = array() ) {
+	public function verify_token( $context, $expected_action, $event_extra = array(), $account_identifier = null ) {
 		// Reset any verdict captured by a previous call on this request.
-		$this->last_assessment_name  = '';
-		$this->last_fraud_assessment = null;
+		$this->last_assessment_name   = '';
+		$this->last_fraud_assessment  = null;
+		$this->last_account_assessment = null;
+
+		// Attach Account Defender account identifiers on login/registration
+		// assessments so Google can build its site-specific behavioural model.
+		$user_info = $this->build_account_user_info( $context, $account_identifier );
+		if ( ! empty( $user_info ) ) {
+			$event_extra = array_merge( is_array( $event_extra ) ? $event_extra : array(), $user_info );
+		}
 
 		$key_type = get_option( 'gswp_key_type', 'classic' );
 
@@ -307,6 +327,9 @@ class GSWP_Verifier {
 		}
 		if ( isset( $data['fraudPreventionAssessment'] ) && is_array( $data['fraudPreventionAssessment'] ) ) {
 			$this->last_fraud_assessment = $data['fraudPreventionAssessment'];
+		}
+		if ( isset( $data['accountDefenderAssessment'] ) && is_array( $data['accountDefenderAssessment'] ) ) {
+			$this->last_account_assessment = $data['accountDefenderAssessment'];
 		}
 
 		$token_properties = isset( $data['tokenProperties'] ) && is_array( $data['tokenProperties'] ) ? $data['tokenProperties'] : array();
@@ -561,6 +584,134 @@ class GSWP_Verifier {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Resource name of the most recent Enterprise assessment.
+	 *
+	 * @return string Assessment name, or '' when none was created this request.
+	 */
+	public function get_last_assessment_name() {
+		return $this->last_assessment_name;
+	}
+
+	/**
+	 * Account Defender labels from the most recent Enterprise assessment.
+	 *
+	 * @return string[] Label strings (e.g. SUSPICIOUS_LOGIN_ACTIVITY), or empty.
+	 */
+	public function get_last_account_labels() {
+		if ( null === $this->last_account_assessment || empty( $this->last_account_assessment['labels'] ) ) {
+			return array();
+		}
+
+		return array_values( (array) $this->last_account_assessment['labels'] );
+	}
+
+	/**
+	 * Build the Account Defender userInfo block for a login/registration event.
+	 *
+	 * Returns an empty array unless Account Defender is enabled, an Enterprise
+	 * key is configured, the context is a login or registration assessment, and
+	 * an identifier was supplied. Only an opaque, salted account hash is sent —
+	 * never the raw email, username, or phone number.
+	 *
+	 * @param string $context            Assessment context.
+	 * @param mixed  $account_identifier WP_User, user ID, login, or email.
+	 * @return array { userInfo: array } or empty array.
+	 */
+	private function build_account_user_info( $context, $account_identifier ) {
+		if ( null === $account_identifier ) {
+			return array();
+		}
+		if ( 'enterprise' !== get_option( 'gswp_key_type', 'classic' ) ) {
+			return array();
+		}
+		if ( '1' !== get_option( 'gswp_account_defender', '0' ) ) {
+			return array();
+		}
+
+		// Account Defender applies to account access events, not checkout.
+		$account_contexts = array( 'login', 'registration', 'wp_login', 'wp_register' );
+		if ( ! in_array( $context, $account_contexts, true ) ) {
+			return array();
+		}
+
+		list( $account_id, $created ) = $this->resolve_account_id( $account_identifier );
+		if ( '' === $account_id ) {
+			return array();
+		}
+
+		$user_info = array( 'accountId' => $account_id );
+
+		// createAccountTime is a strong signal for account-takeover and
+		// fake-signup detection when the account already exists.
+		if ( $created > 0 ) {
+			$user_info['createAccountTime'] = gmdate( 'Y-m-d\TH:i:s\Z', $created );
+		}
+
+		return array( 'userInfo' => $user_info );
+	}
+
+	/**
+	 * Resolve an identifier to a stable, opaque account hash.
+	 *
+	 * Existing users are keyed by their immutable user ID so the same account
+	 * maps to the same hash across logins regardless of whether they signed in
+	 * with a username or email. A not-yet-created account (registration) is
+	 * keyed by its normalised email.
+	 *
+	 * @param mixed $identifier WP_User, user ID, login, or email.
+	 * @return array{0:string,1:int} [ account hash, account creation epoch seconds ].
+	 */
+	private function resolve_account_id( $identifier ) {
+		$user = null;
+
+		if ( $identifier instanceof WP_User ) {
+			$user = $identifier;
+		} elseif ( is_numeric( $identifier ) ) {
+			$user = get_user_by( 'id', (int) $identifier );
+		} elseif ( is_string( $identifier ) && '' !== $identifier ) {
+			$user = get_user_by( 'login', $identifier );
+			if ( ! $user && is_email( $identifier ) ) {
+				$user = get_user_by( 'email', $identifier );
+			}
+		}
+
+		if ( $user instanceof WP_User ) {
+			$created = strtotime( $user->user_registered . ' UTC' );
+			return array( $this->hash_account( 'id:' . $user->ID ), $created ? (int) $created : 0 );
+		}
+
+		// No existing account: key registrations by their normalised email.
+		if ( is_string( $identifier ) && is_email( $identifier ) ) {
+			return array( $this->hash_account( 'email:' . strtolower( $identifier ) ), 0 );
+		}
+
+		if ( is_string( $identifier ) && '' !== $identifier ) {
+			return array( $this->hash_account( 'login:' . strtolower( $identifier ) ), 0 );
+		}
+
+		return array( '', 0 );
+	}
+
+	/**
+	 * Hash an identifier with a stable site-specific salt.
+	 *
+	 * The salt is generated once and stored, so the same account always yields
+	 * the same opaque hash without exposing any personal data to Google.
+	 *
+	 * @param string $value Pre-namespaced identifier (e.g. "id:42").
+	 * @return string 64-char hex hash.
+	 */
+	private function hash_account( $value ) {
+		$salt = get_option( 'gswp_account_salt', '' );
+		if ( '' === $salt ) {
+			$salt = wp_generate_password( 64, true, true );
+			update_option( 'gswp_account_salt', $salt, false );
+		}
+
+		return hash( 'sha256', $salt . '|' . $value );
 	}
 
 	/**

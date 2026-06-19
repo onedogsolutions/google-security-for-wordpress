@@ -122,7 +122,8 @@ class GSWP_Powerpack {
 			$validation_error = new WP_Error();
 		}
 
-		$result = $this->verifier->verify_token( 'wp_login', 'login' );
+		$identifier = '' !== $user_login ? $user_login : null;
+		$result     = $this->verifier->verify_token( 'wp_login', 'login', array(), $identifier );
 		if ( is_wp_error( $result ) ) {
 			$validation_error->add( 'recaptcha_error', $result->get_error_message() );
 		}

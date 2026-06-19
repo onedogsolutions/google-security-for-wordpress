@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.1.0
+ * Version: 2.2.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.1.0' );
+define( 'GSWP_VERSION', '2.2.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -33,6 +33,10 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
 // Google's fraud model learns from outcomes. Hooks fire on the front end and
 // via admin order actions, so it loads unconditionally (inert when off).
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-transaction-defense.php';
+// reCAPTCHA Enterprise Account Defender: interprets per-login account labels and
+// annotates login/2FA outcomes. Hooks the authentication flow, so it loads
+// unconditionally (inert unless enabled with an Enterprise key).
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-account-defender.php';
 // The WordPress core login/registration/lost-password screens run outside the
 // admin context (is_admin() is false on wp-login.php), so this class must load
 // unconditionally for its hooks to fire.
@@ -81,6 +85,10 @@ function gswp_default_options() {
 		'txn_defense'               => '0',
 		'txn_block'                 => '0',
 		'threshold_txn'             => '0.8',
+		// reCAPTCHA Enterprise Account Defender.
+		'account_defender'          => '0',
+		'ad_step_up'                => '0',
+		'account_salt'              => '',
 		'enable_wp_login'           => '0',
 		'enable_wp_register'        => '0',
 		'enable_wp_lostpassword'    => '0',
@@ -221,6 +229,11 @@ function gswp_init() {
 	// reCAPTCHA Enterprise Transaction defense order annotation. Inert unless
 	// WooCommerce is active, an Enterprise key is set, and the feature is on.
 	new GSWP_Transaction_Defense();
+
+	// reCAPTCHA Enterprise Account Defender. Interprets per-login account labels
+	// and annotates login/2FA outcomes. Inert unless enabled with an Enterprise
+	// key. Shares the verifier so it can read the last assessment's labels.
+	new GSWP_Account_Defender( $verifier );
 
 	// Protect the WordPress core login, registration, and lost password
 	// screens. Hooks only fire on wp-login.php, so this is inert elsewhere.

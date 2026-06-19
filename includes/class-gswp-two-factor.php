@@ -191,7 +191,16 @@ class GSWP_Two_Factor {
 		}
 		$rememberme = ! empty( $_REQUEST['rememberme'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
-		$this->store_pending_login( $user->ID, $redirect_to, $rememberme );
+		// Account Defender: record that the password was correct and a 2FA
+		// challenge was started, carrying the assessment name into the held login
+		// so the eventual pass/fail can annotate the same assessment.
+		$assessment_name = '';
+		if ( class_exists( 'GSWP_Account_Defender' ) && GSWP_Account_Defender::is_active() ) {
+			$assessment_name = GSWP_Account_Defender::current_assessment_name();
+			GSWP_Account_Defender::annotate( $assessment_name, '', array( 'CORRECT_PASSWORD', 'INITIATED_TWO_FACTOR' ) );
+		}
+
+		$this->store_pending_login( $user->ID, $redirect_to, $rememberme, $assessment_name );
 
 		return new WP_Error(
 			'gswp_2fa_required',
@@ -220,11 +229,17 @@ class GSWP_Two_Factor {
 			wp_send_json_error( __( 'Too many attempts. Please sign in again.', 'google-security-for-wordpress' ) );
 		}
 
+		$assessment_name = isset( $pending['assessment_name'] ) ? (string) $pending['assessment_name'] : '';
+
 		$code = isset( $_POST['code'] ) ? sanitize_text_field( wp_unslash( $_POST['code'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		if ( ! $this->verify_user_code( $user->ID, $code ) ) {
 			$this->bump_pending_attempts( $pending );
+			$this->annotate_2fa( $assessment_name, '', array( 'FAILED_TWO_FACTOR' ) );
 			wp_send_json_error( __( 'Invalid verification code. Please try again.', 'google-security-for-wordpress' ) );
 		}
+
+		// Second factor verified: a strong legitimacy signal for Account Defender.
+		$this->annotate_2fa( $assessment_name, 'LEGITIMATE', array( 'PASSED_TWO_FACTOR' ) );
 
 		// Second factor verified: consume the pending login and sign the user in.
 		$rememberme = ! empty( $pending['rememberme'] );
@@ -369,20 +384,22 @@ class GSWP_Two_Factor {
 	 * to a victim's challenge (and the code itself is still required). A separate
 	 * readable flag cookie (no secret) signals the front-end popup to open.
 	 *
-	 * @param int    $user_id     User ID.
-	 * @param string $redirect_to Post-login redirect target.
-	 * @param bool   $rememberme  Whether "remember me" was set.
+	 * @param int    $user_id         User ID.
+	 * @param string $redirect_to     Post-login redirect target.
+	 * @param bool   $rememberme      Whether "remember me" was set.
+	 * @param string $assessment_name Account Defender assessment to annotate later.
 	 */
-	private function store_pending_login( $user_id, $redirect_to, $rememberme ) {
+	private function store_pending_login( $user_id, $redirect_to, $rememberme, $assessment_name = '' ) {
 		$token = wp_generate_password( 32, false );
 
 		set_transient(
 			self::PENDING_PREFIX . $token,
 			array(
-				'user_id'     => (int) $user_id,
-				'redirect_to' => (string) $redirect_to,
-				'rememberme'  => (bool) $rememberme,
-				'attempts'    => 0,
+				'user_id'         => (int) $user_id,
+				'redirect_to'     => (string) $redirect_to,
+				'rememberme'      => (bool) $rememberme,
+				'attempts'        => 0,
+				'assessment_name' => (string) $assessment_name,
 			),
 			self::PENDING_TTL
 		);
@@ -472,6 +489,21 @@ class GSWP_Two_Factor {
 		}
 		$pending['attempts'] = isset( $pending['attempts'] ) ? (int) $pending['attempts'] + 1 : 1;
 		set_transient( self::PENDING_PREFIX . $token, $pending, self::PENDING_TTL );
+	}
+
+	/**
+	 * Forward a two-factor outcome annotation to Account Defender, when active.
+	 *
+	 * @param string   $name       Assessment resource name.
+	 * @param string   $annotation Annotation enum or '' to omit.
+	 * @param string[] $reasons    Reason enum values.
+	 */
+	private function annotate_2fa( $name, $annotation, $reasons ) {
+		if ( '' === $name || ! class_exists( 'GSWP_Account_Defender' ) || ! GSWP_Account_Defender::is_active() ) {
+			return;
+		}
+
+		GSWP_Account_Defender::annotate( $name, $annotation, $reasons );
 	}
 
 	/* ---------------------------------------------------------------------

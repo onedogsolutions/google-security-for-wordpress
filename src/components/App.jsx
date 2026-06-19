@@ -7,6 +7,7 @@ import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
 import TransactionDefense from './TransactionDefense';
+import AccountDefender from './AccountDefender';
 import TwoFactorNotice from './TwoFactorNotice';
 
 export default function App() {
@@ -26,6 +27,8 @@ export default function App() {
 			txn_defense: '0',
 			txn_block: '0',
 			threshold_txn: '0.8',
+			account_defender: '0',
+			ad_step_up: '0',
 			enable_wp_login: '0',
 			enable_wp_register: '0',
 			enable_wp_lostpassword: '0',
@@ -177,6 +180,12 @@ export default function App() {
 							onChange={ handleSettingChange }
 						/>
 					) }
+
+					{ /* Account Defender (Enterprise; login/registration) */ }
+					<AccountDefender
+						settings={ settings }
+						onChange={ handleSettingChange }
+					/>
 
 					{ /* Conflict handling */ }
 					<Compatibility

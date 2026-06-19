@@ -134,7 +134,8 @@ class GSWP_Xootix {
 	 * @return WP_Error Filtered validation errors.
 	 */
 	public function validate_login( $validation_error, $creds = array() ) {
-		return $this->add_error( $validation_error, 'wp_login', 'login' );
+		$identifier = is_array( $creds ) && ! empty( $creds['user_login'] ) ? $creds['user_login'] : null;
+		return $this->add_error( $validation_error, 'wp_login', 'login', $identifier );
 	}
 
 	/**
@@ -147,7 +148,7 @@ class GSWP_Xootix {
 	 * @return WP_Error Filtered validation errors.
 	 */
 	public function validate_register( $validation_error, $username = '', $password = '', $email = '' ) {
-		return $this->add_error( $validation_error, 'wp_register', 'register' );
+		return $this->add_error( $validation_error, 'wp_register', 'register', $email );
 	}
 
 	/**
@@ -166,10 +167,11 @@ class GSWP_Xootix {
 	 * @param WP_Error $validation_error Current validation errors.
 	 * @param string   $context          Threshold context.
 	 * @param string   $action           Expected reCAPTCHA action.
+	 * @param mixed    $identifier       Account identifier for Account Defender.
 	 * @return WP_Error Filtered validation errors.
 	 */
-	private function add_error( $validation_error, $context, $action ) {
-		$result = $this->verifier->verify_token( $context, $action );
+	private function add_error( $validation_error, $context, $action, $identifier = null ) {
+		$result = $this->verifier->verify_token( $context, $action, array(), $identifier );
 
 		if ( is_wp_error( $result ) ) {
 			if ( ! is_wp_error( $validation_error ) ) {
