@@ -77,6 +77,15 @@ class GSWP_Account_Defender {
 	}
 
 	/**
+	 * Whether verbose (per-event) logging is enabled.
+	 *
+	 * @return bool
+	 */
+	public static function verbose() {
+		return '1' === get_option( 'gswp_verbose_logging', '0' );
+	}
+
+	/**
 	 * Capture the assessment labels for the current login and decide step-up.
 	 *
 	 * @param null|WP_User|WP_Error $user     Auth result so far.
@@ -94,7 +103,17 @@ class GSWP_Account_Defender {
 
 		$labels = $this->verifier->get_last_account_labels();
 		if ( ! empty( $labels ) ) {
-			$this->log( 'Account Defender labels for login: ' . implode( ', ', $labels ) . '.' );
+			// PROFILE_MATCH is returned on ordinary, legitimate logins, so logging
+			// every label would write a line per sign-in. Record only genuine risk
+			// labels by default; the full set is logged when verbose logging is on.
+			$risk_labels = array_intersect(
+				$labels,
+				array( 'SUSPICIOUS_LOGIN_ACTIVITY', 'SUSPICIOUS_ACCOUNT_CREATION', 'RELATED_ACCOUNTS_NUMBER_HIGH' )
+			);
+
+			if ( ! empty( $risk_labels ) || self::verbose() ) {
+				$this->log( 'Account Defender labels for login: ' . implode( ', ', $labels ) . '.' );
+			}
 		}
 
 		// Optional step-up: a suspicious login forces the 2FA challenge. This

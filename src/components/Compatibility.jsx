@@ -6,6 +6,9 @@ export default function Compatibility( { settings, onChange } ) {
 			? settings.conflict_mode
 			: 'off';
 
+	const verbose =
+		settings.verbose_logging === '1' || settings.verbose_logging === true;
+
 	const modes = [
 		{
 			id: 'off',
@@ -92,6 +95,60 @@ export default function Compatibility( { settings, onChange } ) {
 						) ) }
 					</div>
 				</fieldset>
+
+				{ /* Diagnostics: verbose logging */ }
+				<div className="mt-8 border-t border-gray-100 pt-6 flex flex-col gap-y-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8">
+					<div className="flex-1">
+						<h3 className="text-sm font-semibold text-gray-900">
+							{ __(
+								'Verbose logging',
+								'google-security-for-wordpress'
+							) }
+						</h3>
+						<p className="mt-1 text-sm text-gray-500">
+							{ __(
+								'By default only anomalies and failures are written to the WooCommerce log (source “gswp”). Turn this on to also log every assessment — Transaction risk per checkout and Account Defender labels per login. Useful for debugging; leave off in production to keep the log small.',
+								'google-security-for-wordpress'
+							) }
+						</p>
+					</div>
+					<div className="flex items-center gap-x-3">
+						<span className="text-sm text-gray-600">
+							{ verbose
+								? __(
+										'Enabled',
+										'google-security-for-wordpress'
+								  )
+								: __(
+										'Disabled',
+										'google-security-for-wordpress'
+								  ) }
+						</span>
+						<button
+							type="button"
+							aria-label={ __(
+								'Verbose logging',
+								'google-security-for-wordpress'
+							) }
+							className={ `relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
+								verbose ? 'bg-indigo-600' : 'bg-gray-200'
+							}` }
+							onClick={ () =>
+								onChange(
+									'verbose_logging',
+									verbose ? '0' : '1'
+								)
+							}
+						>
+							<span
+								aria-hidden="true"
+								className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+									verbose ? 'translate-x-5' : 'translate-x-0'
+								}` }
+							/>
+						</button>
+					</div>
+				</div>
 			</div>
 		</div>
 	);

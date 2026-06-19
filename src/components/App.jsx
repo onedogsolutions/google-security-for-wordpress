@@ -29,6 +29,7 @@ export default function App() {
 			threshold_txn: '0.8',
 			account_defender: '0',
 			ad_step_up: '0',
+			verbose_logging: '0',
 			enable_wp_login: '0',
 			enable_wp_register: '0',
 			enable_wp_lostpassword: '0',

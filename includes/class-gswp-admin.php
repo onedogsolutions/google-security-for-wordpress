@@ -104,6 +104,7 @@ class GSWP_Admin {
 			'threshold_txn'          => get_option( 'gswp_threshold_txn', '0.8' ),
 			'account_defender'       => get_option( 'gswp_account_defender', '0' ),
 			'ad_step_up'             => get_option( 'gswp_ad_step_up', '0' ),
+			'verbose_logging'        => get_option( 'gswp_verbose_logging', '0' ),
 			'enable_wp_login'        => get_option( 'gswp_enable_wp_login', '0' ),
 			'enable_wp_register'     => get_option( 'gswp_enable_wp_register', '0' ),
 			'enable_wp_lostpassword' => get_option( 'gswp_enable_wp_lostpassword', '0' ),

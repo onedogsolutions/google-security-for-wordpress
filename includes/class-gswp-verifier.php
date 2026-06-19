@@ -571,13 +571,19 @@ class GSWP_Verifier {
 			return;
 		}
 
-		$this->log( sprintf( 'Transaction defense risk %.2f for assessment %s.', $risk, $this->last_assessment_name ) );
+		// The per-order risk is already recorded as an order note, so the routine
+		// case stays out of the log. Only blocked checkouts are logged below;
+		// every assessment is logged when verbose logging is enabled.
+		if ( '1' === get_option( 'gswp_verbose_logging', '0' ) ) {
+			$this->log( sprintf( 'Transaction defense risk %.2f for assessment %s.', $risk, $this->last_assessment_name ) );
+		}
 
 		// Optional, opt-in blocking. transactionRisk is a fraud probability:
 		// closer to 1.0 is riskier, so block when it meets the threshold.
 		if ( '1' === get_option( 'gswp_txn_block', '0' ) ) {
 			$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
 			if ( $risk >= $threshold ) {
+				$this->log( sprintf( 'Transaction defense blocked checkout: risk %.2f >= threshold %.2f (assessment %s).', $risk, $threshold, $this->last_assessment_name ) );
 				$errors->add(
 					'recaptcha_transaction_risk',
 					__( '<strong>Error:</strong> This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )

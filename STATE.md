@@ -1,6 +1,14 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 13 (reCAPTCHA Enterprise Account Defender)
+## Current Phase: Phase 14 (Quieter logging + verbose toggle)
+
+### Phase 14 Modifications (v2.2.1)
+- Trimmed happy-path logging so the WooCommerce `gswp` log only records anomalies/failures by default. `GSWP_Account_Defender::capture_login_assessment()` now logs a login's labels only when a real risk label is present (`SUSPICIOUS_LOGIN_ACTIVITY` / `SUSPICIOUS_ACCOUNT_CREATION` / `RELATED_ACCOUNTS_NUMBER_HIGH`); the benign `PROFILE_MATCH` returned on ordinary logins no longer writes a per-login line. `GSWP_Verifier::process_fraud_prevention()` no longer logs the transaction risk on every checkout (it is still saved as an order note); it logs only when a checkout is actually blocked.
+- Added a `gswp_verbose_logging` option (default `0`) that restores full per-assessment logging for debugging. Read via `GSWP_Account_Defender::verbose()` and inline in the verifier. Wired through `gswp_default_options()`, REST `get_settings`/`update_settings`, and the admin localizer. New "Verbose logging" toggle appended to `src/components/Compatibility.jsx` (under reCAPTCHA Conflict Handling) with the matching `App.jsx` default.
+- Context: WooCommerce's file logger already rotates daily (`wc-logs/gswp-YYYY-MM-DD-<hash>.log`) and prunes via the `woocommerce_cleanup_logs` cron after its retention period (30 days by default), so logs were already bounded; this change keeps each day's file small in steady state.
+- Bumped version to 2.2.1 (main header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json` root).
+
+## Historical Phase: Phase 13 (reCAPTCHA Enterprise Account Defender)
 
 ### Phase 13 Modifications (v2.2.0)
 - Added reCAPTCHA Enterprise **Account Defender** for login/registration. Disabled by default, Enterprise-only. Three pieces: send an anonymous account identifier, interpret the returned labels (log + optional 2FA step-up), and annotate login/2FA outcomes to train Google's site-specific model.
