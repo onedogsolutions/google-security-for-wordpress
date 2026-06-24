@@ -1,125 +1,71 @@
-# Implementation Plan: Fix 2FA Authenticator Modal Cursor Focus on the Login Screen
+# Fix: 2FA Modal Cursor Focus on wp-login.php
 
-**Target file:** `assets/js/gswp-2fa-modal.js` (plain asset, no webpack build required)
-**Branch:** `claude/wonderful-edison-b8cz5p`
-**Version to bump to:** 2.2.3 (this is a behavior fix on top of the 2.2.2 attempt)
+**File:** `assets/js/gswp-2fa-modal.js` (plain asset, no build) · **Branch:** `claude/wonderful-edison-b8cz5p` · **Version:** 2.2.2 → 2.2.3
 
----
+## Root cause
+wp-login.php runs core `wp_attempt_focus()` = `setTimeout(focus #user_login, 200)`. Modal focuses input at next rAF (~32ms), core steals it back at 200ms. Only reproduces on login screen (front-end forms lack `wp_attempt_focus`). Single timed focus can't win; need a focus trap.
 
-## 1. Problem
+## Edits to `assets/js/gswp-2fa-modal.js`
 
-When a 2FA-enrolled user signs in, the held-login flag cookie triggers the
-authenticator modal. The code input is supposed to receive cursor focus so the
-user can immediately type the 6-digit code. This works on front-end login forms
-but **fails on `wp-login.php`** — the cursor lands in (or jumps back to) the
-WordPress username/password field instead of the modal input.
-
-The previous fix (commit `9bb4208`, v2.2.2) added `autofocus`, a double
-`requestAnimationFrame` focus call, and an empty-submit re-focus. It did not
-fix the login screen.
-
-## 2. Root cause
-
-`wp-login.php` emits WordPress core's `wp_attempt_focus()` in its footer, which
-runs:
+### Edit 1 — add `trapFocus` + replace focus logic in `open()` (current lines 110–128)
+Replace the existing `open()` body's focus block with:
 
 ```js
-setTimeout( function () { document.getElementById('user_login').focus(); ... }, 200 );
-```
+function open() {
+	if ( isOpen ) {
+		return;
+	}
+	build();
+	isOpen = true;
+	overlay.classList.add( 'is-open' );
+	document.body.classList.add( 'gswp-2fa-lock' );
+	document.addEventListener( 'focusin', trapFocus );
+	focusInput();
+	// Re-assert past core wp_attempt_focus() (setTimeout 200ms on wp-login.php).
+	setTimeout( focusInput, 250 );
+	setTimeout( focusInput, 400 );
+}
 
-That timer fires **200 ms after load** and focuses the core username/password
-field. Our modal focuses its input on the next animation frame(s) — only
-~16–32 ms after `open()`. Sequence of events on the login screen:
+function focusInput() {
+	if ( isOpen && input && document.activeElement !== input ) {
+		input.focus();
+	}
+}
 
-1. Page loads with the held-login flag cookie present.
-2. `init()` → `open()` → double-rAF → `input.focus()` succeeds (~32 ms).
-3. **200 ms:** core `wp_attempt_focus()` fires and steals focus back to
-   `#user_login` / `#user_pass`.
-
-Because core's focus is on a longer timer, it always wins the race. This is why
-the bug is specific to the login screen — front-end pages have no
-`wp_attempt_focus()`.
-
-## 3. Fix
-
-Make the modal's focus authoritative for as long as the modal is open, rather
-than firing once and hoping nothing steals it. Implement **both** of the
-following in `assets/js/gswp-2fa-modal.js`:
-
-### 3a. Re-assert focus past core's 200 ms timer
-In `open()`, in addition to the existing rAF focus, schedule a delayed
-re-focus that lands **after** `wp_attempt_focus()` (use ~250 ms to clear the
-200 ms core timer, plus one more at ~400 ms for slow devices). Guard each with
-`isOpen` and `document.activeElement !== input` so they no-op when the user has
-intentionally moved focus (e.g. clicked Cancel) or already typing.
-
-### 3b. Add a focus trap while the modal is open (primary, robust fix)
-A modal that sets `aria-modal="true"` should keep focus inside it anyway. Add a
-document-level `focusin` listener, installed when `open()` runs and removed in
-`close()`, that pulls focus back to the code input whenever focus escapes the
-overlay while `isOpen` is true:
-
-```js
 function trapFocus( e ) {
-    if ( isOpen && overlay && ! overlay.contains( e.target ) ) {
-        input.focus();
-    }
+	if ( isOpen && overlay && ! overlay.contains( e.target ) ) {
+		input.focus();
+	}
 }
 ```
 
-This neutralizes `wp_attempt_focus()` regardless of its exact timing, and also
-correctly handles Tab-ing out of the modal. The timed re-focus in 3a covers the
-initial paint; the trap covers everything after.
+### Edit 2 — remove the listener in `close()` (current lines 130–136)
+Add inside `close()`:
 
-### 3c. Keep `close()` clean
-Ensure `close()` removes the `focusin` listener so the login form is usable
-again after Cancel (the user abandons the challenge and should be able to focus
-the normal login fields).
+```js
+document.removeEventListener( 'focusin', trapFocus );
+```
 
-## 4. Acceptance criteria (verify locally — requires a real WP install)
+### Edit 3 — empty-submit re-focus (current line ~147, `submit()`)
+Already calls `input.focus()`; leave as-is. No change.
 
-This must be tested on a real `wp-login.php`, which the remote environment
-cannot run. On a local WordPress site with the plugin active and a 2FA-enrolled
-test user:
+> Note: the old double-rAF block in `open()` (lines 120–127) is fully replaced by `focusInput()` + the two `setTimeout`s — delete it. Keep `var isOpen = false;` declaration where it is.
 
-1. **Login screen (`wp-login.php`):** Submit correct username + password. When
-   the modal appears, the cursor is in the code input and stays there — typing
-   digits immediately fills the field with no extra click. Confirm focus does
-   **not** jump to the username/password field at ~200 ms.
-2. **Front-end / AJAX login** (Xootix popup or WooCommerce My Account): modal
-   still focuses correctly (no regression).
-3. **Cancel:** Clicking Cancel closes the modal and the normal login fields can
-   be focused/typed again (focus trap fully removed).
-4. **Tab key:** With the modal open, pressing Tab does not let focus escape to
-   the page behind the overlay.
-5. **bfcache:** Navigate away and use the browser Back button while a challenge
-   is pending; the modal re-opens and focuses correctly (`pageshow` path).
+## Version bumps (exact)
+- `google-security-for-wordpress.php`: header `Version: 2.2.3` + `define( 'GSWP_VERSION', '2.2.3' )`
+- `package.json` + `package-lock.json`: `"version": "2.2.3"` (root + lockfile `packages[""]`)
+- `readme.txt`: `Stable tag: 2.2.3` + changelog line `= 2.2.3 = Fix 2FA modal focus on wp-login.php (focus trap beats core wp_attempt_focus).`
+- `STATE.md`: Phase 16 note — root cause (core `wp_attempt_focus()` 200ms steal) + fix (focus trap + delayed re-focus).
 
-## 5. Version + metadata bookkeeping
+## Verify (local WP only — remote can't run wp-login.php)
+2FA-enrolled test user:
+1. wp-login.php: correct user+pass → modal opens, cursor in code input, stays there at 200ms+, typing fills field with no click.
+2. Front-end/AJAX login (Xootix / WC My Account): no regression.
+3. Cancel → modal closes, normal login fields focusable (trap removed).
+4. Tab inside modal does not escape to page behind.
 
-- `assets/js/gswp-2fa-modal.js` — the fix (cache-busted automatically by the
-  `GSWP_VERSION` query arg, so the version bump is what forces caches/CDN to
-  refetch — do not skip it).
-- `google-security-for-wordpress.php` — header `Version:` and `GSWP_VERSION`
-  constant → `2.2.3`.
-- `package.json` + `package-lock.json` (root entries) → `2.2.3`.
-- `readme.txt` — `Stable tag` + a changelog entry for 2.2.3.
-- `STATE.md` — add a Phase 16 note describing the root cause (core
-  `wp_attempt_focus()` race) and the focus-trap + delayed-refocus fix.
-- No webpack rebuild needed — the modal assets are plain files served from
-  `assets/`.
-
-## 6. Commit
-
-One commit on `claude/wonderful-edison-b8cz5p`, e.g.:
+## Commit
 `fix: trap focus in 2FA modal to beat wp-login focus steal; bump to 2.2.3`
 
-## 7. Notes / things to avoid
-
-- Do **not** try to disable core `wp_attempt_focus()` by overriding the global
-  function — it is inlined and timing-dependent, and front-end forms don't have
-  it. The focus trap is form-agnostic and the correct fix.
-- Keep the script dependency-free vanilla JS (no jQuery) and IE-safe `var`
-  style to match the existing file.
-- Reading `document.activeElement` and calling `input.focus()` repeatedly is
-  cheap; the trap only acts when focus actually leaves the overlay.
+## Don't
+Don't override the core `wp_attempt_focus()` global (inlined, timing-dependent, absent on front-end). Keep vanilla `var`-style JS, no jQuery.
