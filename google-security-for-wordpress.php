@@ -17,6 +17,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
 
+// Check PHP version.
+if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
+	add_action( 'admin_notices', function() {
+		echo '<div class="notice notice-error"><p>' . esc_html__( 'Google Security for WordPress requires PHP 7.4 or higher. The plugin has been deactivated.', 'google-security-for-wordpress' ) . '</p></div>';
+		if ( isset( $_GET['activate'] ) ) {
+			unset( $_GET['activate'] );
+		}
+	} );
+	add_action( 'admin_init', function() {
+		deactivate_plugins( plugin_basename( __FILE__ ) );
+	} );
+	return;
+}
+
+// Check WordPress version.
+global $wp_version;
+if ( version_compare( $wp_version, '5.8', '<' ) ) {
+	add_action( 'admin_notices', function() {
+		echo '<div class="notice notice-error"><p>' . esc_html__( 'Google Security for WordPress requires WordPress 5.8 or higher. The plugin has been deactivated.', 'google-security-for-wordpress' ) . '</p></div>';
+		if ( isset( $_GET['activate'] ) ) {
+			unset( $_GET['activate'] );
+		}
+	} );
+	add_action( 'admin_init', function() {
+		deactivate_plugins( plugin_basename( __FILE__ ) );
+	} );
+	return;
+}
+
 // Define plugin constants.
 define( 'GSWP_VERSION', '2.2.1' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
