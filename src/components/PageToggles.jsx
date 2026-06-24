@@ -22,10 +22,7 @@ function Checkpoint( { checkpoint, settings, onChange } ) {
 				<div className="flex items-center gap-x-3">
 					<span className="text-sm text-gray-600">
 						{ isEnabled
-							? __(
-									'Enabled',
-									'google-security-for-wordpress'
-							  )
+							? __( 'Enabled', 'google-security-for-wordpress' )
 							: __(
 									'Disabled',
 									'google-security-for-wordpress'
@@ -135,10 +132,7 @@ export default function PageToggles( {
 	const wordpressCheckpoints = [
 		{
 			id: 'wp_login',
-			title: __(
-				'WordPress Login',
-				'google-security-for-wordpress'
-			),
+			title: __( 'WordPress Login', 'google-security-for-wordpress' ),
 			description: __(
 				'Scores sign in attempts on wp-login.php to deter brute force and credential stuffing.',
 				'google-security-for-wordpress'

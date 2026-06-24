@@ -132,7 +132,7 @@ export default function TwoFactorNotice( {
 								) }
 							</strong>{ ' ' }
 							{ __(
-								'Enrol your own administrator account first so you do not lock yourself out when enforcing the Administrator role.',
+								'Enroll your own administrator account first so you do not lock yourself out when enforcing the Administrator role.',
 								'google-security-for-wordpress'
 							) }
 						</p>

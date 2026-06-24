@@ -31,10 +31,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 		<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl md:col-span-2">
 			<div className="px-4 py-6 sm:p-8">
 				<h2 className="text-base font-semibold leading-7 text-gray-900">
-					{ __(
-						'API Credentials',
-						'google-security-for-wordpress'
-					) }
+					{ __( 'API Credentials', 'google-security-for-wordpress' ) }
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ isEnterprise
@@ -72,10 +69,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 				{ /* Key type selector */ }
 				<fieldset className="mt-6">
 					<legend className="block text-sm font-medium leading-6 text-gray-900">
-						{ __(
-							'Key Type',
-							'google-security-for-wordpress'
-						) }
+						{ __( 'Key Type', 'google-security-for-wordpress' ) }
 					</legend>
 					<div className="mt-1.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
 						{ keyTypes.map( ( type ) => (
