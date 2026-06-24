@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.1
+Stable tag: 2.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.2.2 =
+* Hardened 2FA challenge modal focus. Replaced the single timeout with a robust requestAnimationFrame focus pattern that retries once if not immediately active, added autofocus and placeholder attributes to the authenticator code input, and ensured the input is refocused after validation errors.
 
 = 2.2.1 =
 * Reduced log volume. By default the plugin now logs only anomalies and failures to the WooCommerce log (source “gswp”): Account Defender records a login’s labels only when a genuine risk label is present (the benign PROFILE_MATCH returned on ordinary logins is no longer logged), and Transaction defense logs only when a checkout is actually blocked (the per-order risk is still saved as an order note). Added a “Verbose logging” toggle (off by default) under reCAPTCHA Conflict Handling to restore full per-assessment logging for debugging. WooCommerce already rotates these logs daily and prunes them after its retention period (30 days by default).

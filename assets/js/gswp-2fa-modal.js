@@ -68,6 +68,8 @@
 		input.className = 'gswp-2fa-input';
 		input.setAttribute( 'inputmode', 'numeric' );
 		input.setAttribute( 'autocomplete', 'one-time-code' );
+		input.setAttribute( 'autofocus', '' );
+		input.setAttribute( 'placeholder', '123 456' );
 		input.setAttribute( 'aria-label', i18n.label || 'Authentication code' );
 
 		submitBtn = document.createElement( 'button' );
@@ -113,9 +115,16 @@
 		isOpen = true;
 		overlay.classList.add( 'is-open' );
 		document.body.classList.add( 'gswp-2fa-lock' );
-		setTimeout( function () {
+		// Focus the code input once the overlay is visible. The display
+		// transition (none -> flex) can prevent focus until the next frame.
+		window.requestAnimationFrame( function () {
 			input.focus();
-		}, 50 );
+			if ( document.activeElement !== input ) {
+				window.requestAnimationFrame( function () {
+					input.focus();
+				} );
+			}
+		} );
 	}
 
 	function close() {
@@ -135,6 +144,7 @@
 		var code = ( input.value || '' ).trim();
 		if ( ! code ) {
 			showError( i18n.empty || 'Enter your authentication code.' );
+			input.focus();
 			return;
 		}
 
