@@ -40,6 +40,7 @@ export default function App() {
 			tfa_enabled: '1',
 			tfa_enforced_roles: [],
 			tfa_remember: '1',
+			tfa_grace_days: '14',
 		},
 	};
 
@@ -117,7 +118,7 @@ export default function App() {
 	};
 
 	return (
-		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 bg-gray-50/50 min-h-screen">
+		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
 			{ /* Toast Notification */ }
 			{ toast.message && (
 				<div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg p-4 shadow-lg border animate-slideIn transition-all duration-300 bg-white border-gray-150">

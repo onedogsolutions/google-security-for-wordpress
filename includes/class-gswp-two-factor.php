@@ -49,6 +49,9 @@ class GSWP_Two_Factor {
 	/** User meta storing hashed trusted-browser records. */
 	const META_TRUSTED = 'gswp_2fa_trusted_devices';
 
+	/** User meta storing when the enrolment grace period started for a user. */
+	const META_GRACE_START = 'gswp_2fa_grace_start';
+
 	/** How long a trusted browser may skip the second factor. */
 	const TRUSTED_TTL = 2592000; // 30 * DAY_IN_SECONDS.
 
@@ -138,6 +141,20 @@ class GSWP_Two_Factor {
 			return;
 		}
 
+		// Grace period: give newly enforced users time to enrol before locking
+		// the admin. During the window they see a countdown notice instead of
+		// being redirected; after the deadline the hard redirect below applies.
+		$deadline = $this->grace_deadline( $user_id );
+		if ( $deadline && time() < $deadline ) {
+			add_action(
+				'admin_notices',
+				function () use ( $deadline ) {
+					$this->render_grace_notice( $deadline );
+				}
+			);
+			return;
+		}
+
 		// Let the enrolment screen itself load.
 		global $pagenow;
 		if ( in_array( $pagenow, array( 'profile.php' ), true ) ) {
@@ -146,6 +163,65 @@ class GSWP_Two_Factor {
 
 		wp_safe_redirect( add_query_arg( 'gswp_2fa_required', '1', admin_url( 'profile.php' ) ) . '#gswp-2fa' );
 		exit;
+	}
+
+	/**
+	 * The Unix timestamp when a user's enrolment grace period ends.
+	 *
+	 * The clock starts the first time enforcement applies to the user (their
+	 * first admin visit while unenrolled in an enforced role), so users hired
+	 * or opted in later get the same full window as everyone else.
+	 *
+	 * @param int $user_id User ID.
+	 * @return int Deadline timestamp, or 0 when no grace period is configured.
+	 */
+	private function grace_deadline( $user_id ) {
+		$days = (int) get_option( 'gswp_2fa_grace_days', '14' );
+		if ( $days <= 0 ) {
+			return 0;
+		}
+
+		$start = (int) get_user_meta( $user_id, self::META_GRACE_START, true );
+		if ( $start <= 0 ) {
+			$start = time();
+			update_user_meta( $user_id, self::META_GRACE_START, $start );
+		}
+
+		return $start + ( $days * DAY_IN_SECONDS );
+	}
+
+	/**
+	 * Render the enrolment-countdown notice shown during the grace period.
+	 *
+	 * @param int $deadline Unix timestamp when the grace period ends.
+	 */
+	private function render_grace_notice( $deadline ) {
+		$days_left = max( 1, (int) ceil( ( $deadline - time() ) / DAY_IN_SECONDS ) );
+		$date      = date_i18n( get_option( 'date_format' ), $deadline );
+		$url       = admin_url( 'profile.php' ) . '#gswp-2fa';
+		?>
+		<div class="notice notice-warning">
+			<p>
+				<strong><?php esc_html_e( 'Two-factor authentication is required for your account.', 'google-security-for-wordpress' ); ?></strong>
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: 1: number of days remaining, 2: localized deadline date. */
+						_n(
+							'You have %1$d day left to set it up (deadline: %2$s). After that, access to the dashboard will be restricted until it is enabled.',
+							'You have %1$d days left to set it up (deadline: %2$s). After that, access to the dashboard will be restricted until it is enabled.',
+							$days_left,
+							'google-security-for-wordpress'
+						),
+						$days_left,
+						$date
+					)
+				);
+				?>
+				<a href="<?php echo esc_url( $url ); ?>" class="button button-primary" style="margin-left:8px;vertical-align:baseline;"><?php esc_html_e( 'Set up now', 'google-security-for-wordpress' ); ?></a>
+			</p>
+		</div>
+		<?php
 	}
 
 	/**
@@ -830,6 +906,9 @@ class GSWP_Two_Factor {
 		delete_user_meta( $user_id, self::META_LAST_TS );
 		delete_user_meta( $user_id, self::META_LOGIN_NONCE );
 		delete_user_meta( $user_id, self::META_TRUSTED );
+		// Restart the enrolment grace clock so an admin reset (e.g. a lost
+		// device) grants a fresh window instead of an instant lockout.
+		delete_user_meta( $user_id, self::META_GRACE_START );
 
 		if ( get_current_user_id() === $user_id ) {
 			$this->clear_trusted_cookie();
@@ -1143,6 +1222,7 @@ JS;
 				update_user_meta( $user_id, self::META_ENABLED, '1' );
 				update_user_meta( $user_id, self::META_LAST_TS, $matched );
 				delete_user_meta( $user_id, self::META_PENDING );
+				delete_user_meta( $user_id, self::META_GRACE_START );
 
 				$codes = $this->generate_backup_codes( $user_id );
 				set_transient( 'gswp_2fa_codes_' . $user_id, $codes, 2 * MINUTE_IN_SECONDS );

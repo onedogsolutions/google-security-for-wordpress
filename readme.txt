@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,10 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.4.0 =
+* Added a configurable grace period for role-enforced two-factor authentication (default 14 days, 0–30). Users in an enforced role who haven't set up 2FA now see a dashboard countdown notice with their deadline and a "Set up now" button instead of being locked out immediately; after the deadline, the dashboard redirects to their profile until 2FA is enabled. Each user's clock starts on their first dashboard visit while enforcement applies, so users added later get the same full window. Enrolling clears the clock, and an administrator 2FA reset grants a fresh window. Set the grace period to 0 for immediate enforcement (the previous behaviour).
+* The settings screen now uses the standard WordPress admin background instead of its own tinted backdrop.
 
 = 2.3.0 =
 * Added a "Remember this browser for 30 days" option to two-factor authentication. When a user passes the 2FA code prompt they can trust the current browser, which then skips the code for 30 days. Trusted browsers are bound per-user, stored only as a salted HMAC (the cookie is HTTP-only, Secure, SameSite=Lax), capped per user, and automatically expire. A login that Account Defender flags as suspicious still requires the code even on a trusted browser. Users can forget all remembered browsers from their profile, disabling 2FA clears them, and a password reset revokes them. A new "Allow 'Remember this browser'" toggle (on by default) is available under Two-Factor Authentication.

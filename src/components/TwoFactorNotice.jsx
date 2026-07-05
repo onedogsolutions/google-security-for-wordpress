@@ -14,6 +14,9 @@ export default function TwoFactorNotice( {
 	const rememberEnabled =
 		settings.tfa_remember === '1' || settings.tfa_remember === true;
 
+	const graceDays =
+		settings.tfa_grace_days === undefined ? '14' : settings.tfa_grace_days;
+
 	const enforcedRoles = Array.isArray( settings.tfa_enforced_roles )
 		? settings.tfa_enforced_roles
 		: [];
@@ -127,6 +130,46 @@ export default function TwoFactorNotice( {
 								</label>
 							) ) }
 						</div>
+						{ /* Enrolment grace period */ }
+						<div className="mt-5 flex flex-col gap-y-2 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8">
+							<div className="flex-1">
+								<h4 className="text-sm font-medium text-gray-900">
+									{ __(
+										'Grace period',
+										'google-security-for-wordpress'
+									) }
+								</h4>
+								<p className="mt-1 text-sm text-gray-500">
+									{ __(
+										'Days a user in an enforced role can keep using the dashboard before it locks to their profile until 2FA is set up. They see a countdown notice in the meantime. Set 0 to enforce immediately.',
+										'google-security-for-wordpress'
+									) }
+								</p>
+							</div>
+							<div className="flex items-center gap-x-2">
+								<input
+									type="number"
+									min="0"
+									max="30"
+									step="1"
+									value={ graceDays }
+									onChange={ ( e ) =>
+										onChange(
+											'tfa_grace_days',
+											e.target.value
+										)
+									}
+									className="block w-20 rounded-md border-0 py-1.5 text-center text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
+								/>
+								<span className="text-sm text-gray-600">
+									{ __(
+										'days',
+										'google-security-for-wordpress'
+									) }
+								</span>
+							</div>
+						</div>
+
 						<p className="mt-3 text-xs leading-5 text-gray-500">
 							<strong>
 								{ __(

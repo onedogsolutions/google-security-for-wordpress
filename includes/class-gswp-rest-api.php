@@ -86,6 +86,7 @@ class GSWP_Rest_Api {
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
+			'tfa_grace_days'         => get_option( 'gswp_2fa_grace_days', '14' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -179,6 +180,12 @@ class GSWP_Rest_Api {
 		// Two-factor: allow trusted-browser "remember me".
 		if ( isset( $params['tfa_remember'] ) ) {
 			update_option( 'gswp_2fa_remember', $params['tfa_remember'] ? '1' : '0' );
+		}
+
+		// Two-factor: enrolment grace period in days (0 = enforce immediately).
+		if ( isset( $params['tfa_grace_days'] ) ) {
+			$days = max( 0, min( 30, (int) $params['tfa_grace_days'] ) );
+			update_option( 'gswp_2fa_grace_days', strval( $days ) );
 		}
 
 		// Two-factor: roles required to enrol, validated against real roles.

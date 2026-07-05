@@ -1,6 +1,16 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 16 (2FA "remember this browser" trusted devices)
+## Current Phase: Phase 17 (2FA enforcement grace period + settings background fix)
+
+### Phase 17 Modifications (v2.4.0)
+- Added a configurable **grace period** to role-based 2FA enforcement so client rollouts can enable enforcement without instantly locking users out. New option `gswp_2fa_grace_days` (default `14`, clamped 0–30 by REST; `0` = the old immediate behaviour).
+- `GSWP_Two_Factor::maybe_enforce_setup()` now consults `grace_deadline( $user_id )` before redirecting: within the window it registers an `admin_notices` countdown (`render_grace_notice()` — days remaining, localized deadline date via `date_i18n`, and a "Set up now" button to `profile.php#gswp-2fa`) and lets the dashboard work normally; past the deadline the existing profile lock/redirect applies.
+- The per-user clock starts on the user's **first admin visit while enforcement applies** (`gswp_2fa_grace_start` user meta, set lazily in `grace_deadline()`), so users hired or role-enforced later get the same full window. The meta is cleared on successful enrolment (`save_profile`) and by `disable_for_user()` so an admin 2FA reset (lost device) grants a fresh window instead of an instant lockout.
+- Settings wiring: `gswp_default_options()`, REST `get_settings`/`update_settings` (`tfa_grace_days`, integer-clamped 0–30), admin localizer, `App.jsx` default, and a "Grace period (days)" number input inside the "Require for roles" section of `src/components/TwoFactorNotice.jsx`.
+- UI fix: removed the `bg-gray-50/50 min-h-screen` tint from the App root (`src/components/App.jsx`) so the settings screen sits on the standard WP admin background instead of a mismatched backdrop.
+- Bumped version to 2.4.0 (main header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json` root). Assets rebuilt.
+
+## Historical Phase: Phase 16 (2FA "remember this browser" trusted devices)
 
 ### Phase 16 Modifications (v2.3.0)
 - Added a "Remember this browser for 30 days" trusted-device option to the 2FA challenge so enrolled users (e.g. mandatory manage_options accounts) aren't prompted for a code every login.
