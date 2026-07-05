@@ -11,6 +11,9 @@ export default function TwoFactorNotice( {
 	const isEnabled =
 		settings.tfa_enabled === '1' || settings.tfa_enabled === true;
 
+	const rememberEnabled =
+		settings.tfa_remember === '1' || settings.tfa_remember === true;
+
 	const enforcedRoles = Array.isArray( settings.tfa_enforced_roles )
 		? settings.tfa_enforced_roles
 		: [];
@@ -136,6 +139,63 @@ export default function TwoFactorNotice( {
 								'google-security-for-wordpress'
 							) }
 						</p>
+					</div>
+				) }
+
+				{ /* Trusted-browser "remember me" */ }
+				{ isEnabled && (
+					<div className="mt-6 flex items-start justify-between gap-x-6 border-t border-gray-100 pt-6 animate-fadeIn">
+						<div className="flex-1">
+							<h3 className="text-sm font-semibold text-gray-900">
+								{ __(
+									'Allow “Remember this browser”',
+									'google-security-for-wordpress'
+								) }
+							</h3>
+							<p className="mt-1 text-sm text-gray-500">
+								{ __(
+									'Adds a “Remember this browser for 30 days” checkbox to the code prompt. A trusted browser then skips the code for 30 days — but a login flagged as suspicious by Account Defender still requires it. Users can forget remembered browsers from their profile, and a password reset clears them.',
+									'google-security-for-wordpress'
+								) }
+							</p>
+						</div>
+						<div className="flex items-center gap-x-3 pt-0.5">
+							<span className="text-sm text-gray-600">
+								{ rememberEnabled
+									? __(
+											'Enabled',
+											'google-security-for-wordpress'
+									  )
+									: __(
+											'Disabled',
+											'google-security-for-wordpress'
+									  ) }
+							</span>
+							<button
+								type="button"
+								aria-pressed={ rememberEnabled }
+								className={ `relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
+									rememberEnabled
+										? 'bg-indigo-600'
+										: 'bg-gray-200'
+								}` }
+								onClick={ () =>
+									onChange(
+										'tfa_remember',
+										rememberEnabled ? '0' : '1'
+									)
+								}
+							>
+								<span
+									aria-hidden="true"
+									className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+										rememberEnabled
+											? 'translate-x-5'
+											: 'translate-x-0'
+									}` }
+								/>
+							</button>
+						</div>
 					</div>
 				) }
 

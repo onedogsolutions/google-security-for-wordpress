@@ -39,6 +39,7 @@ export default function App() {
 			conflict_mode: 'off',
 			tfa_enabled: '1',
 			tfa_enforced_roles: [],
+			tfa_remember: '1',
 		},
 	};
 

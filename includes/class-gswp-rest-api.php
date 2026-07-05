@@ -85,6 +85,7 @@ class GSWP_Rest_Api {
 			// Two-factor authentication.
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
+			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -173,6 +174,11 @@ class GSWP_Rest_Api {
 		// Two-factor: master switch.
 		if ( isset( $params['tfa_enabled'] ) ) {
 			update_option( 'gswp_2fa_enabled', $params['tfa_enabled'] ? '1' : '0' );
+		}
+
+		// Two-factor: allow trusted-browser "remember me".
+		if ( isset( $params['tfa_remember'] ) ) {
+			update_option( 'gswp_2fa_remember', $params['tfa_remember'] ? '1' : '0' );
 		}
 
 		// Two-factor: roles required to enrol, validated against real roles.

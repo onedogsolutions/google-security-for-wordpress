@@ -35,7 +35,7 @@
 	}
 
 	var built = false;
-	var overlay, input, errorEl, submitBtn;
+	var overlay, input, errorEl, submitBtn, rememberBox;
 
 	function build() {
 		if ( built ) {
@@ -72,6 +72,26 @@
 		input.setAttribute( 'placeholder', '123 456' );
 		input.setAttribute( 'aria-label', i18n.label || 'Authentication code' );
 
+		// "Remember this browser" opt-in: when checked, the server issues a
+		// trusted-device cookie so this browser can skip the second factor for a
+		// limited window. Only shown when the server enables the feature.
+		var rememberLabel = null;
+		if ( data.rememberEnabled ) {
+			rememberLabel = document.createElement( 'label' );
+			rememberLabel.className = 'gswp-2fa-remember';
+
+			rememberBox = document.createElement( 'input' );
+			rememberBox.type = 'checkbox';
+			rememberBox.className = 'gswp-2fa-remember-box';
+
+			var rememberText = document.createElement( 'span' );
+			rememberText.textContent =
+				i18n.remember || 'Remember this browser for 30 days';
+
+			rememberLabel.appendChild( rememberBox );
+			rememberLabel.appendChild( rememberText );
+		}
+
 		submitBtn = document.createElement( 'button' );
 		submitBtn.type = 'button';
 		submitBtn.className = 'gswp-2fa-submit';
@@ -86,6 +106,9 @@
 		modal.appendChild( desc );
 		modal.appendChild( errorEl );
 		modal.appendChild( input );
+		if ( rememberLabel ) {
+			modal.appendChild( rememberLabel );
+		}
 		modal.appendChild( submitBtn );
 		modal.appendChild( cancel );
 		overlay.appendChild( modal );
@@ -154,6 +177,10 @@
 		var body = new window.FormData();
 		body.append( 'action', 'gswp_2fa_verify' );
 		body.append( 'code', code );
+		body.append(
+			'remember_device',
+			rememberBox && rememberBox.checked ? '1' : '0'
+		);
 
 		window
 			.fetch( data.ajaxUrl, {

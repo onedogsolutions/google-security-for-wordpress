@@ -1,6 +1,16 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 15 (Requirements verification, Git clean-up, & formatting checks)
+## Current Phase: Phase 16 (2FA "remember this browser" trusted devices)
+
+### Phase 16 Modifications (v2.3.0)
+- Added a "Remember this browser for 30 days" trusted-device option to the 2FA challenge so enrolled users (e.g. mandatory manage_options accounts) aren't prompted for a code every login.
+- Flow: the code-entry modal (`assets/js/gswp-2fa-modal.js`) shows a "Remember this browser for 30 days" checkbox when the server localizes `rememberEnabled`; its state posts as `remember_device` to `ajax_verify()`. On a successful verification, `GSWP_Two_Factor::remember_device()` generates a 64-char random token, stores its `hash_hmac('sha256', token, wp_salt('auth'))` in the `gswp_2fa_trusted_devices` user meta (with expiry/created/UA-hash, pruned + capped at 10), and sets the `gswp_2fa_trusted` cookie = "user_id|token" (HTTP-only, Secure, SameSite=Lax, 30d, `cookie_path()`).
+- `enforce_second_factor()` now skips the challenge when `is_trusted_device($user->ID)` matches a stored unexpired hash for that same user — bound per-user so the cookie can't waive 2FA for a different account — **unless** `step_up_forced()` is true (Account Defender flagged `SUSPICIOUS_LOGIN_ACTIVITY`), in which case the code is always required.
+- Revocation: `disable_for_user()` and a new profile "Forget all remembered browsers" checkbox clear the meta + cookie; `after_password_reset` calls `forget_all_devices()`. The manage screen shows a live remembered-browser count. Security posture: tokens are high-entropy, only the HMAC is stored (cookie value never derivable from the DB), `hash_equals` comparison, HTTP-only/Secure/SameSite cookie; the inherent trade-off (cookie theft = 2FA bypass within the window) is mitigated the same way major providers do.
+- New setting `gswp_2fa_remember` (default `1`), exposed via `remember_enabled()`, wired through `gswp_default_options()`, REST `get_settings`/`update_settings`, the admin localizer, `App.jsx` default, and a new "Allow 'Remember this browser'" toggle in `src/components/TwoFactorNotice.jsx`. Modal CSS gained a `.gswp-2fa-remember` row. Assets rebuilt.
+- Bumped version to 2.3.0 (main header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json` root).
+
+## Historical Phase: Phase 15 (Requirements verification, Git clean-up, & formatting checks)
 
 ### Phase 15 Modifications (v2.2.1-patched)
 - Added active runtime verification checks for WordPress 5.8+ and PHP 7.4+ inside [google-security-for-wordpress.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/google-security-for-wordpress.php) to gracefully deactivate the plugin and show a dashboard notice if minimum requirements are not satisfied, preventing parse/fatal errors on unsupported environments.

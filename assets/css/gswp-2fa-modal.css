@@ -83,6 +83,25 @@
 	box-shadow: 0 0 0 3px rgba( 79, 70, 229, 0.25 );
 }
 
+.gswp-2fa-remember {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 14px;
+	font-size: 13px;
+	line-height: 1.4;
+	color: #4b5563;
+	cursor: pointer;
+}
+
+.gswp-2fa-remember-box {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	flex: 0 0 auto;
+	cursor: pointer;
+}
+
 .gswp-2fa-submit {
 	box-sizing: border-box;
 	display: block;
