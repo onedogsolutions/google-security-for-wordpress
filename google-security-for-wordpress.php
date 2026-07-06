@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.4.0
+ * Version: 2.5.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.4.0' );
+define( 'GSWP_VERSION', '2.5.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -62,6 +62,11 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
 // Google's fraud model learns from outcomes. Hooks fire on the front end and
 // via admin order actions, so it loads unconditionally (inert when off).
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-transaction-defense.php';
+// WooCommerce Blocks / Store API checkout support: scores the token the modern
+// Checkout block sends over the Store API (the classic checkout hooks never
+// fire for block submissions). Hooks are Blocks-specific, so it loads
+// unconditionally and is inert when Blocks is not present.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-blocks.php';
 // reCAPTCHA Enterprise Account Defender: interprets per-login account labels and
 // annotates login/2FA outcomes. Hooks the authentication flow, so it loads
 // unconditionally (inert unless enabled with an Enterprise key).
@@ -262,6 +267,11 @@ function gswp_init() {
 	// reCAPTCHA Enterprise Transaction defense order annotation. Inert unless
 	// WooCommerce is active, an Enterprise key is set, and the feature is on.
 	new GSWP_Transaction_Defense();
+
+	// WooCommerce Blocks / Store API checkout. Registers the block token
+	// integration and scores the checkout token. Inert unless Blocks is active;
+	// shares the verifier so it reuses the same scoring and Transaction defense.
+	new GSWP_Blocks( $verifier );
 
 	// reCAPTCHA Enterprise Account Defender. Interprets per-login account labels
 	// and annotates login/2FA outcomes. Inert unless enabled with an Enterprise

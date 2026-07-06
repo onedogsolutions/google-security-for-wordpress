@@ -143,9 +143,13 @@ class GSWP_Verifier {
 	 *                                identifying the account, used to attach
 	 *                                Account Defender userInfo on login/register
 	 *                                assessments.
+	 * @param string $token           Optional explicit reCAPTCHA token. When null
+	 *                                the token is read from the posted
+	 *                                g-recaptcha-response field (classic form
+	 *                                submissions); Store API callers pass it in.
 	 * @return true|WP_Error Returns true on success, WP_Error object on failure.
 	 */
-	public function verify_token( $context, $expected_action, $event_extra = array(), $account_identifier = null ) {
+	public function verify_token( $context, $expected_action, $event_extra = array(), $account_identifier = null, $token = null ) {
 		// Reset any verdict captured by a previous call on this request.
 		$this->last_assessment_name   = '';
 		$this->last_fraud_assessment  = null;
@@ -173,7 +177,12 @@ class GSWP_Verifier {
 			return true;
 		}
 
-		$token = isset( $_POST['g-recaptcha-response'] ) ? sanitize_text_field( wp_unslash( $_POST['g-recaptcha-response'] ) ) : '';
+		// Classic form submissions carry the token in the posted field; Store API
+		// callers pass it explicitly (no $_POST payload exists there).
+		if ( null === $token ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing
+			$token = isset( $_POST['g-recaptcha-response'] ) ? sanitize_text_field( wp_unslash( $_POST['g-recaptcha-response'] ) ) : '';
+		}
 
 		if ( empty( $token ) ) {
 			return new WP_Error(
@@ -451,24 +460,43 @@ class GSWP_Verifier {
 	 * @return array Address fields keyed for the assessment API.
 	 */
 	private function build_address( $prefix ) {
-		$first = $this->posted_field( $prefix . '_first_name' );
-		$last  = $this->posted_field( $prefix . '_last_name' );
-
-		$lines = array_values(
-			array_filter(
-				array(
-					$this->posted_field( $prefix . '_address_1' ),
-					$this->posted_field( $prefix . '_address_2' ),
-				)
-			)
+		return $this->format_address(
+			$this->posted_field( $prefix . '_first_name' ),
+			$this->posted_field( $prefix . '_last_name' ),
+			$this->posted_field( $prefix . '_address_1' ),
+			$this->posted_field( $prefix . '_address_2' ),
+			$this->posted_field( $prefix . '_city' ),
+			$this->posted_field( $prefix . '_state' ),
+			$this->posted_field( $prefix . '_country' ),
+			$this->posted_field( $prefix . '_postcode' )
 		);
+	}
+
+	/**
+	 * Assemble a reCAPTCHA Enterprise Address from its component parts.
+	 *
+	 * Shared by the posted-field (classic checkout) and order-based (Store API /
+	 * block checkout) builders so both emit an identical payload shape.
+	 *
+	 * @param string $first    First name.
+	 * @param string $last     Last name.
+	 * @param string $line1    Address line 1.
+	 * @param string $line2    Address line 2.
+	 * @param string $city     Locality.
+	 * @param string $state    Administrative area.
+	 * @param string $country  Region (country) code.
+	 * @param string $postcode Postal code.
+	 * @return array Address fields keyed for the assessment API, empties dropped.
+	 */
+	private function format_address( $first, $last, $line1, $line2, $city, $state, $country, $postcode ) {
+		$lines = array_values( array_filter( array( $line1, $line2 ) ) );
 
 		$address = array(
 			'recipient'          => trim( $first . ' ' . $last ),
-			'locality'           => $this->posted_field( $prefix . '_city' ),
-			'administrativeArea' => $this->posted_field( $prefix . '_state' ),
-			'regionCode'         => $this->posted_field( $prefix . '_country' ),
-			'postalCode'         => $this->posted_field( $prefix . '_postcode' ),
+			'locality'           => $city,
+			'administrativeArea' => $state,
+			'regionCode'         => $country,
+			'postalCode'         => $postcode,
 		);
 
 		if ( ! empty( $lines ) ) {
@@ -482,6 +510,184 @@ class GSWP_Verifier {
 				return '' !== $value && array() !== $value;
 			}
 		);
+	}
+
+	/**
+	 * Build the extra Enterprise event fields for a Store API / block checkout.
+	 *
+	 * Store API submissions carry no $_POST payload, so transaction data is
+	 * assembled from the WC_Order that the checkout route has already populated.
+	 * Mirrors build_checkout_event_extra(): returns an empty array unless an
+	 * Enterprise key is set, Transaction defense is on, and Google's documented
+	 * minimum (billing region + postal code + payment method) is present.
+	 *
+	 * @param WC_Order $order Order being checked out.
+	 * @return array Event fields to merge (transactionData, fraudPrevention), or empty.
+	 */
+	private function build_checkout_event_extra_from_order( $order ) {
+		if ( 'enterprise' !== get_option( 'gswp_key_type', 'classic' ) ) {
+			return array();
+		}
+		if ( '1' !== get_option( 'gswp_txn_defense', '0' ) ) {
+			return array();
+		}
+		if ( ! $order instanceof WC_Order ) {
+			return array();
+		}
+
+		$billing = $this->format_address(
+			$order->get_billing_first_name(),
+			$order->get_billing_last_name(),
+			$order->get_billing_address_1(),
+			$order->get_billing_address_2(),
+			$order->get_billing_city(),
+			$order->get_billing_state(),
+			$order->get_billing_country(),
+			$order->get_billing_postcode()
+		);
+
+		$shipping = $this->format_address(
+			$order->get_shipping_first_name(),
+			$order->get_shipping_last_name(),
+			$order->get_shipping_address_1(),
+			$order->get_shipping_address_2(),
+			$order->get_shipping_city(),
+			$order->get_shipping_state(),
+			$order->get_shipping_country(),
+			$order->get_shipping_postcode()
+		);
+
+		// Orders with no separate shipping address reuse the billing address.
+		if ( empty( $shipping['regionCode'] ) && empty( $shipping['postalCode'] ) ) {
+			$shipping = $billing;
+		}
+
+		$payment_method = $order->get_payment_method();
+
+		// Enforce Google's documented minimum; otherwise omit transaction data
+		// entirely and let the assessment run as a plain reCAPTCHA score.
+		if ( empty( $billing['regionCode'] ) || empty( $billing['postalCode'] ) || '' === $payment_method ) {
+			return array();
+		}
+
+		$transaction_data = array(
+			'paymentMethod'  => $payment_method,
+			'currencyCode'   => $order->get_currency(),
+			'value'          => (float) $order->get_total(),
+			'shippingValue'  => (float) $order->get_shipping_total(),
+			'billingAddress' => $billing,
+		);
+
+		if ( ! empty( $shipping['regionCode'] ) || ! empty( $shipping['postalCode'] ) ) {
+			$transaction_data['shippingAddress'] = $shipping;
+		}
+
+		$user = $this->build_transaction_user_from_order( $order );
+		if ( ! empty( $user ) ) {
+			$transaction_data['user'] = $user;
+		}
+
+		$items = $this->build_transaction_items_from_order( $order );
+		if ( ! empty( $items ) ) {
+			$transaction_data['items'] = $items;
+		}
+
+		return array(
+			'transactionData' => $transaction_data,
+			// Force the fraud assessment regardless of the console toggle state.
+			'fraudPrevention' => 'ENABLED',
+		);
+	}
+
+	/**
+	 * Build the transactionData.user block from an order's payer.
+	 *
+	 * @param WC_Order $order Order being checked out.
+	 * @return array User fields keyed for the assessment API, or empty.
+	 */
+	private function build_transaction_user_from_order( $order ) {
+		$user  = array();
+		$email = $order->get_billing_email();
+
+		if ( '' !== $email ) {
+			$user['email'] = $email;
+		}
+
+		$customer_id = $order->get_customer_id();
+		if ( $customer_id > 0 ) {
+			$customer              = get_user_by( 'id', $customer_id );
+			$user['accountId']     = (string) $customer_id;
+			$user['emailVerified'] = true;
+
+			if ( $customer instanceof WP_User ) {
+				$registered = strtotime( $customer->user_registered . ' UTC' );
+				if ( $registered ) {
+					$user['creationMs'] = (string) ( $registered * 1000 );
+				}
+			}
+		}
+
+		return $user;
+	}
+
+	/**
+	 * Build the transactionData.items list from an order's line items.
+	 *
+	 * @param WC_Order $order Order being checked out.
+	 * @return array List of item arrays keyed for the assessment API.
+	 */
+	private function build_transaction_items_from_order( $order ) {
+		$items = array();
+
+		foreach ( $order->get_items() as $item ) {
+			$quantity = (int) $item->get_quantity();
+			if ( $quantity < 1 ) {
+				continue;
+			}
+
+			// Per-item price after line discounts.
+			$line_total = (float) $item->get_total();
+
+			$items[] = array(
+				'name'     => $item->get_name(),
+				'value'    => round( $line_total / $quantity, 2 ),
+				'quantity' => (string) $quantity,
+			);
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Assess a Store API / block checkout token against the checkout threshold.
+	 *
+	 * The token is supplied by the block integration (there is no posted field),
+	 * and transaction data is built from the order. After this returns, callers
+	 * read get_last_assessment_name() and get_last_fraud_risk() to record and act
+	 * on the Transaction defense verdict.
+	 *
+	 * @param string   $token Submitted reCAPTCHA token.
+	 * @param WC_Order $order Order being checked out.
+	 * @return true|WP_Error True on success (or fail-open skip), WP_Error to block.
+	 */
+	public function assess_checkout_token( $token, $order ) {
+		$event_extra = $this->build_checkout_event_extra_from_order( $order );
+
+		return $this->verify_token( 'checkout', 'checkout', $event_extra, null, $token );
+	}
+
+	/**
+	 * Transaction risk from the most recent Enterprise assessment.
+	 *
+	 * @return float|null transactionRisk (0..1, higher is riskier), or null when
+	 *                    Transaction defense returned no verdict.
+	 */
+	public function get_last_fraud_risk() {
+		if ( null === $this->last_fraud_assessment || ! isset( $this->last_fraud_assessment['transactionRisk'] ) ) {
+			return null;
+		}
+
+		return floatval( $this->last_fraud_assessment['transactionRisk'] );
 	}
 
 	/**

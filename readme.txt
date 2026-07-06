@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.0
+Stable tag: 2.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,7 +21,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 
 = Features =
 * **WordPress Core Screen Protection**: Scores the wp-login.php sign in, user registration, and lost password forms out of the box, with no WooCommerce required.
-* **WooCommerce Support**: When WooCommerce is active, also protects the customer Login, Registration, and Checkout forms.
+* **WooCommerce Support**: When WooCommerce is active, also protects the customer Login, Registration, and Checkout forms — including the modern WooCommerce Checkout block (Store API), so stores built on the block editor are covered by the same reCAPTCHA scoring and Transaction Defense as the classic checkout.
 * **Transaction Defense (reCAPTCHA Enterprise)**: When using an Enterprise key, sends the order's billing/shipping address, amount, line items, and payment method with each checkout assessment to power Google's Fraud Prevention model, optionally blocks high-risk transactions, and annotates each order's outcome (legitimate/fraudulent) so the model keeps learning.
 * **Account Defender (reCAPTCHA Enterprise)**: When using an Enterprise key, sends an anonymous, salted account identifier with each login/registration assessment so Google's site-specific model can flag account takeovers, fake signups, and account farming. Logs the returned risk labels, optionally forces the two-factor challenge for enrolled users on suspicious logins, and annotates login and two-factor outcomes (correct/incorrect password, 2FA initiated/passed/failed) to train the model. Disabled by default.
 * **Two-Factor Authentication (Google Authenticator)**: Users enrol from their profile by scanning a QR code (or entering the setup key manually) and confirming a code. A second-factor challenge is then required at login.
@@ -54,6 +54,9 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.5.0 =
+* Added reCAPTCHA and Transaction Defense support for the modern WooCommerce Checkout block (Store API). Previously only the classic shortcode checkout was scored; stores using the block-based checkout received no reCAPTCHA verification and no Transaction Defense. The block now sends a fresh reCAPTCHA token with each checkout submission, which is scored server-side on the Store API checkout hook using the same thresholds, and Enterprise orders placed through the block are assessed and annotated (legitimate/fraudulent) exactly like classic-checkout orders. No configuration change is required — existing checkout settings apply automatically to both checkout types.
 
 = 2.4.0 =
 * Added a configurable grace period for role-enforced two-factor authentication (default 14 days, 0–30). Users in an enforced role who haven't set up 2FA now see a dashboard countdown notice with their deadline and a "Set up now" button instead of being locked out immediately; after the deadline, the dashboard redirects to their profile until 2FA is enabled. Each user's clock starts on their first dashboard visit while enforcement applies, so users added later get the same full window. Enrolling clears the clock, and an administrator 2FA reset grants a fresh window. Set the grace period to 0 for immediate enforcement (the previous behaviour).
