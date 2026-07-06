@@ -8,6 +8,7 @@ import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
 import TransactionDefense from './TransactionDefense';
 import AccountDefender from './AccountDefender';
+import AlertSettings from './AlertSettings';
 import TwoFactorNotice from './TwoFactorNotice';
 
 export default function App() {
@@ -30,6 +31,11 @@ export default function App() {
 			account_defender: '0',
 			ad_step_up: '0',
 			ad_events: '1',
+			alerts: '0',
+			alert_email: '',
+			alert_mode: 'immediate',
+			alert_login: '1',
+			alert_checkout: '1',
 			verbose_logging: '0',
 			enable_wp_login: '0',
 			enable_wp_register: '0',
@@ -189,6 +195,13 @@ export default function App() {
 					<AccountDefender
 						settings={ settings }
 						onChange={ handleSettingChange }
+					/>
+
+					{ /* Admin email alerts on flagged events */ }
+					<AlertSettings
+						settings={ settings }
+						onChange={ handleSettingChange }
+						woocommerceActive={ !! initialData.woocommerceActive }
 					/>
 
 					{ /* Conflict handling */ }

@@ -152,6 +152,25 @@ class GSWP_Blocks {
 			$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
 			if ( $risk >= $threshold ) {
 				$this->log( sprintf( 'Transaction defense blocked block checkout: risk %.2f >= threshold %.2f.', $risk, $threshold ) );
+
+				/**
+				 * A high-risk checkout was blocked (Store API path). Fires before
+				 * the RouteException so the admin email-alert layer records it.
+				 */
+				do_action(
+					'gswp_checkout_blocked',
+					$risk,
+					$threshold,
+					array(
+						'source'        => 'block',
+						'assessment'    => $this->verifier->get_last_assessment_name(),
+						'billing_email' => $order->get_billing_email(),
+						'billing_name'  => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
+						'total'         => (string) $order->get_total(),
+						'currency'      => $order->get_currency(),
+					)
+				);
+
 				$this->fail(
 					'gswp_transaction_risk',
 					__( '<strong>Error:</strong> This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )

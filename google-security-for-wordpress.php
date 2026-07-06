@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.6.0
+ * Version: 2.7.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.6.0' );
+define( 'GSWP_VERSION', '2.7.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -71,6 +71,10 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-blocks.php';
 // annotates login/2FA outcomes. Hooks the authentication flow, so it loads
 // unconditionally (inert unless enabled with an Enterprise key).
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-account-defender.php';
+// Admin email alerts: turns a flagged suspicious admin login (Account Defender)
+// or a blocked high-risk checkout (Transaction defense) into a throttled email.
+// Subscribes to actions fired from the login flow, so it loads unconditionally.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-alerts.php';
 // The WordPress core login/registration/lost-password screens run outside the
 // admin context (is_admin() is false on wp-login.php), so this class must load
 // unconditionally for its hooks to fire.
@@ -124,6 +128,12 @@ function gswp_default_options() {
 		'ad_step_up'                => '0',
 		'ad_events'                 => '1',
 		'account_salt'              => '',
+		// Admin email alerts on flagged events.
+		'alerts'                    => '0',
+		'alert_email'               => '',
+		'alert_mode'                => 'immediate',
+		'alert_login'               => '1',
+		'alert_checkout'            => '1',
 		// Diagnostics.
 		'verbose_logging'           => '0',
 		'enable_wp_login'           => '0',
@@ -165,6 +175,17 @@ function gswp_activate() {
 	update_option( 'gswp_db_version', GSWP_VERSION );
 }
 register_activation_hook( __FILE__, 'gswp_activate' );
+
+/**
+ * Deactivate the plugin.
+ *
+ * Clears the alert-digest cron so no scheduled event is left dangling once the
+ * plugin is switched off.
+ */
+function gswp_deactivate() {
+	wp_clear_scheduled_hook( 'gswp_alerts_digest_event' );
+}
+register_deactivation_hook( __FILE__, 'gswp_deactivate' );
 
 /**
  * Copy settings stored under the plugin's previous option prefix.
@@ -278,6 +299,10 @@ function gswp_init() {
 	// and annotates login/2FA outcomes. Inert unless enabled with an Enterprise
 	// key. Shares the verifier so it can read the last assessment's labels.
 	new GSWP_Account_Defender( $verifier );
+
+	// Admin email alerts. Subscribes to the suspicious-login and blocked-checkout
+	// actions and emails a throttled summary. Inert unless enabled.
+	new GSWP_Alerts();
 
 	// Protect the WordPress core login, registration, and lost password
 	// screens. Hooks only fire on wp-login.php, so this is inert elsewhere.

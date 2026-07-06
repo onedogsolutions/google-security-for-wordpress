@@ -790,12 +790,55 @@ class GSWP_Verifier {
 			$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
 			if ( $risk >= $threshold ) {
 				$this->log( sprintf( 'Transaction defense blocked checkout: risk %.2f >= threshold %.2f (assessment %s).', $risk, $threshold, $this->last_assessment_name ) );
+
+				/**
+				 * A high-risk checkout was blocked. Fires alongside the log line so
+				 * the admin email-alert layer (and any third-party listener) can act
+				 * on it without touching this class.
+				 */
+				do_action( 'gswp_checkout_blocked', $risk, $threshold, $this->build_blocked_checkout_context() );
+
 				$errors->add(
 					'recaptcha_transaction_risk',
 					__( '<strong>Error:</strong> This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )
 				);
 			}
 		}
+	}
+
+	/**
+	 * Build the context passed with the gswp_checkout_blocked action for a
+	 * classic checkout, read from the posted billing fields and the cart.
+	 *
+	 * WooCommerce verifies the checkout nonce before this runs, so the posted
+	 * fields are trusted here.
+	 *
+	 * @return array
+	 */
+	private function build_blocked_checkout_context() {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing
+		$email = isset( $_POST['billing_email'] ) ? sanitize_email( wp_unslash( $_POST['billing_email'] ) ) : '';
+		$first = isset( $_POST['billing_first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['billing_first_name'] ) ) : '';
+		$last  = isset( $_POST['billing_last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['billing_last_name'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$total    = '';
+		$currency = '';
+		if ( function_exists( 'WC' ) && WC()->cart ) {
+			$total = (string) WC()->cart->get_total( 'edit' );
+		}
+		if ( function_exists( 'get_woocommerce_currency' ) ) {
+			$currency = get_woocommerce_currency();
+		}
+
+		return array(
+			'source'        => 'classic',
+			'assessment'    => $this->last_assessment_name,
+			'billing_email' => $email,
+			'billing_name'  => trim( $first . ' ' . $last ),
+			'total'         => $total,
+			'currency'      => $currency,
+		);
 	}
 
 	/**

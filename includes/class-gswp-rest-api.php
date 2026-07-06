@@ -75,6 +75,11 @@ class GSWP_Rest_Api {
 			'account_defender'       => get_option( 'gswp_account_defender', '0' ),
 			'ad_step_up'             => get_option( 'gswp_ad_step_up', '0' ),
 			'ad_events'              => get_option( 'gswp_ad_events', '1' ),
+			'alerts'                 => get_option( 'gswp_alerts', '0' ),
+			'alert_email'            => get_option( 'gswp_alert_email', '' ),
+			'alert_mode'             => get_option( 'gswp_alert_mode', 'immediate' ),
+			'alert_login'            => get_option( 'gswp_alert_login', '1' ),
+			'alert_checkout'         => get_option( 'gswp_alert_checkout', '1' ),
 			'verbose_logging'        => get_option( 'gswp_verbose_logging', '0' ),
 			'enable_wp_login'        => get_option( 'gswp_enable_wp_login', '0' ),
 			'enable_wp_register'     => get_option( 'gswp_enable_wp_register', '0' ),
@@ -137,6 +142,9 @@ class GSWP_Rest_Api {
 			'account_defender',
 			'ad_step_up',
 			'ad_events',
+			'alerts',
+			'alert_login',
+			'alert_checkout',
 			'verbose_logging',
 			'enable_wp_login',
 			'enable_wp_register',
@@ -164,6 +172,32 @@ class GSWP_Rest_Api {
 				$val = max( 0.0, min( 1.0, $val ) );
 				update_option( 'gswp_' . $threshold, strval( $val ) );
 			}
+		}
+
+		// Alert recipients: comma-separated list, each address validated,
+		// invalid entries dropped, re-joined for storage.
+		if ( isset( $params['alert_email'] ) ) {
+			$emails = array();
+			foreach ( explode( ',', (string) $params['alert_email'] ) as $addr ) {
+				$addr = sanitize_email( trim( $addr ) );
+				if ( '' !== $addr && is_email( $addr ) ) {
+					$emails[] = $addr;
+				}
+			}
+			update_option( 'gswp_alert_email', implode( ', ', array_values( array_unique( $emails ) ) ) );
+		}
+
+		// Alert delivery mode. Only known modes are accepted. On a change, clear
+		// the digest cron so the next load reschedules it at the new recurrence
+		// (GSWP_Alerts::maybe_schedule_digest on init).
+		if ( isset( $params['alert_mode'] ) ) {
+			$alert_mode = in_array( $params['alert_mode'], array( 'immediate', 'hourly', 'daily' ), true )
+				? $params['alert_mode']
+				: 'immediate';
+			if ( $alert_mode !== get_option( 'gswp_alert_mode', 'immediate' ) ) {
+				wp_clear_scheduled_hook( 'gswp_alerts_digest_event' );
+			}
+			update_option( 'gswp_alert_mode', $alert_mode );
 		}
 
 		// Conflict handling mode. Only known modes are accepted.

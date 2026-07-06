@@ -193,7 +193,70 @@ class GSWP_Account_Defender {
 			$this->log( 'Account Defender flagged SUSPICIOUS_LOGIN_ACTIVITY; 2FA step-up requested.' );
 		}
 
+		// Fire the admin-alert action for a suspicious login on an admin-capable
+		// account. Independent of the step-up setting: whether a step-up ran is
+		// reported in the alert, not a precondition for it. GSWP_Alerts is the
+		// only shipped subscriber (and only when alerts are enabled); the action
+		// also gives third parties a seam for Slack/webhook forwarding.
+		if ( in_array( 'SUSPICIOUS_LOGIN_ACTIVITY', $labels, true ) ) {
+			$this->maybe_alert_suspicious_login( $user, $username, $labels, $name );
+		}
+
 		return $user;
+	}
+
+	/**
+	 * Resolve the flagged account and fire the admin-alert action when it is
+	 * administrator-capable.
+	 *
+	 * On a wrong-password attempt (exactly the credential-stuffing case worth
+	 * alerting on) the $user arg is a WP_Error, so the target is resolved from
+	 * the submitted username/email. An unresolvable username is not an admin
+	 * account, so no alert fires.
+	 *
+	 * @param null|WP_User|WP_Error $user     Auth result so far.
+	 * @param string                $username Submitted username or email.
+	 * @param string[]              $labels   Account Defender labels.
+	 * @param string                $name     Assessment resource name.
+	 */
+	private function maybe_alert_suspicious_login( $user, $username, $labels, $name ) {
+		$target = $user instanceof WP_User ? $user : self::resolve_user( $username );
+		if ( ! $target instanceof WP_User ) {
+			return;
+		}
+
+		$capability = apply_filters( 'gswp_alert_login_capability', 'manage_options' );
+		if ( ! user_can( $target, $capability ) ) {
+			return;
+		}
+
+		do_action(
+			'gswp_suspicious_admin_login',
+			$target,
+			$labels,
+			array(
+				'correct_password' => $user instanceof WP_User,
+				'step_up'          => self::$force_2fa,
+				'assessment'       => $name,
+			)
+		);
+	}
+
+	/**
+	 * Look up a user by login name, then by email.
+	 *
+	 * @param string $username Submitted identifier.
+	 * @return WP_User|null
+	 */
+	private static function resolve_user( $username ) {
+		if ( ! is_string( $username ) || '' === $username ) {
+			return null;
+		}
+		$user = get_user_by( 'login', $username );
+		if ( ! $user ) {
+			$user = get_user_by( 'email', $username );
+		}
+		return $user ? $user : null;
 	}
 
 	/**
