@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.5.0
+Stable tag: 2.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,7 +23,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 * **WordPress Core Screen Protection**: Scores the wp-login.php sign in, user registration, and lost password forms out of the box, with no WooCommerce required.
 * **WooCommerce Support**: When WooCommerce is active, also protects the customer Login, Registration, and Checkout forms — including the modern WooCommerce Checkout block (Store API), so stores built on the block editor are covered by the same reCAPTCHA scoring and Transaction Defense as the classic checkout.
 * **Transaction Defense (reCAPTCHA Enterprise)**: When using an Enterprise key, sends the order's billing/shipping address, amount, line items, and payment method with each checkout assessment to power Google's Fraud Prevention model, optionally blocks high-risk transactions, and annotates each order's outcome (legitimate/fraudulent) so the model keeps learning.
-* **Account Defender (reCAPTCHA Enterprise)**: When using an Enterprise key, sends an anonymous, salted account identifier with each login/registration assessment so Google's site-specific model can flag account takeovers, fake signups, and account farming. Logs the returned risk labels, optionally forces the two-factor challenge for enrolled users on suspicious logins, and annotates login and two-factor outcomes (correct/incorrect password, 2FA initiated/passed/failed) to train the model. Disabled by default.
+* **Account Defender (reCAPTCHA Enterprise)**: When using an Enterprise key, sends an anonymous, salted account identifier with each login, registration, and account-change assessment so Google's site-specific model can flag account takeovers, fake signups, and account farming. Logs the returned risk labels, optionally forces the two-factor challenge for enrolled users on suspicious logins, and annotates login, two-factor, and account-modification outcomes (correct/incorrect password, 2FA initiated/passed/failed, and legitimate password resets, email changes, and 2FA enable/disable) to train the model. Account changes are assessed, never blocked. Disabled by default.
 * **Two-Factor Authentication (Google Authenticator)**: Users enrol from their profile by scanning a QR code (or entering the setup key manually) and confirming a code. A second-factor challenge is then required at login.
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
@@ -54,6 +54,9 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
 == Changelog ==
+
+= 2.6.0 =
+* Extended reCAPTCHA Enterprise Account Defender to account-modification events, completing the model's view of account takeover. In addition to logins and registrations, the plugin now assesses and annotates password resets (wp-login.php and WooCommerce), email-address changes, and two-factor enable/disable on the user profile and WooCommerce "Account details" screens — sending the same anonymous, salted account identifier and confirming each change as legitimate so Google's site-specific model learns what a real account owner's activity looks like, not just their sign-ins. Deferred flows (the password-reset email link and the profile email-confirmation link) are annotated when they complete, i.e. once control of the account's email is proven. Account changes are only assessed, never blocked. A new "Assess account changes" toggle under Account Defender (on by default) governs this; turning it off keeps login coverage without loading the reCAPTCHA script on the profile/account pages. Enterprise key type and Account Defender required.
 
 = 2.5.0 =
 * Added reCAPTCHA and Transaction Defense support for the modern WooCommerce Checkout block (Store API). Previously only the classic shortcode checkout was scored; stores using the block-based checkout received no reCAPTCHA verification and no Transaction Defense. The block now sends a fresh reCAPTCHA token with each checkout submission, which is scored server-side on the Store API checkout hook using the same thresholds, and Enterprise orders placed through the block are assessed and annotated (legitimate/fraudulent) exactly like classic-checkout orders. No configuration change is required — existing checkout settings apply automatically to both checkout types.

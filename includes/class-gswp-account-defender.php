@@ -45,6 +45,40 @@ class GSWP_Account_Defender {
 	private static $annotated = false;
 
 	/**
+	 * Assessment name captured for the current request's account-modification
+	 * event (profile save or WooCommerce account-details save). Empty when none.
+	 *
+	 * @var string
+	 */
+	private static $modification_name = '';
+
+	/**
+	 * Which sensitive changes were detected for the current modification event
+	 * (any of 'email', 'password', '2fa').
+	 *
+	 * @var string[]
+	 */
+	private static $modification_changes = array();
+
+	/**
+	 * A 2FA change made through the profile form this request: 'enabled',
+	 * 'disabled', or '' when none. Set by GSWP_Two_Factor::save_profile().
+	 *
+	 * @var string
+	 */
+	private static $twofa_change = '';
+
+	/**
+	 * Whether the current request's modification assessment has been annotated.
+	 *
+	 * @var bool
+	 */
+	private static $modification_annotated = false;
+
+	/** Transient key prefix for a deferred (pending) account-modification. */
+	const PENDING_PREFIX = 'gswp_ad_pending_';
+
+	/**
 	 * Constructor. Hooks the login lifecycle when the feature is active.
 	 *
 	 * @param GSWP_Verifier $verifier Shared verifier instance.
@@ -64,6 +98,41 @@ class GSWP_Account_Defender {
 		// Terminal login outcomes (every entry point funnels through these).
 		add_action( 'wp_login', array( $this, 'on_login_success' ), 10, 2 );
 		add_action( 'wp_login_failed', array( $this, 'on_login_failed' ), 10, 2 );
+
+		// Account-modification events (password/email/2FA changes). Assessed
+		// where a token can be attached, annotated at the terminal outcome, and
+		// never blocking. The password-reset lifecycle lives in GSWP_Login since
+		// it owns the wp-login.php forms; here we cover the self-service profile
+		// and WooCommerce "Account details" screens.
+		if ( ! self::events_active() ) {
+			return;
+		}
+
+		// Own-profile screen: inject the token field into the profile form and
+		// load the reCAPTCHA script there (profile.php only — never user-edit.php,
+		// so an admin editing another user is never attributed to that account).
+		add_action( 'show_user_profile', array( $this, 'inject_profile_field' ), 1 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_profile_assets' ) );
+		add_action( 'user_profile_update_errors', array( $this, 'assess_profile_update' ), 10, 3 );
+		add_action( 'profile_update', array( $this, 'annotate_profile_update' ), 10, 2 );
+
+		// WooCommerce "Account details" screen (email/password change, immediate).
+		add_action( 'woocommerce_edit_account_form', array( $this, 'inject_account_field' ) );
+		add_action( 'woocommerce_save_account_details_errors', array( $this, 'assess_account_details' ), 10, 2 );
+		add_action( 'woocommerce_save_account_details', array( $this, 'annotate_account_details' ), 10, 1 );
+	}
+
+	/**
+	 * Whether Account Defender and its account-modification events are both on.
+	 *
+	 * Gated on top of is_active() (Enterprise key + Account Defender) by the
+	 * gswp_ad_events toggle (default on), so a site can keep login coverage but
+	 * switch off the reCAPTCHA script on the profile/account screens.
+	 *
+	 * @return bool
+	 */
+	public static function events_active() {
+		return self::is_active() && '1' === get_option( 'gswp_ad_events', '1' );
 	}
 
 	/**
@@ -187,6 +256,338 @@ class GSWP_Account_Defender {
 	 */
 	public static function should_force_2fa() {
 		return self::$force_2fa;
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Account-modification events (password / email / 2FA changes)
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Print the hidden reCAPTCHA field, carrying a reCAPTCHA action, into a form.
+	 *
+	 * @param string $action reCAPTCHA action name for the token.
+	 */
+	private function render_field( $action ) {
+		if ( '' === GSWP_Assets::site_key() ) {
+			return;
+		}
+
+		printf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( $action )
+		);
+	}
+
+	/**
+	 * Inject the token field into the user's own profile form.
+	 *
+	 * @param WP_User $user The profile being shown (always the current user here).
+	 */
+	public function inject_profile_field( $user ) {
+		$this->render_field( 'account_update' );
+	}
+
+	/**
+	 * Load the reCAPTCHA API script and token bootstrap on the profile screen.
+	 *
+	 * Restricted to profile.php: on user-edit.php an administrator edits another
+	 * account, and that change must not be assessed under the target's identity.
+	 *
+	 * @param string $hook Current admin page hook.
+	 */
+	public function enqueue_profile_assets( $hook ) {
+		if ( 'profile.php' !== $hook ) {
+			return;
+		}
+
+		if ( GSWP_Assets::enqueue_api_script() ) {
+			GSWP_Assets::add_refresh_bootstrap();
+		}
+	}
+
+	/**
+	 * Assess a self-service profile update when it carries a sensitive change.
+	 *
+	 * Runs on user_profile_update_errors. Never adds an error (account changes
+	 * are recorded, not blocked); it only creates the assessment whose outcome
+	 * is annotated later by annotate_profile_update() / the two-factor flow.
+	 *
+	 * @param WP_Error $errors Validation errors (left untouched).
+	 * @param bool     $update Whether this is an update (unused).
+	 * @param stdClass $user   Incoming user data (new values).
+	 */
+	public function assess_profile_update( $errors, $update, $user ) {
+		if ( ! isset( $user->ID ) || (int) $user->ID !== get_current_user_id() ) {
+			return; // Self-service only.
+		}
+
+		$changes = $this->detect_profile_changes( $user );
+		if ( empty( $changes ) ) {
+			return;
+		}
+
+		$this->verifier->verify_token( 'account_update', 'account_update', array(), (int) $user->ID );
+
+		$name = $this->verifier->get_last_assessment_name();
+		if ( '' === $name ) {
+			return; // No token / classic key / connection skipped: nothing to annotate.
+		}
+
+		self::$modification_name    = $name;
+		self::$modification_changes = $changes;
+
+		// A profile email change is deferred by core (a confirmation link updates
+		// user_email in a later request), so remember the assessment to annotate
+		// when that confirmation lands.
+		if ( in_array( 'email', $changes, true ) ) {
+			self::store_pending( 'email_' . (int) $user->ID, $name, WEEK_IN_SECONDS );
+		}
+
+		if ( self::verbose() ) {
+			$this->log( 'Account Defender assessed profile change (' . implode( ', ', $changes ) . ').' );
+		}
+	}
+
+	/**
+	 * Annotate a committed profile update as legitimate.
+	 *
+	 * Handles two cases: a deferred email change completing in a later request
+	 * (consume the pending assessment), and an immediate change (password or 2FA)
+	 * assessed earlier this request.
+	 *
+	 * @param int     $user_id       Updated user ID.
+	 * @param WP_User $old_user_data User object before the update.
+	 */
+	public function annotate_profile_update( $user_id, $old_user_data = null ) {
+		if ( (int) $user_id !== get_current_user_id() ) {
+			return; // Self-service only.
+		}
+
+		$email_changed_now = $this->email_changed( $user_id, $old_user_data );
+
+		// No assessment this request: this is the email-confirmation link landing,
+		// so annotate the assessment stored when the change was requested.
+		if ( '' === self::$modification_name ) {
+			if ( $email_changed_now ) {
+				$name = self::take_pending( 'email_' . (int) $user_id );
+				if ( '' !== $name ) {
+					self::annotate( $name, 'LEGITIMATE' );
+				}
+			}
+			return;
+		}
+
+		// An assessment was made this request. Annotate now for changes that take
+		// effect immediately (password, 2FA); a profile email change is deferred,
+		// so leave it for the confirmation link unless it also changed something
+		// immediate.
+		$has_immediate = $email_changed_now
+			|| in_array( 'password', self::$modification_changes, true )
+			|| '' !== self::$twofa_change;
+
+		if ( $has_immediate ) {
+			$this->finalize_modification();
+		}
+	}
+
+	/**
+	 * Inject the token field into the WooCommerce "Account details" form.
+	 */
+	public function inject_account_field() {
+		if ( GSWP_Assets::enqueue_api_script() ) {
+			GSWP_Assets::add_refresh_bootstrap();
+		}
+		$this->render_field( 'account_update' );
+	}
+
+	/**
+	 * Assess a WooCommerce account-details save carrying a sensitive change.
+	 *
+	 * @param WP_Error $errors Validation errors (left untouched).
+	 * @param stdClass $user   Incoming user data (unused; current user is used).
+	 */
+	public function assess_account_details( $errors, $user = null ) {
+		$user_id = get_current_user_id();
+		if ( ! $user_id ) {
+			return;
+		}
+
+		$changes = $this->detect_account_changes( $user_id );
+		if ( empty( $changes ) ) {
+			return;
+		}
+
+		$this->verifier->verify_token( 'account_update', 'account_update', array(), $user_id );
+
+		$name = $this->verifier->get_last_assessment_name();
+		if ( '' === $name ) {
+			return;
+		}
+
+		self::$modification_name    = $name;
+		self::$modification_changes = $changes;
+
+		if ( self::verbose() ) {
+			$this->log( 'Account Defender assessed WooCommerce account change (' . implode( ', ', $changes ) . ').' );
+		}
+	}
+
+	/**
+	 * Annotate a committed WooCommerce account-details save as legitimate.
+	 *
+	 * WooCommerce applies email and password changes immediately (no confirmation
+	 * step), so the change is real by the time this fires. Idempotent: the shared
+	 * guard means the profile_update annotation (fired inside wp_update_user) and
+	 * this call never double-annotate the same assessment.
+	 *
+	 * @param int $user_id Updated user ID.
+	 */
+	public function annotate_account_details( $user_id ) {
+		$this->finalize_modification();
+	}
+
+	/**
+	 * Detect sensitive changes in an incoming profile save.
+	 *
+	 * @param stdClass $user Incoming user data (new values).
+	 * @return string[] Subset of { 'email', 'password', '2fa' }.
+	 */
+	private function detect_profile_changes( $user ) {
+		$changes = array();
+
+		$current = get_userdata( (int) $user->ID );
+		if ( $current instanceof WP_User && isset( $user->user_email )
+			&& strtolower( $user->user_email ) !== strtolower( $current->user_email ) ) {
+			$changes[] = 'email';
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- core verifies the profile nonce before this hook.
+		if ( ! empty( $_POST['pass1'] ) ) {
+			$changes[] = 'password';
+		}
+
+		// A 2FA enrol posts the setup code; a disable posts the disable checkbox.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( ! empty( $_POST['gswp_2fa_setup_code'] ) || ! empty( $_POST['gswp_2fa_disable'] ) ) {
+			$changes[] = '2fa';
+		}
+
+		return $changes;
+	}
+
+	/**
+	 * Detect sensitive changes in an incoming WooCommerce account save.
+	 *
+	 * @param int $user_id Current user ID.
+	 * @return string[] Subset of { 'email', 'password' }.
+	 */
+	private function detect_account_changes( $user_id ) {
+		$changes = array();
+
+		$current = get_userdata( $user_id );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce verifies its own nonce before this hook.
+		$new_email = isset( $_POST['account_email'] ) ? sanitize_email( wp_unslash( $_POST['account_email'] ) ) : '';
+		if ( $current instanceof WP_User && '' !== $new_email
+			&& strtolower( $new_email ) !== strtolower( $current->user_email ) ) {
+			$changes[] = 'email';
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( ! empty( $_POST['password_1'] ) ) {
+			$changes[] = 'password';
+		}
+
+		return $changes;
+	}
+
+	/**
+	 * Whether a user's email actually differs from its pre-update value.
+	 *
+	 * @param int          $user_id       Updated user ID.
+	 * @param WP_User|null $old_user_data User object before the update.
+	 * @return bool
+	 */
+	private function email_changed( $user_id, $old_user_data ) {
+		if ( ! $old_user_data instanceof WP_User ) {
+			return false;
+		}
+		$current = get_userdata( $user_id );
+		return $current instanceof WP_User
+			&& strtolower( $current->user_email ) !== strtolower( $old_user_data->user_email );
+	}
+
+	/**
+	 * Annotate this request's modification assessment LEGITIMATE, exactly once.
+	 *
+	 * Adds the PASSED_TWO_FACTOR reason when the change enabled 2FA (a code was
+	 * verified). The guard makes the two terminal hooks (profile_update and
+	 * woocommerce_save_account_details) safe to both fire for one save.
+	 */
+	private function finalize_modification() {
+		if ( self::$modification_annotated || '' === self::$modification_name ) {
+			return;
+		}
+		self::$modification_annotated = true;
+
+		$reasons = ( 'enabled' === self::$twofa_change ) ? array( 'PASSED_TWO_FACTOR' ) : array();
+
+		self::annotate( self::$modification_name, 'LEGITIMATE', $reasons );
+	}
+
+	/**
+	 * The account-modification assessment captured for this request, if any.
+	 *
+	 * @return string
+	 */
+	public static function current_modification_assessment() {
+		return self::$modification_name;
+	}
+
+	/**
+	 * Record a 2FA change made through the profile form this request.
+	 *
+	 * Called by GSWP_Two_Factor::save_profile() on a successful enable/disable.
+	 * The profile assessment is created after that hook runs (edit_user fires
+	 * user_profile_update_errors later), so the outcome is annotated at
+	 * profile_update using this flag rather than annotated inline.
+	 *
+	 * @param string $type 'enabled' or 'disabled'.
+	 */
+	public static function note_2fa_change( $type ) {
+		self::$twofa_change = ( 'enabled' === $type ) ? 'enabled' : 'disabled';
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Pending (deferred) assessment store
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Stash an assessment name to annotate when a deferred flow completes.
+	 *
+	 * @param string $key  Short key (e.g. "email_42").
+	 * @param string $name Assessment resource name.
+	 * @param int    $ttl  Lifetime in seconds.
+	 */
+	public static function store_pending( $key, $name, $ttl ) {
+		if ( '' === $name ) {
+			return;
+		}
+		set_transient( self::PENDING_PREFIX . $key, $name, $ttl );
+	}
+
+	/**
+	 * Consume a stored pending assessment name.
+	 *
+	 * @param string $key Short key used with store_pending().
+	 * @return string Assessment name, or '' when none is stored.
+	 */
+	public static function take_pending( $key ) {
+		$name = get_transient( self::PENDING_PREFIX . $key );
+		if ( false === $name || '' === $name ) {
+			return '';
+		}
+		delete_transient( self::PENDING_PREFIX . $key );
+		return (string) $name;
 	}
 
 	/**

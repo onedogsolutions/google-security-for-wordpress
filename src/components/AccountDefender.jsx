@@ -33,6 +33,10 @@ export default function AccountDefender( { settings, onChange } ) {
 		settings.account_defender === '1' || settings.account_defender === true;
 	const stepUpOn =
 		settings.ad_step_up === '1' || settings.ad_step_up === true;
+	const eventsOn =
+		settings.ad_events === '1' ||
+		settings.ad_events === true ||
+		settings.ad_events === undefined;
 
 	return (
 		<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl md:col-span-2">
@@ -45,7 +49,7 @@ export default function AccountDefender( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'reCAPTCHA Enterprise Account Defender builds a site-specific model of your accounts to flag takeovers, fake signups, and account farming. The plugin sends an anonymous, salted account identifier with each login/registration assessment, logs the returned risk labels, and annotates login and two-factor outcomes so the model keeps learning.',
+						'reCAPTCHA Enterprise Account Defender builds a site-specific model of your accounts to flag takeovers, fake signups, and account farming. The plugin sends an anonymous, salted account identifier with each login, registration, and account-change assessment, logs the returned risk labels, and annotates login, two-factor, and account-modification outcomes so the model keeps learning.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -121,6 +125,39 @@ export default function AccountDefender( { settings, onChange } ) {
 										onChange(
 											'ad_step_up',
 											stepUpOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
+						) }
+
+						{ /* Account-modification events */ }
+						{ defenderOn && (
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Assess account changes',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'Also assess and annotate password resets, email changes, and two-factor enable/disable so the model sees account-takeover activity, not just logins. This loads the reCAPTCHA script on the profile and WooCommerce account pages. Turn off to keep login coverage without that script; account changes are never blocked either way.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Assess account changes',
+										'google-security-for-wordpress'
+									) }
+									enabled={ eventsOn }
+									onToggle={ () =>
+										onChange(
+											'ad_events',
+											eventsOn ? '0' : '1'
 										)
 									}
 								/>

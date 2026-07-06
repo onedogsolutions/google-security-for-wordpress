@@ -623,6 +623,21 @@ class GSWP_Two_Factor {
 		GSWP_Account_Defender::annotate( $name, $annotation, $reasons );
 	}
 
+	/**
+	 * Flag a self-service 2FA enable/disable for Account Defender annotation.
+	 *
+	 * The profile save fires before the account-modification assessment is made
+	 * (core runs edit_user, and our assessment hook, after this), so the outcome
+	 * is annotated later at profile_update from this flag rather than inline.
+	 *
+	 * @param string $type 'enabled' or 'disabled'.
+	 */
+	private function note_account_defender_2fa( $type ) {
+		if ( class_exists( 'GSWP_Account_Defender' ) && GSWP_Account_Defender::events_active() ) {
+			GSWP_Account_Defender::note_2fa_change( $type );
+		}
+	}
+
 	/* ---------------------------------------------------------------------
 	 * Trusted browsers ("remember this browser")
 	 * ------------------------------------------------------------------- */
@@ -1194,6 +1209,7 @@ JS;
 		// Disable own 2FA.
 		if ( ! empty( $_POST['gswp_2fa_disable'] ) ) {
 			$this->disable_for_user( $user_id );
+			$this->note_account_defender_2fa( 'disabled' );
 			return;
 		}
 
@@ -1223,6 +1239,8 @@ JS;
 				update_user_meta( $user_id, self::META_LAST_TS, $matched );
 				delete_user_meta( $user_id, self::META_PENDING );
 				delete_user_meta( $user_id, self::META_GRACE_START );
+
+				$this->note_account_defender_2fa( 'enabled' );
 
 				$codes = $this->generate_backup_codes( $user_id );
 				set_transient( 'gswp_2fa_codes_' . $user_id, $codes, 2 * MINUTE_IN_SECONDS );

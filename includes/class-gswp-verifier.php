@@ -843,8 +843,19 @@ class GSWP_Verifier {
 			return array();
 		}
 
-		// Account Defender applies to account access events, not checkout.
-		$account_contexts = array( 'login', 'registration', 'wp_login', 'wp_register' );
+		// Account Defender applies to account access and account-modification
+		// events, not checkout: logins/registrations (the front door) plus lost
+		// password, password reset, and profile/account updates (the actions a
+		// takeover performs once inside).
+		$account_contexts = array(
+			'login',
+			'registration',
+			'wp_login',
+			'wp_register',
+			'wp_lostpassword',
+			'password_reset',
+			'account_update',
+		);
 		if ( ! in_array( $context, $account_contexts, true ) ) {
 			return array();
 		}

@@ -24,6 +24,14 @@ class GSWP_Login {
 	private $verifier;
 
 	/**
+	 * Assessment name captured for the password-reset form submission this
+	 * request, carried from validate_password_reset() to after_password_reset().
+	 *
+	 * @var string
+	 */
+	private $reset_assessment_name = '';
+
+	/**
 	 * Constructor.
 	 *
 	 * @param GSWP_Verifier $verifier Token verifier instance.
@@ -45,14 +53,35 @@ class GSWP_Login {
 
 		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
 			add_action( 'lostpassword_form', array( $this, 'inject_lostpassword_field' ) );
-			add_action( 'lostpassword_post', array( $this, 'validate_lostpassword' ), 10, 1 );
+			// Two args: the second is the requested WP_User, used as the Account
+			// Defender identifier and to store a pending assessment for the reset.
+			add_action( 'lostpassword_post', array( $this, 'validate_lostpassword' ), 10, 2 );
+		}
+
+		// Account Defender: assess and annotate the password-reset completion so
+		// the takeover model sees a credential change confirmed by email control.
+		// This runs on wp-login.php?action=rp regardless of the lost-password
+		// scoring toggle, since the reset form is the second half of that flow.
+		if ( $this->reset_events_active() ) {
+			add_action( 'resetpass_form', array( $this, 'inject_resetpass_field' ) );
+			add_action( 'validate_password_reset', array( $this, 'validate_password_reset' ), 10, 2 );
+			add_action( 'after_password_reset', array( $this, 'on_password_reset' ), 10, 2 );
 		}
 
 		// Print the Google API script and bootstrap on wp-login.php when at
-		// least one screen is protected.
-		if ( $this->is_any_enabled() ) {
+		// least one screen is protected (including the password-reset form).
+		if ( $this->is_any_enabled() || $this->reset_events_active() ) {
 			add_action( 'login_footer', array( $this, 'print_scripts' ) );
 		}
+	}
+
+	/**
+	 * Whether Account Defender account-modification events are active.
+	 *
+	 * @return bool
+	 */
+	private function reset_events_active() {
+		return class_exists( 'GSWP_Account_Defender' ) && GSWP_Account_Defender::events_active();
 	}
 
 	/**
@@ -178,12 +207,97 @@ class GSWP_Login {
 	/**
 	 * Validate the wp-login.php lost password attempt.
 	 *
-	 * @param WP_Error $errors Lost password errors object.
+	 * @param WP_Error           $errors    Lost password errors object.
+	 * @param WP_User|false|null $user_data The user the reset was requested for.
 	 */
-	public function validate_lostpassword( $errors ) {
-		$result = $this->verifier->verify_token( 'wp_lostpassword', 'lostpassword' );
+	public function validate_lostpassword( $errors, $user_data = null ) {
+		// Attach the Account Defender identifier when the requested account is
+		// known, so the lost-password assessment carries the same accountId as
+		// the eventual reset completion.
+		$identifier = $user_data instanceof WP_User ? $user_data : null;
+
+		$result = $this->verifier->verify_token( 'wp_lostpassword', 'lostpassword', array(), $identifier );
 		if ( is_wp_error( $result ) && is_wp_error( $errors ) ) {
 			$errors->add( 'recaptcha_error', $result->get_error_message() );
+		}
+
+		// Remember this assessment so completing the reset (a later request that
+		// carries no token) can annotate it once email control is proven.
+		if ( $user_data instanceof WP_User && $this->reset_events_active() ) {
+			$name = $this->verifier->get_last_assessment_name();
+			if ( '' !== $name ) {
+				GSWP_Account_Defender::store_pending(
+					'lostpw_' . $user_data->ID,
+					$name,
+					(int) apply_filters( 'password_reset_expiration', DAY_IN_SECONDS )
+				);
+			}
+		}
+	}
+
+	/**
+	 * Inject the hidden field into the password-reset form (action=rp).
+	 */
+	public function inject_resetpass_field() {
+		$site_key = get_option( 'gswp_site_key', '' );
+		if ( empty( $site_key ) ) {
+			return;
+		}
+
+		printf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( 'password_reset' )
+		);
+	}
+
+	/**
+	 * Assess the password-reset submission (never blocks).
+	 *
+	 * validate_password_reset also fires when the reset form is first rendered
+	 * (a GET with no pass1), so only the actual submission is assessed. The
+	 * outcome is annotated by on_password_reset() once the change is committed.
+	 *
+	 * @param WP_Error         $errors Reset errors object (left untouched).
+	 * @param WP_User|WP_Error $user   The user resetting their password.
+	 */
+	public function validate_password_reset( $errors, $user = null ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- core validates the reset key before this hook.
+		if ( ! isset( $_POST['pass1'] ) ) {
+			return; // Form render, not a submission.
+		}
+		if ( ! $user instanceof WP_User ) {
+			return;
+		}
+
+		// Account changes are recorded, not blocked: ignore the result so a low
+		// score can never stop a legitimate password reset.
+		$this->verifier->verify_token( 'password_reset', 'password_reset', array(), $user );
+		$this->reset_assessment_name = $this->verifier->get_last_assessment_name();
+	}
+
+	/**
+	 * Annotate the completed password reset as legitimate.
+	 *
+	 * Annotates the reset-form assessment and, when the reset began from a lost-
+	 * password request, the stored assessment for that request too.
+	 *
+	 * @param WP_User $user     The user whose password was reset.
+	 * @param string  $new_pass The new password (unused).
+	 */
+	public function on_password_reset( $user, $new_pass = '' ) {
+		if ( ! class_exists( 'GSWP_Account_Defender' ) || ! GSWP_Account_Defender::events_active() ) {
+			return;
+		}
+
+		if ( '' !== $this->reset_assessment_name ) {
+			GSWP_Account_Defender::annotate( $this->reset_assessment_name, 'LEGITIMATE' );
+		}
+
+		if ( $user instanceof WP_User ) {
+			$pending = GSWP_Account_Defender::take_pending( 'lostpw_' . $user->ID );
+			if ( '' !== $pending ) {
+				GSWP_Account_Defender::annotate( $pending, 'LEGITIMATE' );
+			}
 		}
 	}
 
@@ -299,7 +413,7 @@ class GSWP_Login {
 				// Pre-fetch so a token is present even before interaction.
 				refreshAll();
 
-				var forms = document.querySelectorAll('#loginform, #registerform, #lostpasswordform');
+				var forms = document.querySelectorAll('#loginform, #registerform, #lostpasswordform, #resetpassform');
 				for (var i = 0; i < forms.length; i++) {
 					forms[i].addEventListener('submit', function(e) {
 						var form = e.target;
