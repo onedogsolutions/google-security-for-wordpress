@@ -93,6 +93,8 @@ class GSWP_Rest_Api {
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
 			'tfa_grace_days'         => get_option( 'gswp_2fa_grace_days', '14' ),
+			'tfa_block_app_passwords' => get_option( 'gswp_2fa_block_app_passwords', '0' ),
+			'tfa_app_password_exempt_users' => get_option( 'gswp_2fa_app_password_exempt_users', '' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -216,6 +218,26 @@ class GSWP_Rest_Api {
 		// Two-factor: allow trusted-browser "remember me".
 		if ( isset( $params['tfa_remember'] ) ) {
 			update_option( 'gswp_2fa_remember', $params['tfa_remember'] ? '1' : '0' );
+		}
+
+		// Two-factor: block application passwords for users in enforced roles.
+		if ( isset( $params['tfa_block_app_passwords'] ) ) {
+			update_option( 'gswp_2fa_block_app_passwords', $params['tfa_block_app_passwords'] ? '1' : '0' );
+		}
+
+		// Two-factor: accounts exempt from the application-password block.
+		// Comma-separated logins; each is sanitized and kept only when it
+		// resolves to a real user, so a typo is dropped at save time rather
+		// than silently never matching.
+		if ( isset( $params['tfa_app_password_exempt_users'] ) ) {
+			$logins = array();
+			foreach ( explode( ',', (string) $params['tfa_app_password_exempt_users'] ) as $login ) {
+				$login = sanitize_user( trim( $login ), true );
+				if ( '' !== $login && get_user_by( 'login', $login ) ) {
+					$logins[] = $login;
+				}
+			}
+			update_option( 'gswp_2fa_app_password_exempt_users', implode( ', ', array_values( array_unique( $logins ) ) ) );
 		}
 
 		// Two-factor: enrolment grace period in days (0 = enforce immediately).

@@ -17,6 +17,15 @@ export default function TwoFactorNotice( {
 	const graceDays =
 		settings.tfa_grace_days === undefined ? '14' : settings.tfa_grace_days;
 
+	const blockAppPasswords =
+		settings.tfa_block_app_passwords === '1' ||
+		settings.tfa_block_app_passwords === true;
+
+	const exemptUsers =
+		settings.tfa_app_password_exempt_users === undefined
+			? ''
+			: settings.tfa_app_password_exempt_users;
+
 	const enforcedRoles = Array.isArray( settings.tfa_enforced_roles )
 		? settings.tfa_enforced_roles
 		: [];
@@ -169,6 +178,95 @@ export default function TwoFactorNotice( {
 								</span>
 							</div>
 						</div>
+
+						{ /* Block application passwords for enforced roles */ }
+						<div className="mt-6 flex items-start justify-between gap-x-6 border-t border-gray-100 pt-6">
+							<div className="flex-1">
+								<h4 className="text-sm font-medium text-gray-900">
+									{ __(
+										'Block application passwords for enforced roles',
+										'google-security-for-wordpress'
+									) }
+								</h4>
+								<p className="mt-1 text-sm text-gray-500">
+									{ __(
+										'Users in an enforced role can no longer create or sign in with application passwords (REST API / XML-RPC), so a password alone can never bypass the second factor. Existing application passwords for these users stop working immediately — reconnect any site-management or backup tools with a non-enforced account (or add an exemption below) before enabling, or turn this off to restore them.',
+										'google-security-for-wordpress'
+									) }
+								</p>
+							</div>
+							<div className="flex items-center gap-x-3 pt-0.5">
+								<span className="text-sm text-gray-600">
+									{ blockAppPasswords
+										? __(
+												'Enabled',
+												'google-security-for-wordpress'
+										  )
+										: __(
+												'Disabled',
+												'google-security-for-wordpress'
+										  ) }
+								</span>
+								<button
+									type="button"
+									aria-pressed={ blockAppPasswords }
+									className={ `relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
+										blockAppPasswords
+											? 'bg-indigo-600'
+											: 'bg-gray-200'
+									}` }
+									onClick={ () =>
+										onChange(
+											'tfa_block_app_passwords',
+											blockAppPasswords ? '0' : '1'
+										)
+									}
+								>
+									<span
+										aria-hidden="true"
+										className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+											blockAppPasswords
+												? 'translate-x-5'
+												: 'translate-x-0'
+										}` }
+									/>
+								</button>
+							</div>
+						</div>
+
+						{ /* Exempt accounts (shown only when the block is on) */ }
+						{ blockAppPasswords && (
+							<div className="mt-4 animate-fadeIn">
+								<label
+									htmlFor="gswp-app-pw-exempt"
+									className="block text-sm font-medium text-gray-900"
+								>
+									{ __(
+										'Exempt accounts',
+										'google-security-for-wordpress'
+									) }
+								</label>
+								<input
+									type="text"
+									id="gswp-app-pw-exempt"
+									value={ exemptUsers }
+									onChange={ ( e ) =>
+										onChange(
+											'tfa_app_password_exempt_users',
+											e.target.value
+										)
+									}
+									placeholder="mcp-service, backup-bot"
+									className="mt-2 block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
+								/>
+								<p className="mt-2 text-sm text-gray-500">
+									{ __(
+										'Application passwords keep working for these usernames — use for integrations that must connect via the REST API (e.g. MCP servers). Separate multiple usernames with commas. These accounts still get the two-factor challenge on interactive logins. Prefer a dedicated service account over your own login.',
+										'google-security-for-wordpress'
+									) }
+								</p>
+							</div>
+						) }
 
 						<p className="mt-3 text-xs leading-5 text-gray-500">
 							<strong>

@@ -72,6 +72,14 @@ class GSWP_Two_Factor {
 		// logins such as the PowerPack module — without any redirect. The code
 		// is then collected by a popup that completes the login over AJAX.
 		add_filter( 'authenticate', array( $this, 'enforce_second_factor' ), 100, 3 );
+		// Block XML-RPC password logins for enrolled accounts. Runs after the
+		// password/reCAPTCHA/Account Defender checks and just before the
+		// interactive challenge at priority 100 (which XML-RPC can't answer).
+		add_filter( 'authenticate', array( $this, 'block_non_interactive' ), 99, 3 );
+		// Optionally disable application passwords for users in 2FA-enforced
+		// roles, so REST/XML-RPC can't bypass the second factor with a single
+		// credential. Off by default; scoped per-user via the core filter.
+		add_filter( 'wp_is_application_passwords_available_for_user', array( $this, 'restrict_app_passwords' ), 10, 2 );
 		// AJAX endpoint the popup posts the code to.
 		add_action( 'wp_ajax_nopriv_gswp_2fa_verify', array( $this, 'ajax_verify' ) );
 		add_action( 'wp_ajax_gswp_2fa_verify', array( $this, 'ajax_verify' ) );
@@ -102,6 +110,72 @@ class GSWP_Two_Factor {
 	 */
 	public static function remember_enabled() {
 		return self::is_feature_enabled() && '1' === get_option( 'gswp_2fa_remember', '1' );
+	}
+
+	/**
+	 * Whether application passwords are blocked for users in enforced roles.
+	 *
+	 * When on, users whose role requires two-factor authentication cannot
+	 * create or authenticate with application passwords (REST API / XML-RPC),
+	 * closing the single-credential bypass — except for accounts on the
+	 * exemption list. Off by default. Tied to the master switch so disabling
+	 * the feature site-wide also lifts this block.
+	 *
+	 * @return bool
+	 */
+	public static function app_password_block_enabled() {
+		return self::is_feature_enabled() && '1' === get_option( 'gswp_2fa_block_app_passwords', '0' );
+	}
+
+	/**
+	 * Whether a user is exempt from the application-password block.
+	 *
+	 * The exemption list holds logins of accounts that must keep
+	 * application-password access even in an enforced role (e.g. a service
+	 * account used by a REST integration such as an MCP server). The exemption
+	 * re-allows application passwords only; the account still faces the
+	 * interactive second factor and every other control.
+	 *
+	 * @param WP_User $user User being checked.
+	 * @return bool
+	 */
+	public static function is_app_password_exempt( $user ) {
+		if ( ! ( $user instanceof WP_User ) ) {
+			return false;
+		}
+
+		$raw = (string) get_option( 'gswp_2fa_app_password_exempt_users', '' );
+		if ( '' === $raw ) {
+			return false;
+		}
+
+		$exempt = array_filter( array_map( 'trim', explode( ',', strtolower( $raw ) ) ) );
+
+		return in_array( strtolower( $user->user_login ), $exempt, true );
+	}
+
+	/**
+	 * Filter callback: withdraw application-password availability for users in
+	 * an enforced role when the block is on (unless they are exempt).
+	 *
+	 * Only ever narrows an already-true availability — it returns the incoming
+	 * value rather than a hard `true`, so it composes with other plugins that
+	 * disable application passwords.
+	 *
+	 * @param bool    $available Whether application passwords are available.
+	 * @param WP_User $user      The user being checked.
+	 * @return bool
+	 */
+	public function restrict_app_passwords( $available, $user ) {
+		if ( ! $available || ! ( $user instanceof WP_User ) || ! self::app_password_block_enabled() ) {
+			return $available;
+		}
+
+		if ( self::is_app_password_exempt( $user ) ) {
+			return $available;
+		}
+
+		return ! self::role_is_enforced( $user->ID );
 	}
 
 	/**
@@ -273,9 +347,11 @@ class GSWP_Two_Factor {
 			return $user;
 		}
 
-		// Programmatic logins can't answer an interactive challenge. XML-RPC is
-		// blocked outright by block_non_interactive(); REST/application-password
-		// and cron logins are left to authenticate normally (by design).
+		// Programmatic logins can't answer an interactive challenge. XML-RPC
+		// password logins are blocked outright by block_non_interactive();
+		// application-password logins (REST or XML-RPC) are governed by
+		// restrict_app_passwords() when that block is enabled, and otherwise —
+		// like cron logins — are left to authenticate normally (by design).
 		if ( wp_doing_cron()
 			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
 			|| ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) ) {

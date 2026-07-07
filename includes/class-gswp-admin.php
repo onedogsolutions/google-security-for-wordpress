@@ -122,6 +122,8 @@ class GSWP_Admin {
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
 			'tfa_grace_days'         => get_option( 'gswp_2fa_grace_days', '14' ),
+			'tfa_block_app_passwords' => get_option( 'gswp_2fa_block_app_passwords', '0' ),
+			'tfa_app_password_exempt_users' => get_option( 'gswp_2fa_app_password_exempt_users', '' ),
 		);
 
 		// Localize script with REST endpoint variables and initial state.

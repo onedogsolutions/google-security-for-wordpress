@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.7.0
+Stable tag: 2.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -28,6 +28,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 * **Two-Factor Authentication (Google Authenticator)**: Users enrol from their profile by scanning a QR code (or entering the setup key manually) and confirming a code. A second-factor challenge is then required at login.
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
+* **Application-Password Hardening**: Optionally disable application passwords for users in a 2FA-enforced role, so a REST API or XML-RPC login can't bypass the second factor with a single credential. A per-account exemption list keeps deliberate integrations (e.g. an MCP server or backup tool on a dedicated service account) working. Off by default; fully reversible — turning it off restores existing application passwords without re-issuing them.
 * **Flexible Page-Specific Thresholds**: Configure custom reCAPTCHA score thresholds individually for every protected form.
 * **Seamless Upgrade**: On activation, automatically imports the site keys and settings from the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin, then deactivates and removes that old plugin.
 * **Zero Overhead Frontend**: Only loads JavaScript on active target pages to maintain optimal client-side page speed.
@@ -54,7 +55,14 @@ Currently, this plugin supports the classic shortcode-based checkout pages.
 = What score threshold should I use? =
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
+= I enabled "Block application passwords for enforced roles" and my management tool lost connection. What now? =
+Turning the block on immediately stops existing application passwords from working for users in an enforced role — including any that a site-management, backup, or automation tool (or an MCP server) uses to reach your site over the REST API. Before enabling the block, either move those integrations onto an account whose role is not enforced, or add the account's username to the **Exempt accounts** list under **Settings → Google Security → Two-Factor Authentication**. Exempted accounts keep application-password access (they still face the interactive two-factor challenge on normal logins). If you have already been locked out of the settings screen, sign in interactively with your password and second factor and either add the exemption or switch the block off — nothing is deleted, so your existing application passwords start working again the moment you do. Standard MainWP Child connections use their own secure key handshake rather than application passwords, so they are unaffected by this setting.
+
 == Changelog ==
+
+= 2.8.0 =
+* Added an opt-in setting to disable application passwords for users in a 2FA-enforced role (Settings → Google Security → Two-Factor Authentication). Role-based enforcement only guaranteed a second factor on interactive logins; a REST API or XML-RPC login with an application password bypassed it by design. With this on, users in an enforced role can no longer create or authenticate with application passwords, so the "enforced accounts can't authenticate with a password alone" invariant finally holds. Existing application passwords are rejected while the block is on but not deleted, so switching it off restores them without re-issuing. A per-account exemption list keeps deliberate integrations working (point a REST integration such as an MCP server at a dedicated service account and exempt it — the account still gets the interactive two-factor challenge). Off by default; tied to the 2FA master switch.
+* Fixed: XML-RPC password logins for enrolled users are now actually blocked. The block was written for the 2.0.0 release but its filter was never registered, so an enrolled account's password worked over XML-RPC with no second factor. It is now wired to the authentication flow as originally documented. (Application-password logins over XML-RPC are additionally covered by the new block above when it is enabled.)
 
 = 2.7.0 =
 * Added opt-in admin email alerts for the two security events that previously only reached the WooCommerce log: reCAPTCHA Enterprise Account Defender flagging a suspicious login (SUSPICIOUS_LOGIN_ACTIVITY) on an administrator-capable account, and Transaction Defense blocking a high-risk checkout (both the classic checkout and the WooCommerce Checkout block). Each alert email carries the relevant context — the account, roles, risk labels, IP and user agent for a flagged login; the risk score, billing details, cart total and checkout type for a blocked checkout. Throttling is built in so this can never become spam: repeats of the same event are de-duplicated within a window (an admin hammered by credential stuffing yields one email, not one per attempt), and a global hourly cap rolls any overflow into a single digest, so even a rotating-identity bot cannot flood the inbox. Delivery is configurable as immediate, hourly digest, or daily digest, sent to the site admin email or a custom comma-separated recipient list; emails are sent off the request's critical path so they never slow a login or checkout. Each event has its own on/off sub-toggle. Disabled by default; the two source features are reCAPTCHA Enterprise.
