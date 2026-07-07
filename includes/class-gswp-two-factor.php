@@ -144,7 +144,13 @@ class GSWP_Two_Factor {
 			return false;
 		}
 
-		$raw = (string) get_option( 'gswp_2fa_app_password_exempt_users', '' );
+		$raw = get_option( 'gswp_2fa_app_password_exempt_users', '' );
+		if ( is_array( $raw ) ) {
+			// Tolerate an array written by external tooling (WP-CLI etc.);
+			// the REST route always stores a comma-separated string.
+			$raw = implode( ',', array_map( 'strval', $raw ) );
+		}
+		$raw = (string) $raw;
 		if ( '' === $raw ) {
 			return false;
 		}
