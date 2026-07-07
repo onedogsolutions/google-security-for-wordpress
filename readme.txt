@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.8.1
+Stable tag: 2.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -29,6 +29,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
 * **Application-Password Hardening**: Optionally disable application passwords for users in a 2FA-enforced role, so a REST API or XML-RPC login can't bypass the second factor with a single credential. A per-account exemption list keeps deliberate integrations (e.g. an MCP server or backup tool on a dedicated service account) working. Off by default; fully reversible — turning it off restores existing application passwords without re-issuing them.
+* **MainWP Dashboard Management**: With the companion "MainWP for Google Security for WordPress" extension on your MainWP dashboard, read and update each connected child site's Google Security settings from one screen. The child site only needs this plugin (version 2.9.0 or later) and the MainWP Child plugin; the connection travels over MainWP's own signed dashboard-to-child channel, not application passwords, and every setting is validated by the child exactly as it would be from the site's own settings screen.
 * **Flexible Page-Specific Thresholds**: Configure custom reCAPTCHA score thresholds individually for every protected form.
 * **Seamless Upgrade**: On activation, automatically imports the site keys and settings from the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin, then deactivates and removes that old plugin.
 * **Zero Overhead Frontend**: Only loads JavaScript on active target pages to maintain optimal client-side page speed.
@@ -55,6 +56,9 @@ Yes. Both the classic shortcode-based checkout and the modern WooCommerce Checko
 = What score threshold should I use? =
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
+= Can I manage these settings from MainWP? =
+Yes. Install the companion "MainWP for Google Security for WordPress" extension on your MainWP dashboard and keep this plugin (version 2.9.0 or later) on each child site, alongside the MainWP Child plugin. A per-site **Google Security** tab then loads and saves each child's settings from the dashboard. The connection uses MainWP's own signed dashboard-to-child channel — the same secure key handshake that powers a normal MainWP sync — not WordPress application passwords, so it is unaffected by the application-password hardening setting. Each child validates every incoming value exactly as it would from its own settings screen (thresholds are clamped, unknown roles and usernames are dropped, alert delivery reschedules), so a dashboard save can never write something the site would reject locally.
+
 = I enabled "Block application passwords for enforced roles" and my management tool lost connection. What now? =
 Turning the block on immediately stops existing application passwords from working for users in an enforced role — including any that a site-management, backup, or automation tool (or an MCP server) uses to reach your site over the REST API. Before enabling the block, either move those integrations onto an account whose role is not enforced, or add the account's username to the **Exempt accounts** list under **Settings → Google Security → Two-Factor Authentication**. Exempted accounts keep application-password access (they still face the interactive two-factor challenge on normal logins). If you have already been locked out of the settings screen, sign in interactively with your password and second factor and either add the exemption or switch the block off — nothing is deleted, so your existing application passwords start working again the moment you do. Standard MainWP Child connections use their own secure key handshake rather than application passwords, so they are unaffected by this setting. For the recommended long-term setup, see "How do I set up a service account for REST integrations?" below.
 
@@ -70,6 +74,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.9.0 =
+* Added a MainWP child-side bridge so the companion "MainWP for Google Security for WordPress" dashboard extension can read and update this plugin's settings across every connected child site from one screen. Requests arrive over MainWP Child's own signed dashboard-to-child channel (not application passwords) and are answered by reusing this plugin's existing REST settings callbacks, so every validation rule — threshold clamping, enum whitelists, alert-email and exempt-login validation against the child's real users, role validation against the child's real roles, and the alert-mode digest reschedule — applies on the child exactly as it does from the site's own settings screen. The bridge is completely inert unless the MainWP Child plugin is present and dispatches a request, and it never disturbs a normal MainWP sync. No changes to existing behaviour, options, or the REST route.
 
 = 2.8.1 =
 * The settings screen is now organised into tabs (API Credentials, Form Protection, Enterprise Defense, Two-Factor Auth, Alerts & Compatibility) so each section fits on screen instead of one long scroll. The active tab is reflected in the URL so it can be bookmarked or linked to directly, and no settings moved — everything still saves together with the one Save button.

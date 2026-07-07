@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.8.1
+ * Version: 2.9.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.8.1' );
+define( 'GSWP_VERSION', '2.9.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -86,6 +86,10 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-powerpack.php';
 // REST requests are not admin context (is_admin() is false for /wp-json),
 // so the REST API class must load unconditionally for its routes to exist.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-rest-api.php';
+// MainWP Child dispatches dashboard requests on the front end (is_admin() is
+// false), so the bridge must load unconditionally; it is inert unless MainWP
+// Child fires its filter.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-mainwp-child.php';
 // Two-factor authentication. The login challenge runs on wp-login.php (not an
 // admin context) while enrollment runs in the profile screen, so the core class
 // loads unconditionally.
@@ -325,6 +329,10 @@ function gswp_init() {
 	// Routes only register when rest_api_init fires, so this is a no-op
 	// outside REST requests.
 	new GSWP_Rest_Api();
+
+	// MainWP child-side settings bridge. Inert unless MainWP Child is active
+	// and dispatches an mwpgswp request over its signed dashboard channel.
+	new GSWP_MainWP_Child();
 
 	// Two-factor authentication (TOTP / Google Authenticator). Inert unless the
 	// feature is enabled and a user has enrolled.
