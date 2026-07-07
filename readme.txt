@@ -50,7 +50,7 @@ No. "Google Authenticator" support means the industry-standard TOTP algorithm (R
 They can use one of the single-use backup codes shown when they enrolled. An administrator can also reset a user's 2FA from the user-edit screen to restore access.
 
 = Does this work with WooCommerce checkout blocks? =
-Currently, this plugin supports the classic shortcode-based checkout pages.
+Yes. Both the classic shortcode-based checkout and the modern WooCommerce Checkout block (which submits over the Store API) are protected by the same reCAPTCHA scoring and, with an Enterprise key, the same Transaction Defense.
 
 = What score threshold should I use? =
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
