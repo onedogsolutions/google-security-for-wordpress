@@ -3,6 +3,7 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import StatusBadge from './StatusBadge';
+import SettingsTabs from './SettingsTabs';
 import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
@@ -10,6 +11,35 @@ import TransactionDefense from './TransactionDefense';
 import AccountDefender from './AccountDefender';
 import AlertSettings from './AlertSettings';
 import TwoFactorNotice from './TwoFactorNotice';
+
+const TABS = [
+	{
+		id: 'credentials',
+		label: __( 'API Credentials', 'google-security-for-wordpress' ),
+	},
+	{
+		id: 'forms',
+		label: __( 'Form Protection', 'google-security-for-wordpress' ),
+	},
+	{
+		id: 'defense',
+		label: __( 'Enterprise Defense', 'google-security-for-wordpress' ),
+	},
+	{
+		id: 'two-factor',
+		label: __( 'Two-Factor Auth', 'google-security-for-wordpress' ),
+	},
+	{
+		id: 'advanced',
+		label: __( 'Alerts & Compatibility', 'google-security-for-wordpress' ),
+	},
+];
+
+const getTabFromHash = () => {
+	const match = window.location.hash.match( /tab=([\w-]+)/ );
+	const id = match ? match[ 1 ] : null;
+	return TABS.some( ( tab ) => tab.id === id ) ? id : TABS[ 0 ].id;
+};
 
 export default function App() {
 	const initialData = window.gswpAdminData || {
@@ -56,6 +86,12 @@ export default function App() {
 	const [ settings, setSettings ] = useState( initialData.settings );
 	const [ isSaving, setIsSaving ] = useState( false );
 	const [ toast, setToast ] = useState( { message: '', type: null } );
+	const [ activeTab, setActiveTab ] = useState( getTabFromHash );
+
+	// Keep the URL hash in sync with the active tab (refresh + deep-link support)
+	useEffect( () => {
+		window.history.replaceState( null, '', `#tab=${ activeTab }` );
+	}, [ activeTab ] );
 
 	// On mount, check REST connectivity and load settings
 	useEffect( () => {
@@ -171,55 +207,66 @@ export default function App() {
 
 			{ /* Main Settings Form */ }
 			<form onSubmit={ handleSave } className="space-y-8">
-				<div className="grid grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2">
-					{ /* API credentials panel */ }
-					<SettingsPanel
-						settings={ settings }
-						onChange={ handleSettingChange }
-					/>
-
-					{ /* Form toggles and score thresholds */ }
-					<PageToggles
-						settings={ settings }
-						onChange={ handleSettingChange }
-						woocommerceActive={ !! initialData.woocommerceActive }
-					/>
-
-					{ /* Transaction defense (Enterprise + WooCommerce only) */ }
-					{ !! initialData.woocommerceActive && (
-						<TransactionDefense
-							settings={ settings }
-							onChange={ handleSettingChange }
-						/>
-					) }
-
-					{ /* Account Defender (Enterprise; login/registration) */ }
-					<AccountDefender
-						settings={ settings }
-						onChange={ handleSettingChange }
-					/>
-
-					{ /* Admin email alerts on flagged events */ }
-					<AlertSettings
-						settings={ settings }
-						onChange={ handleSettingChange }
-						woocommerceActive={ !! initialData.woocommerceActive }
-					/>
-
-					{ /* Conflict handling */ }
-					<Compatibility
-						settings={ settings }
-						onChange={ handleSettingChange }
-					/>
-
-					{ /* Two-Factor Authentication settings */ }
-					<TwoFactorNotice
-						profileUrl={ initialData.profileUrl }
-						settings={ settings }
-						onChange={ handleSettingChange }
-						roles={ initialData.roles }
-					/>
-				</div>
+				<SettingsTabs
+					tabs={ TABS }
+					active={ activeTab }
+					onChange={ setActiveTab }
+				>
+					{ {
+						credentials: (
+							<SettingsPanel
+								settings={ settings }
+								onChange={ handleSettingChange }
+							/>
+						),
+						forms: (
+							<PageToggles
+								settings={ settings }
+								onChange={ handleSettingChange }
+								woocommerceActive={
+									!! initialData.woocommerceActive
+								}
+							/>
+						),
+						defense: (
+							<>
+								{ !! initialData.woocommerceActive && (
+									<TransactionDefense
+										settings={ settings }
+										onChange={ handleSettingChange }
+									/>
+								) }
+								<AccountDefender
+									settings={ settings }
+									onChange={ handleSettingChange }
+								/>
+							</>
+						),
+						'two-factor': (
+							<TwoFactorNotice
+								profileUrl={ initialData.profileUrl }
+								settings={ settings }
+								onChange={ handleSettingChange }
+								roles={ initialData.roles }
+							/>
+						),
+						advanced: (
+							<>
+								<AlertSettings
+									settings={ settings }
+									onChange={ handleSettingChange }
+									woocommerceActive={
+										!! initialData.woocommerceActive
+									}
+								/>
+								<Compatibility
+									settings={ settings }
+									onChange={ handleSettingChange }
+								/>
+							</>
+						),
+					} }
+				</SettingsTabs>
 
 				{ /* Form Submission Bar */ }
 				<div className="flex justify-end gap-x-3 border-t border-gray-900/10 pt-6">

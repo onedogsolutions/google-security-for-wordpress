@@ -28,7 +28,7 @@ export default function SettingsPanel( { settings, onChange } ) {
 	];
 
 	return (
-		<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl md:col-span-2">
+		<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl">
 			<div className="px-4 py-6 sm:p-8">
 				<h2 className="text-base font-semibold leading-7 text-gray-900">
 					{ __( 'API Credentials', 'google-security-for-wordpress' ) }

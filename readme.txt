@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.8.0
+Stable tag: 2.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,10 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.8.1 =
+* The settings screen is now organised into tabs (API Credentials, Form Protection, Enterprise Defense, Two-Factor Auth, Alerts & Compatibility) so each section fits on screen instead of one long scroll. The active tab is reflected in the URL so it can be bookmarked or linked to directly, and no settings moved — everything still saves together with the one Save button.
+* Fixed: the "Set up Two-Factor Authentication" button on the settings screen rendered its label in WordPress admin's link blue instead of white. A CSS cascade-layer conflict introduced by the Tailwind v4 upgrade caused WordPress admin's own link-colour rules to outrank the plugin's white-text style.
 
 = 2.8.0 =
 * Added an opt-in setting to disable application passwords for users in a 2FA-enforced role (Settings → Google Security → Two-Factor Authentication). Role-based enforcement only guaranteed a second factor on interactive logins; a REST API or XML-RPC login with an application password bypassed it by design. With this on, users in an enforced role can no longer create or authenticate with application passwords, so the "enforced accounts can't authenticate with a password alone" invariant finally holds. Existing application passwords are rejected while the block is on but not deleted, so switching it off restores them without re-issuing. A per-account exemption list keeps deliberate integrations working (point a REST integration such as an MCP server at a dedicated service account and exempt it — the account still gets the interactive two-factor challenge). Off by default; tied to the 2FA master switch.
