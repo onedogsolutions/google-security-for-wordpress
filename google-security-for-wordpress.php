@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.9.0
+ * Version: 2.9.1
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.9.0' );
+define( 'GSWP_VERSION', '2.9.1' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -176,6 +176,11 @@ function gswp_activate() {
 	// Remove the old plugin now that its settings have been carried over.
 	gswp_remove_legacy_plugin();
 
+	// Remove any other installation of this same plugin left under a
+	// different folder slug (e.g. a manual ZIP upload that couldn't
+	// overwrite the existing folder in place).
+	gswp_remove_duplicate_installs();
+
 	// Record the schema version so the migration routine is a no-op on fresh
 	// installs.
 	update_option( 'gswp_db_version', GSWP_VERSION );
@@ -267,6 +272,54 @@ function gswp_remove_legacy_plugin() {
 	deactivate_plugins( $legacy_plugins, true );
 	delete_plugins( $legacy_plugins );
 }
+
+/**
+ * Deactivate and delete any other installation of this same plugin.
+ *
+ * WordPress identifies a plugin by its folder path, not its display name, so
+ * a ZIP uploaded into a differently-named plugins/ subfolder (because the
+ * existing folder couldn't be overwritten in place) is invisible to the
+ * normal in-place upgrade and lingers as a second row on the Plugins screen
+ * under the old version. Anything else installed under this plugin's own
+ * name or text domain is, by definition, exactly that: a stale duplicate.
+ * Also swept from load-plugins.php so a site that activated before this
+ * check existed gets cleaned up without needing to deactivate/reactivate.
+ */
+function gswp_remove_duplicate_installs() {
+	if ( ! function_exists( 'get_plugins' ) || ! function_exists( 'deactivate_plugins' ) || ! function_exists( 'delete_plugins' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	}
+	// delete_plugins() relies on the filesystem abstraction.
+	if ( ! function_exists( 'request_filesystem_credentials' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+	}
+
+	$self       = plugin_basename( GSWP_FILE );
+	$duplicates = array();
+
+	foreach ( get_plugins() as $basename => $data ) {
+		if ( $basename === $self ) {
+			continue;
+		}
+
+		$name   = isset( $data['Name'] ) ? $data['Name'] : '';
+		$domain = isset( $data['TextDomain'] ) ? $data['TextDomain'] : '';
+
+		if ( 'Google Security for WordPress' === $name || 'google-security-for-wordpress' === $domain ) {
+			$duplicates[] = $basename;
+		}
+	}
+
+	if ( empty( $duplicates ) ) {
+		return;
+	}
+
+	// Deactivate silently (skip the deactivation hooks of the duplicate) and
+	// then delete its files.
+	deactivate_plugins( $duplicates, true );
+	delete_plugins( $duplicates );
+}
+add_action( 'load-plugins.php', 'gswp_remove_duplicate_installs' );
 
 /**
  * Migrate settings stored under the plugin's previous option prefix.

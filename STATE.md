@@ -1,6 +1,14 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 23 (MainWP child-side settings bridge)
+## Current Phase: Phase 24 (Fix stale duplicate plugin install left after upgrade)
+
+### Phase 24 Modifications (v2.9.1)
+- **Bug (reported after installing 2.9.0 on a live site):** the Plugins screen showed two "Google Security for WordPress" rows — an old inactive version (e.g. 2.2.1) alongside the new active 2.9.0. Root cause: WordPress identifies a plugin by its **folder path** (`plugin_basename`), not its display name. When a ZIP is uploaded and the existing `wp-content/plugins/google-security-for-wordpress` folder can't be overwritten in place, WordPress extracts it into a differently-slugged sibling folder instead — invisible to the normal in-place upgrade, so the old folder is never replaced or cleaned up. (The MainWP dashboard extension's `MIN_GSWP_VERSION` constant, suspected at first, is unrelated — it's pure display logic on the MainWP-dashboard side with no bearing on how a child site installs a plugin ZIP.)
+- **Fix.** New `gswp_remove_duplicate_installs()` in `google-security-for-wordpress.php`, generalizing the existing `gswp_remove_legacy_plugin()` pattern (which already retires the pre-rebrand "Google reCAPTCHA v3 for WooCommerce" plugin the same way): scans `get_plugins()` for any basename other than `self` whose `Name` is `'Google Security for WordPress'` or `TextDomain` is `'google-security-for-wordpress'`, then `deactivate_plugins( …, true )` (silent — skips the duplicate's own deactivation hooks) + `delete_plugins( … )`. Called from `gswp_activate()` (so a fresh install/reactivation cleans up immediately) **and** hooked to `load-plugins.php` (so a site already stuck on an older version — like the one that reported this — gets swept the next time it visits the Plugins screen, with no deactivate/reactivate cycle required). No persistent "already ran" flag needed: once the duplicate is deleted, `get_plugins()` simply finds nothing on the next sweep, so it's naturally idempotent and cheap (the Plugins screen already calls `get_plugins()` to render itself).
+- No REST route, option, or other class changes. PHP-only; no React/webpack rebuild.
+- Version bumped to 2.9.1 (main header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json` root). `php -l` clean on `google-security-for-wordpress.php`.
+
+## Historical Phase: Phase 23 (MainWP child-side settings bridge)
 
 ### Phase 23 Modifications (v2.9.0)
 - **MainWP child-side bridge.** New `includes/class-gswp-mainwp-child.php` (`GSWP_MainWP_Child`, constructed in `gswp_init()` right after `GSWP_Rest_Api`). Lets the already-shipped companion dashboard extension (`onedogsolutions/mainwp-for-google-security-for-wordpress` v1.0.0) read and write each child site's settings from a MainWP dashboard. The dashboard end already exists and currently resolves to its "bridge missing" state on every child because nothing hooked `mainwp_child_extra_execution` yet; this phase closes that gap. **PHP-only — nothing under `src/` or `assets/` changed, so no React/webpack rebuild.**

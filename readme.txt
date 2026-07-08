@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.9.0
+Stable tag: 2.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,6 +74,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.9.1 =
+* Fixed: upgrading over an existing install could leave a stale copy of the plugin behind as a second "Google Security for WordPress" row on the Plugins screen (an older version, inactive) alongside the new one. WordPress identifies a plugin by its folder path, not its display name, so a ZIP uploaded into a differently-named `plugins/` subfolder — which happens when the existing folder can't be overwritten in place — is invisible to the normal in-place upgrade and lingers under the old version. The plugin now sweeps for and removes any other installation of itself (matched by name or text domain, same approach already used to retire the pre-rebrand "Google reCAPTCHA v3 for WooCommerce" plugin) on activation and whenever the Plugins screen loads, so an existing duplicate is cleaned up automatically without needing to deactivate and reactivate.
 
 = 2.9.0 =
 * Added a MainWP child-side bridge so the companion "MainWP for Google Security for WordPress" dashboard extension can read and update this plugin's settings across every connected child site from one screen. Requests arrive over MainWP Child's own signed dashboard-to-child channel (not application passwords) and are answered by reusing this plugin's existing REST settings callbacks, so every validation rule — threshold clamping, enum whitelists, alert-email and exempt-login validation against the child's real users, role validation against the child's real roles, and the alert-mode digest reschedule — applies on the child exactly as it does from the site's own settings screen. The bridge is completely inert unless the MainWP Child plugin is present and dispatches a request, and it never disturbs a normal MainWP sync. No changes to existing behaviour, options, or the REST route.
