@@ -77,6 +77,7 @@ export default function App() {
 			tfa_enabled: '1',
 			tfa_enforced_roles: [],
 			tfa_remember: '1',
+			tfa_env_binding: '1',
 			tfa_grace_days: '14',
 			tfa_block_app_passwords: '0',
 			tfa_app_password_exempt_users: '',

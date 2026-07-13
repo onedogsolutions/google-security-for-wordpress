@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.9.1
+ * Version: 2.10.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.9.1' );
+define( 'GSWP_VERSION', '2.10.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -154,6 +154,7 @@ function gswp_default_options() {
 		'2fa_grace_days'            => '14',
 		'2fa_block_app_passwords'   => '0',
 		'2fa_app_password_exempt_users' => '',
+		'2fa_env_binding'           => '1',
 	);
 }
 
@@ -333,10 +334,57 @@ function gswp_maybe_migrate() {
 	}
 
 	gswp_import_legacy_options();
+	gswp_backfill_2fa_origin();
 
 	update_option( 'gswp_db_version', GSWP_VERSION );
 }
 add_action( 'plugins_loaded', 'gswp_maybe_migrate', 5 );
+
+/**
+ * Stamp an origin site on existing 2FA enrolments that predate that check.
+ *
+ * A secret enrolled before the origin-binding feature shipped has no
+ * `gswp_2fa_origin` user meta, so it is treated as not-foreign (grandfathered
+ * in) until stamped. This backfill records the current site as that origin
+ * the first time this version of the plugin runs here, so any *future* clone
+ * of the database is then caught (it will carry this origin while running on
+ * a different host). It cannot retroactively distinguish a clone that already
+ * exists at the time of the upgrade — if the upgrade happens to run on that
+ * clone first, the clone stamps itself as its own origin. Runs once per
+ * version bump via the `gswp_db_version` gate in `gswp_maybe_migrate()`.
+ */
+function gswp_backfill_2fa_origin() {
+	if ( ! class_exists( 'GSWP_Two_Factor' ) ) {
+		return;
+	}
+
+	$users = get_users(
+		array(
+			'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				'relation' => 'AND',
+				array(
+					'key'   => GSWP_Two_Factor::META_ENABLED,
+					'value' => '1',
+				),
+				array(
+					'key'     => GSWP_Two_Factor::META_ORIGIN,
+					'compare' => 'NOT EXISTS',
+				),
+			),
+			'fields'     => 'ID',
+		)
+	);
+
+	if ( empty( $users ) ) {
+		return;
+	}
+
+	$origin = GSWP_Two_Factor::current_site_origin();
+
+	foreach ( $users as $user_id ) {
+		update_user_meta( $user_id, GSWP_Two_Factor::META_ORIGIN, $origin );
+	}
+}
 
 /**
  * Initialize the plugin classes.

@@ -92,6 +92,7 @@ class GSWP_Rest_Api {
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
+			'tfa_env_binding'        => get_option( 'gswp_2fa_env_binding', '1' ),
 			'tfa_grace_days'         => get_option( 'gswp_2fa_grace_days', '14' ),
 			'tfa_block_app_passwords' => get_option( 'gswp_2fa_block_app_passwords', '0' ),
 			'tfa_app_password_exempt_users' => get_option( 'gswp_2fa_app_password_exempt_users', '' ),
@@ -218,6 +219,12 @@ class GSWP_Rest_Api {
 		// Two-factor: allow trusted-browser "remember me".
 		if ( isset( $params['tfa_remember'] ) ) {
 			update_option( 'gswp_2fa_remember', $params['tfa_remember'] ? '1' : '0' );
+		}
+
+		// Two-factor: refuse a secret enrolled on a different site (e.g. a
+		// staging clone carrying the production database).
+		if ( isset( $params['tfa_env_binding'] ) ) {
+			update_option( 'gswp_2fa_env_binding', $params['tfa_env_binding'] ? '1' : '0' );
 		}
 
 		// Two-factor: block application passwords for users in enforced roles.

@@ -30,6 +30,9 @@ class GSWP_Two_Factor {
 	const META_LAST_TS     = 'gswp_2fa_last_timestep';
 	const META_LOGIN_NONCE = 'gswp_2fa_login_nonce';
 
+	/** User meta storing the normalized host a secret was enrolled on. */
+	const META_ORIGIN = 'gswp_2fa_origin';
+
 	/** Cookie carrying the single-use token for an in-progress challenge. */
 	const COOKIE_PENDING = 'gswp_2fa_pending';
 
@@ -51,6 +54,10 @@ class GSWP_Two_Factor {
 
 	/** User meta storing when the enrolment grace period started for a user. */
 	const META_GRACE_START = 'gswp_2fa_grace_start';
+
+	/** User meta recording which foreign origin already triggered a one-time
+	 * grace-clock reset, so a persistent site move doesn't reset it forever. */
+	const META_GRACE_RESET_ORIGIN = 'gswp_2fa_grace_reset_origin';
 
 	/** How long a trusted browser may skip the second factor. */
 	const TRUSTED_TTL = 2592000; // 30 * DAY_IN_SECONDS.
@@ -221,6 +228,13 @@ class GSWP_Two_Factor {
 			return;
 		}
 
+		// A secret enrolled on a different site (e.g. a staging clone) leaves
+		// the user "unenrolled" here (see secret_is_foreign()) and its stale
+		// grace clock, copied along with everything else, may already be past
+		// its deadline. Give the user a fresh window on the new site instead
+		// of an instant lockout, once per detected move.
+		$this->maybe_reset_grace_for_moved_secret( $user_id );
+
 		// Grace period: give newly enforced users time to enrol before locking
 		// the admin. During the window they see a countdown notice instead of
 		// being redirected; after the deadline the hard redirect below applies.
@@ -271,6 +285,35 @@ class GSWP_Two_Factor {
 	}
 
 	/**
+	 * Grant a fresh grace window when a user's secret turns out to be foreign.
+	 *
+	 * Runs once per detected origin mismatch (tracked via
+	 * `META_GRACE_RESET_ORIGIN`) so a persistent site move doesn't keep
+	 * resetting the clock forever — that would let an enforced user stay
+	 * unenrolled indefinitely.
+	 *
+	 * @param int $user_id User ID.
+	 */
+	private function maybe_reset_grace_for_moved_secret( $user_id ) {
+		if ( ! self::env_binding_enabled() ) {
+			return;
+		}
+
+		$origin = (string) get_user_meta( $user_id, self::META_ORIGIN, true );
+		if ( '' === $origin || $origin === self::current_site_origin() ) {
+			return;
+		}
+
+		$already_reset_for = (string) get_user_meta( $user_id, self::META_GRACE_RESET_ORIGIN, true );
+		if ( $already_reset_for === $origin ) {
+			return;
+		}
+
+		delete_user_meta( $user_id, self::META_GRACE_START );
+		update_user_meta( $user_id, self::META_GRACE_RESET_ORIGIN, $origin );
+	}
+
+	/**
 	 * Render the enrolment-countdown notice shown during the grace period.
 	 *
 	 * @param int $deadline Unix timestamp when the grace period ends.
@@ -316,6 +359,11 @@ class GSWP_Two_Factor {
 	/**
 	 * Whether a user has an active second factor.
 	 *
+	 * Also refuses a secret enrolled on a different site (see
+	 * `secret_is_foreign()`) — a database clone (e.g. a staging copy) carries
+	 * the enrolled user's TOTP secret with it, and without this check the same
+	 * authenticator code would work on both the original and the clone.
+	 *
 	 * @param int $user_id User ID.
 	 * @return bool
 	 */
@@ -324,8 +372,71 @@ class GSWP_Two_Factor {
 			return false;
 		}
 
-		return '1' === get_user_meta( $user_id, self::META_ENABLED, true )
-			&& '' !== (string) get_user_meta( $user_id, self::META_SECRET, true );
+		if ( '1' !== get_user_meta( $user_id, self::META_ENABLED, true )
+			|| '' === (string) get_user_meta( $user_id, self::META_SECRET, true ) ) {
+			return false;
+		}
+
+		return ! self::secret_is_foreign( $user_id );
+	}
+
+	/**
+	 * Whether environment (origin-host) binding is active.
+	 *
+	 * Tied to the master switch, same as `remember_enabled()`.
+	 *
+	 * @return bool
+	 */
+	public static function env_binding_enabled() {
+		return self::is_feature_enabled() && '1' === get_option( 'gswp_2fa_env_binding', '1' );
+	}
+
+	/**
+	 * The normalized host identity of the current site.
+	 *
+	 * Host only (scheme and port ignored) with a leading "www." stripped, so an
+	 * http->https switch or a nonstandard dev port never counts as a move.
+	 * Filterable for setups (e.g. domain-mapped multisite, a reverse proxy that
+	 * rewrites the host) where `home_url()` isn't the right identity to bind to.
+	 *
+	 * @return string
+	 */
+	public static function current_site_origin() {
+		$host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$host = strtolower( $host );
+		if ( 0 === strpos( $host, 'www.' ) ) {
+			$host = substr( $host, 4 );
+		}
+
+		/**
+		 * Filter the site identity that a 2FA secret is bound to.
+		 *
+		 * @param string $host Normalized host.
+		 */
+		return apply_filters( 'gswp_2fa_site_origin', $host );
+	}
+
+	/**
+	 * Whether a user's stored secret was enrolled on a different site.
+	 *
+	 * A secret with no recorded origin (enrolled before this check existed) is
+	 * grandfathered in as not-foreign until the upgrade backfill or the next
+	 * enrolment stamps one.
+	 *
+	 * @param int $user_id User ID.
+	 * @return bool
+	 */
+	private static function secret_is_foreign( $user_id ) {
+		if ( ! self::env_binding_enabled() ) {
+			return false;
+		}
+
+		$origin = (string) get_user_meta( $user_id, self::META_ORIGIN, true );
+		if ( '' === $origin ) {
+			return false;
+		}
+
+		return $origin !== self::current_site_origin();
 	}
 
 	/* ---------------------------------------------------------------------
@@ -1002,10 +1113,12 @@ class GSWP_Two_Factor {
 		delete_user_meta( $user_id, self::META_BACKUP );
 		delete_user_meta( $user_id, self::META_LAST_TS );
 		delete_user_meta( $user_id, self::META_LOGIN_NONCE );
+		delete_user_meta( $user_id, self::META_ORIGIN );
 		delete_user_meta( $user_id, self::META_TRUSTED );
 		// Restart the enrolment grace clock so an admin reset (e.g. a lost
 		// device) grants a fresh window instead of an instant lockout.
 		delete_user_meta( $user_id, self::META_GRACE_START );
+		delete_user_meta( $user_id, self::META_GRACE_RESET_ORIGIN );
 
 		if ( get_current_user_id() === $user_id ) {
 			$this->clear_trusted_cookie();
@@ -1319,6 +1432,7 @@ JS;
 				update_user_meta( $user_id, self::META_SECRET, $pending );
 				update_user_meta( $user_id, self::META_ENABLED, '1' );
 				update_user_meta( $user_id, self::META_LAST_TS, $matched );
+				update_user_meta( $user_id, self::META_ORIGIN, self::current_site_origin() );
 				delete_user_meta( $user_id, self::META_PENDING );
 				delete_user_meta( $user_id, self::META_GRACE_START );
 

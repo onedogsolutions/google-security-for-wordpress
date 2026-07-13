@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.9.1
+Stable tag: 2.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -29,6 +29,7 @@ WooCommerce is optional: install the plugin on any WordPress site to protect the
 * **Backup Codes**: Single-use recovery codes are generated at enrolment so users are never locked out if they lose their device.
 * **Role-Based Enforcement**: Optionally require 2FA for selected roles (e.g. Administrators). Administrators can reset another user's 2FA from the user-edit screen.
 * **Application-Password Hardening**: Optionally disable application passwords for users in a 2FA-enforced role, so a REST API or XML-RPC login can't bypass the second factor with a single credential. A per-account exemption list keeps deliberate integrations (e.g. an MCP server or backup tool on a dedicated service account) working. Off by default; fully reversible — turning it off restores existing application passwords without re-issuing them.
+* **Site-Clone Protection for 2FA**: A copied database (e.g. a staging clone) carries every enrolled user's authenticator secret with it, so without this the same code would work on both the original site and the copy. On by default, a secret enrolled on a different site no longer counts as active — the user signs in with their password and is prompted to re-enroll, giving each site its own secret.
 * **MainWP Dashboard Management**: With the companion "MainWP for Google Security for WordPress" extension on your MainWP dashboard, read and update each connected child site's Google Security settings from one screen. The child site only needs this plugin (version 2.9.0 or later) and the MainWP Child plugin; the connection travels over MainWP's own signed dashboard-to-child channel, not application passwords, and every setting is validated by the child exactly as it would be from the site's own settings screen.
 * **Flexible Page-Specific Thresholds**: Configure custom reCAPTCHA score thresholds individually for every protected form.
 * **Seamless Upgrade**: On activation, automatically imports the site keys and settings from the predecessor "Google reCAPTCHA v3 for WooCommerce" plugin, then deactivates and removes that old plugin.
@@ -56,6 +57,9 @@ Yes. Both the classic shortcode-based checkout and the modern WooCommerce Checko
 = What score threshold should I use? =
 We recommend a default threshold of 0.5. If you encounter spam submissions, increase the threshold closer to 1.0 (strict). If humans are blocked, lower it closer to 0.0 (lenient).
 
+= Why did 2FA reset after I cloned my site (e.g. to a staging subdomain)? =
+This is expected, and it's a security feature, not a bug. A TOTP code (the 6-digit number from your authenticator app) is generated from a secret stored in your site's database and the current time — nothing else. Cloning a site copies that database, including the enrolled secret, so without protection the *same* code would work on both the original site and the clone: an authenticator app has no way to know which one it's actually talking to. Google reCAPTCHA is unrelated to this — reCAPTCHA site keys and this behavior are two separate systems, and configuring reCAPTCHA to cover multiple domains does not affect it either way. By default, this plugin now stops that: an authenticator secret is bound to the site it was set up on, so a code that worked on the original stops working on a clone, and that user is prompted to set up 2FA again on the new site (which gets its own independent secret). This never locks anyone out — it simply falls back to a password sign-in and a re-enrollment prompt. You can turn this off ("Disable 2FA on cloned or moved sites" under Two-Factor Authentication) if you deliberately want a secret to keep working across multiple copies of a site, though we don't recommend it. Note that a database clone still copies password hashes and secrets regardless of this setting, so treat any staging/dev copy with the same care as production — restrict who can access it and consider it compromised if it's ever exposed.
+
 = Can I manage these settings from MainWP? =
 Yes. Install the companion "MainWP for Google Security for WordPress" extension on your MainWP dashboard and keep this plugin (version 2.9.0 or later) on each child site, alongside the MainWP Child plugin. A per-site **Google Security** tab then loads and saves each child's settings from the dashboard. The connection uses MainWP's own signed dashboard-to-child channel — the same secure key handshake that powers a normal MainWP sync — not WordPress application passwords, so it is unaffected by the application-password hardening setting. Each child validates every incoming value exactly as it would from its own settings screen (thresholds are clamped, unknown roles and usernames are dropped, alert delivery reschedules), so a dashboard save can never write something the site would reject locally.
 
@@ -74,6 +78,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.10.0 =
+* Added: two-factor authentication secrets are now bound to the site they were enrolled on, so a database clone (e.g. cloning a live site to a staging subdomain) no longer lets the same authenticator code work on both copies. A secret from a different site is treated as not-enrolled — the affected user signs in with their password and is prompted to set up 2FA again, so each site ends up with its own independent secret. This never blocks a login outright (a legitimate domain change gracefully falls back to re-enrollment, with a fresh enrolment grace period for enforced roles rather than an instant lockout). On by default; a new "Disable 2FA on cloned or moved sites" toggle under Two-Factor Authentication turns it off for sites that want the old cross-copy behavior. Existing enrolments are backfilled with their current site as the recorded origin on upgrade, so protection applies to any *future* clone; an already-existing clone (like a staging site set up before this update) should have its users re-enroll in 2FA there once to pick up its own secret.
 
 = 2.9.1 =
 * Fixed: upgrading over an existing install could leave a stale copy of the plugin behind as a second "Google Security for WordPress" row on the Plugins screen (an older version, inactive) alongside the new one. WordPress identifies a plugin by its folder path, not its display name, so a ZIP uploaded into a differently-named `plugins/` subfolder — which happens when the existing folder can't be overwritten in place — is invisible to the normal in-place upgrade and lingers under the old version. The plugin now sweeps for and removes any other installation of itself (matched by name or text domain, same approach already used to retire the pre-rebrand "Google reCAPTCHA v3 for WooCommerce" plugin) on activation and whenever the Plugins screen loads, so an existing duplicate is cleaned up automatically without needing to deactivate and reactivate.

@@ -14,6 +14,12 @@ export default function TwoFactorNotice( {
 	const rememberEnabled =
 		settings.tfa_remember === '1' || settings.tfa_remember === true;
 
+	const envBindingEnabled =
+		settings.tfa_env_binding === undefined
+			? true
+			: settings.tfa_env_binding === '1' ||
+			  settings.tfa_env_binding === true;
+
 	const graceDays =
 		settings.tfa_grace_days === undefined ? '14' : settings.tfa_grace_days;
 
@@ -331,6 +337,63 @@ export default function TwoFactorNotice( {
 									aria-hidden="true"
 									className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
 										rememberEnabled
+											? 'translate-x-5'
+											: 'translate-x-0'
+									}` }
+								/>
+							</button>
+						</div>
+					</div>
+				) }
+
+				{ /* Site-clone protection */ }
+				{ isEnabled && (
+					<div className="mt-6 flex items-start justify-between gap-x-6 border-t border-gray-100 pt-6 animate-fadeIn">
+						<div className="flex-1">
+							<h3 className="text-sm font-semibold text-gray-900">
+								{ __(
+									'Disable 2FA on cloned or moved sites',
+									'google-security-for-wordpress'
+								) }
+							</h3>
+							<p className="mt-1 text-sm text-gray-500">
+								{ __(
+									'A copied database (e.g. a staging clone) carries every enrolled user’s authenticator secret with it, so the same code would otherwise work on both sites. When enabled, a secret enrolled on a different site no longer counts as active here — the user signs in with their password and is prompted to re-enroll, so each site gets its own secret. Turning this off restores the old behavior of a secret working anywhere the database is copied.',
+									'google-security-for-wordpress'
+								) }
+							</p>
+						</div>
+						<div className="flex items-center gap-x-3 pt-0.5">
+							<span className="text-sm text-gray-600">
+								{ envBindingEnabled
+									? __(
+											'Enabled',
+											'google-security-for-wordpress'
+									  )
+									: __(
+											'Disabled',
+											'google-security-for-wordpress'
+									  ) }
+							</span>
+							<button
+								type="button"
+								aria-pressed={ envBindingEnabled }
+								className={ `relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
+									envBindingEnabled
+										? 'bg-indigo-600'
+										: 'bg-gray-200'
+								}` }
+								onClick={ () =>
+									onChange(
+										'tfa_env_binding',
+										envBindingEnabled ? '0' : '1'
+									)
+								}
+							>
+								<span
+									aria-hidden="true"
+									className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+										envBindingEnabled
 											? 'translate-x-5'
 											: 'translate-x-0'
 									}` }
