@@ -39,6 +39,15 @@ class GSWP_Verifier {
 	private $last_account_assessment = null;
 
 	/**
+	 * Threshold context of the most recent verify_token() call (e.g. 'wp_register').
+	 * Lets downstream consumers tell a registration assessment apart from a login
+	 * one when both could occur in a single request (auto-login after signup).
+	 *
+	 * @var string
+	 */
+	private $last_context = '';
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -95,6 +104,18 @@ class GSWP_Verifier {
 				$validation_errors = new WP_Error();
 			}
 			$validation_errors->add( 'recaptcha_error', $result->get_error_message() );
+			return $validation_errors;
+		}
+
+		// The score passed; also consult any Account Defender fake-signup labels.
+		$screen = class_exists( 'GSWP_Account_Defender' )
+			? GSWP_Account_Defender::screen_registration( $this, $email, 'woocommerce' )
+			: null;
+		if ( is_wp_error( $screen ) ) {
+			if ( ! is_wp_error( $validation_errors ) ) {
+				$validation_errors = new WP_Error();
+			}
+			$validation_errors->add( 'recaptcha_error', $screen->get_error_message() );
 		}
 
 		return $validation_errors;
@@ -154,6 +175,7 @@ class GSWP_Verifier {
 		$this->last_assessment_name   = '';
 		$this->last_fraud_assessment  = null;
 		$this->last_account_assessment = null;
+		$this->last_context            = (string) $context;
 
 		// Attach Account Defender account identifiers on login/registration
 		// assessments so Google can build its site-specific behavioural model.
@@ -851,6 +873,15 @@ class GSWP_Verifier {
 	}
 
 	/**
+	 * Threshold context of the most recent verify_token() call.
+	 *
+	 * @return string Context (e.g. 'wp_register'), or '' when none ran yet.
+	 */
+	public function get_last_context() {
+		return $this->last_context;
+	}
+
+	/**
 	 * Account Defender labels from the most recent Enterprise assessment.
 	 *
 	 * @return string[] Label strings (e.g. SUSPICIOUS_LOGIN_ACTIVITY), or empty.
@@ -916,7 +947,44 @@ class GSWP_Verifier {
 			$user_info['createAccountTime'] = gmdate( 'Y-m-d\TH:i:s\Z', $created );
 		}
 
+		// Opt-in: also send the raw email as a userIds entry. Google recommends
+		// this for markedly better detection (it can normalize provider aliasing
+		// itself), at the cost of sharing the address rather than only a hash.
+		if ( '1' === get_option( 'gswp_ad_share_email', '0' ) ) {
+			$email = $this->resolve_identifier_email( $account_identifier );
+			if ( '' !== $email ) {
+				$user_info['userIds'] = array( array( 'email' => $email ) );
+			}
+		}
+
 		return array( 'userInfo' => $user_info );
+	}
+
+	/**
+	 * Resolve an account identifier to its email address, when one is known.
+	 *
+	 * @param mixed $identifier WP_User, user ID, login, or email.
+	 * @return string Lowercased email, or '' when none can be resolved.
+	 */
+	private function resolve_identifier_email( $identifier ) {
+		if ( is_string( $identifier ) && is_email( $identifier ) ) {
+			return strtolower( trim( $identifier ) );
+		}
+
+		$user = null;
+		if ( $identifier instanceof WP_User ) {
+			$user = $identifier;
+		} elseif ( is_numeric( $identifier ) ) {
+			$user = get_user_by( 'id', (int) $identifier );
+		} elseif ( is_string( $identifier ) && '' !== $identifier ) {
+			$user = get_user_by( 'login', $identifier );
+		}
+
+		if ( $user instanceof WP_User && is_email( $user->user_email ) ) {
+			return strtolower( $user->user_email );
+		}
+
+		return '';
 	}
 
 	/**
@@ -951,7 +1019,7 @@ class GSWP_Verifier {
 
 		// No existing account: key registrations by their normalised email.
 		if ( is_string( $identifier ) && is_email( $identifier ) ) {
-			return array( $this->hash_account( 'email:' . strtolower( $identifier ) ), 0 );
+			return array( $this->hash_account( 'email:' . $this->normalize_email_identifier( $identifier ) ), 0 );
 		}
 
 		if ( is_string( $identifier ) && '' !== $identifier ) {
@@ -959,6 +1027,45 @@ class GSWP_Verifier {
 		}
 
 		return array( '', 0 );
+	}
+
+	/**
+	 * Normalize an email for identity hashing, collapsing Gmail aliasing.
+	 *
+	 * Gmail ignores dots in the local part and anything after a plus sign, and
+	 * googlemail.com is the same inbox as gmail.com — the classic "dot-trick"
+	 * lets one inbox register with endless unique-looking addresses. Collapsing
+	 * those variants before hashing means every alias of one inbox maps to the
+	 * same opaque accountId, so Account Defender can cluster repeat signups.
+	 * Other providers only get lowercasing (dot/plus semantics vary elsewhere).
+	 *
+	 * @param string $email Raw submitted email.
+	 * @return string Normalized email.
+	 */
+	private function normalize_email_identifier( $email ) {
+		$email = strtolower( trim( $email ) );
+
+		$at = strrpos( $email, '@' );
+		if ( false === $at ) {
+			return $email;
+		}
+
+		$local  = substr( $email, 0, $at );
+		$domain = substr( $email, $at + 1 );
+
+		if ( 'googlemail.com' === $domain ) {
+			$domain = 'gmail.com';
+		}
+
+		if ( 'gmail.com' === $domain ) {
+			$plus = strpos( $local, '+' );
+			if ( false !== $plus ) {
+				$local = substr( $local, 0, $plus );
+			}
+			$local = str_replace( '.', '', $local );
+		}
+
+		return $local . '@' . $domain;
 	}
 
 	/**
@@ -997,6 +1104,10 @@ class GSWP_Verifier {
 	private function log( $message ) {
 		if ( function_exists( 'wc_get_logger' ) ) {
 			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
+		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			// Without WooCommerce these warnings would otherwise vanish, hiding
+			// fail-open skips (bad API key, rejected requests) from diagnosis.
+			error_log( 'GSWP Verifier: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		}
 	}
 }

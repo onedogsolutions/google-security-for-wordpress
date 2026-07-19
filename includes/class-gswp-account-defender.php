@@ -78,6 +78,17 @@ class GSWP_Account_Defender {
 	/** Transient key prefix for a deferred (pending) account-modification. */
 	const PENDING_PREFIX = 'gswp_ad_pending_';
 
+	/** User meta holding a registration assessment awaiting its outcome. */
+	const META_REGISTRATION = 'gswp_registration_assessment';
+
+	/**
+	 * User ID created by a registration in the current request, so an auto-login
+	 * riding the same request never annotates its own signup as legitimate.
+	 *
+	 * @var int
+	 */
+	private static $registered_user_id = 0;
+
 	/**
 	 * Constructor. Hooks the login lifecycle when the feature is active.
 	 *
@@ -98,6 +109,15 @@ class GSWP_Account_Defender {
 		// Terminal login outcomes (every entry point funnels through these).
 		add_action( 'wp_login', array( $this, 'on_login_success' ), 10, 2 );
 		add_action( 'wp_login_failed', array( $this, 'on_login_failed' ), 10, 2 );
+
+		// Registration outcome feedback loop: remember each scored signup's
+		// assessment, then annotate it once its real outcome is known — the
+		// account's first genuine login (legitimate) or its deletion before any
+		// login (fraudulent, i.e. an operator sweeping spam accounts). This is
+		// the supervised signal Account Defender's fake-signup model learns from.
+		add_action( 'user_register', array( $this, 'on_registered' ), 10, 1 );
+		add_action( 'delete_user', array( $this, 'on_user_deleted' ), 10, 1 );
+		add_action( 'wpmu_delete_user', array( $this, 'on_user_deleted' ), 10, 1 );
 
 		// Account-modification events (password/email/2FA changes). Assessed
 		// where a token can be attached, annotated at the terminal outcome, and
@@ -165,6 +185,15 @@ class GSWP_Account_Defender {
 	public function capture_login_assessment( $user, $username, $password ) {
 		$name = $this->verifier->get_last_assessment_name();
 		if ( '' === $name ) {
+			return $user;
+		}
+
+		// Only capture an assessment a *login* form created. A registration flow
+		// that auto-logs the new user in fires `authenticate` in the same request
+		// while the verifier still holds the registration assessment; capturing
+		// it here would let wp_login annotate a fresh signup (spam included) as
+		// LEGITIMATE + CORRECT_PASSWORD.
+		if ( ! in_array( $this->verifier->get_last_context(), array( 'login', 'wp_login' ), true ) ) {
 			return $user;
 		}
 
@@ -270,12 +299,169 @@ class GSWP_Account_Defender {
 	 * @param WP_User $user       Logged-in user.
 	 */
 	public function on_login_success( $user_login, $user = null ) {
+		// A first genuine login settles any pending registration assessment,
+		// independent of whether this login itself was assessed.
+		$this->maybe_annotate_registration_outcome( $user );
+
 		if ( self::$annotated || '' === self::$assessment_name ) {
 			return;
 		}
 		self::$annotated = true;
 
 		self::annotate( self::$assessment_name, 'LEGITIMATE', array( 'CORRECT_PASSWORD' ) );
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Registration outcome feedback loop
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Remember the assessment behind a just-created account.
+	 *
+	 * Fires on user_register, which runs inside wp_insert_user() for every
+	 * covered registration surface (core, WooCommerce, Xootix, PowerPack). Only
+	 * a registration-context assessment is stored — an admin creating a user in
+	 * wp-admin, or any other creation path, has none in flight.
+	 *
+	 * @param int $user_id Newly created user ID.
+	 */
+	public function on_registered( $user_id ) {
+		if ( ! in_array( $this->verifier->get_last_context(), array( 'registration', 'wp_register' ), true ) ) {
+			return;
+		}
+
+		$name = $this->verifier->get_last_assessment_name();
+		if ( '' === $name ) {
+			return;
+		}
+
+		update_user_meta(
+			$user_id,
+			self::META_REGISTRATION,
+			array(
+				'name' => $name,
+				'time' => time(),
+			)
+		);
+		self::$registered_user_id = (int) $user_id;
+
+		if ( self::verbose() ) {
+			$this->log( 'Account Defender stored registration assessment for user ' . (int) $user_id . ' pending its outcome.' );
+		}
+	}
+
+	/**
+	 * Annotate a deleted account's stored registration assessment as fraudulent.
+	 *
+	 * The meta is only still present when the account never completed a real
+	 * login (a first login consumes it), so deleting a long-standing legitimate
+	 * user never mis-annotates — this catches exactly the operator sweeping
+	 * spam signups.
+	 *
+	 * @param int $user_id User being deleted.
+	 */
+	public function on_user_deleted( $user_id ) {
+		$stored = get_user_meta( $user_id, self::META_REGISTRATION, true );
+		if ( empty( $stored['name'] ) ) {
+			return;
+		}
+
+		delete_user_meta( $user_id, self::META_REGISTRATION );
+		self::annotate( $stored['name'], 'FRAUDULENT' );
+
+		if ( self::verbose() ) {
+			$this->log( 'Account Defender annotated deleted user ' . (int) $user_id . "'s registration as FRAUDULENT." );
+		}
+	}
+
+	/**
+	 * Annotate a pending registration assessment LEGITIMATE on first real login.
+	 *
+	 * Skipped when the login rides the same request as the registration (an
+	 * auto-login is no evidence of legitimacy); the genuinely-next login — a
+	 * fresh visit that passed the login scoring — is what settles the signup.
+	 *
+	 * @param WP_User|null $user The user who just logged in.
+	 */
+	private function maybe_annotate_registration_outcome( $user ) {
+		if ( ! $user instanceof WP_User ) {
+			return;
+		}
+		if ( self::$registered_user_id === (int) $user->ID ) {
+			return;
+		}
+
+		$stored = get_user_meta( $user->ID, self::META_REGISTRATION, true );
+		if ( empty( $stored['name'] ) ) {
+			return;
+		}
+
+		delete_user_meta( $user->ID, self::META_REGISTRATION );
+		self::annotate( $stored['name'], 'LEGITIMATE' );
+
+		if ( self::verbose() ) {
+			$this->log( 'Account Defender annotated user ' . (int) $user->ID . "'s registration as LEGITIMATE after first login." );
+		}
+	}
+
+	/**
+	 * Screen a just-scored registration against Account Defender's labels.
+	 *
+	 * Called by each registration validator after the reCAPTCHA score passed.
+	 * Logs any labels, fires the gswp_suspicious_registration alert action when
+	 * SUSPICIOUS_ACCOUNT_CREATION is present, and — only when the opt-in
+	 * gswp_ad_block_signup toggle is on — returns a WP_Error for the caller to
+	 * surface exactly like a low score, so no account is created.
+	 *
+	 * @param GSWP_Verifier $verifier Verifier holding the fresh assessment.
+	 * @param string        $email    Submitted registration email.
+	 * @param string        $source   Registration surface ('woocommerce', 'wp-login', 'xootix', 'powerpack').
+	 * @return WP_Error|null WP_Error to block the signup, null to allow.
+	 */
+	public static function screen_registration( $verifier, $email, $source ) {
+		if ( ! self::is_active() || ! $verifier instanceof GSWP_Verifier ) {
+			return null;
+		}
+
+		$labels = $verifier->get_last_account_labels();
+		if ( empty( $labels ) ) {
+			return null;
+		}
+
+		$suspicious = in_array( 'SUSPICIOUS_ACCOUNT_CREATION', $labels, true );
+		$blocking   = $suspicious && '1' === get_option( 'gswp_ad_block_signup', '0' );
+
+		if ( $suspicious || self::verbose() ) {
+			self::static_log( 'Account Defender labels for registration (' . $source . '): ' . implode( ', ', $labels ) . '.' );
+		}
+
+		if ( $suspicious ) {
+			/**
+			 * A registration was flagged as a suspicious account creation.
+			 * Fires whether or not the signup is blocked; GSWP_Alerts is the
+			 * shipped subscriber, and the action doubles as a seam for
+			 * third-party (Slack/webhook) forwarding.
+			 */
+			do_action(
+				'gswp_suspicious_registration',
+				$email,
+				$labels,
+				array(
+					'source'     => $source,
+					'blocked'    => $blocking,
+					'assessment' => $verifier->get_last_assessment_name(),
+				)
+			);
+		}
+
+		if ( $blocking ) {
+			return new WP_Error(
+				'recaptcha_suspicious_signup',
+				__( '<strong>Error:</strong> This sign-up was flagged as suspicious and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )
+			);
+		}
+
+		return null;
 	}
 
 	/**

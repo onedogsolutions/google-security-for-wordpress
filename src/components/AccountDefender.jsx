@@ -37,6 +37,10 @@ export default function AccountDefender( { settings, onChange } ) {
 		settings.ad_events === '1' ||
 		settings.ad_events === true ||
 		settings.ad_events === undefined;
+	const blockSignupOn =
+		settings.ad_block_signup === '1' || settings.ad_block_signup === true;
+	const shareEmailOn =
+		settings.ad_share_email === '1' || settings.ad_share_email === true;
 
 	return (
 		<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl">
@@ -49,7 +53,7 @@ export default function AccountDefender( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'reCAPTCHA Enterprise Account Defender builds a site-specific model of your accounts to flag takeovers, fake signups, and account farming. The plugin sends an anonymous, salted account identifier with each login, registration, and account-change assessment, logs the returned risk labels, and annotates login, two-factor, and account-modification outcomes so the model keeps learning.',
+						'reCAPTCHA Enterprise Account Defender builds a site-specific model of your accounts to flag takeovers, fake signups, and account farming. The plugin sends an anonymous, salted account identifier with each login, registration, and account-change assessment, logs the returned risk labels, and annotates login, registration, two-factor, and account-modification outcomes so the model keeps learning. Note: the model only runs once Account Defense is also enabled for your key in the Google Cloud console (Fraud Defense → Configure Account defense) — that step lives in Google Cloud and cannot be performed by the plugin.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -158,6 +162,72 @@ export default function AccountDefender( { settings, onChange } ) {
 										onChange(
 											'ad_events',
 											eventsOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
+						) }
+
+						{ /* Block suspicious sign-ups */ }
+						{ defenderOn && (
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Block suspicious sign-ups',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'Reject a registration when Account Defender labels it a suspicious account creation, even if its reCAPTCHA score passed. Requires Account Defense to be enabled for your key in the Google Cloud console — labels only start flowing once it is, and are sparse until the model has learned your traffic. Flagged sign-ups are always logged and can email an alert either way.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Block suspicious sign-ups',
+										'google-security-for-wordpress'
+									) }
+									enabled={ blockSignupOn }
+									onToggle={ () =>
+										onChange(
+											'ad_block_signup',
+											blockSignupOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
+						) }
+
+						{ /* Share email identifiers */ }
+						{ defenderOn && (
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Send email identifiers to Google',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'By default only an anonymous, salted hash identifies each account. Turning this on additionally sends the account’s email address with login and registration assessments, which Google recommends for markedly better takeover and fake-signup detection (it can spot address aliasing itself). Privacy trade-off: real email addresses are shared with Google. Off by default.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Send email identifiers to Google',
+										'google-security-for-wordpress'
+									) }
+									enabled={ shareEmailOn }
+									onToggle={ () =>
+										onChange(
+											'ad_share_email',
+											shareEmailOn ? '0' : '1'
 										)
 									}
 								/>

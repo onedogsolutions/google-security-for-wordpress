@@ -199,6 +199,16 @@ class GSWP_Login {
 				$errors = new WP_Error();
 			}
 			$errors->add( 'recaptcha_error', $result->get_error_message() );
+			return $errors;
+		}
+
+		// The score passed; also consult any Account Defender fake-signup labels.
+		$screen = GSWP_Account_Defender::screen_registration( $this->verifier, (string) $user_email, 'wp-login' );
+		if ( is_wp_error( $screen ) ) {
+			if ( ! is_wp_error( $errors ) ) {
+				$errors = new WP_Error();
+			}
+			$errors->add( 'recaptcha_error', $screen->get_error_message() );
 		}
 
 		return $errors;

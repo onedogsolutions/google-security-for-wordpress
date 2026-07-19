@@ -148,7 +148,22 @@ class GSWP_Xootix {
 	 * @return WP_Error Filtered validation errors.
 	 */
 	public function validate_register( $validation_error, $username = '', $password = '', $email = '' ) {
-		return $this->add_error( $validation_error, 'wp_register', 'register', $email );
+		$had_error        = is_wp_error( $validation_error ) && $validation_error->has_errors();
+		$validation_error = $this->add_error( $validation_error, 'wp_register', 'register', $email );
+
+		// When the score passed, also consult any Account Defender fake-signup
+		// labels for the assessment just made.
+		if ( ! $had_error && ( ! is_wp_error( $validation_error ) || ! $validation_error->has_errors() ) ) {
+			$screen = GSWP_Account_Defender::screen_registration( $this->verifier, (string) $email, 'xootix' );
+			if ( is_wp_error( $screen ) ) {
+				if ( ! is_wp_error( $validation_error ) ) {
+					$validation_error = new WP_Error();
+				}
+				$validation_error->add( 'recaptcha_error', $screen->get_error_message() );
+			}
+		}
+
+		return $validation_error;
 	}
 
 	/**

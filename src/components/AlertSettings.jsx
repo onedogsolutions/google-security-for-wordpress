@@ -40,6 +40,10 @@ export default function AlertSettings( {
 		settings.alert_login === '1' ||
 		settings.alert_login === true ||
 		settings.alert_login === undefined;
+	const registrationOn =
+		settings.alert_registration === '1' ||
+		settings.alert_registration === true ||
+		settings.alert_registration === undefined;
 	const checkoutOn =
 		settings.alert_checkout === '1' ||
 		settings.alert_checkout === true ||
@@ -54,7 +58,7 @@ export default function AlertSettings( {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'Email the site operator when Account Defender flags a suspicious login on an administrator account, or Transaction defense blocks a high-risk checkout. These events otherwise only reach the log. Alerts are throttled — repeats of the same event are suppressed and a burst rolls up into a single digest — so this never becomes spam.',
+						'Email the site operator when Account Defender flags a suspicious login on an administrator account or a suspicious new-account sign-up, or Transaction defense blocks a high-risk checkout. These events otherwise only reach the log. Alerts are throttled — repeats of the same event are suppressed and a burst rolls up into a single digest — so this never becomes spam.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -205,6 +209,37 @@ export default function AlertSettings( {
 										onChange(
 											'alert_login',
 											loginOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
+
+							{ /* Event: suspicious sign-up */ }
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Suspicious sign-up',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'Alert when Account Defender flags a new registration as SUSPICIOUS_ACCOUNT_CREATION, whether or not sign-up blocking is enabled under Account Defender.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Suspicious sign-up',
+										'google-security-for-wordpress'
+									) }
+									enabled={ registrationOn }
+									onToggle={ () =>
+										onChange(
+											'alert_registration',
+											registrationOn ? '0' : '1'
 										)
 									}
 								/>

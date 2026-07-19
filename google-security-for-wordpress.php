@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.10.0
+ * Version: 2.12.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.10.0' );
+define( 'GSWP_VERSION', '2.12.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -131,12 +131,15 @@ function gswp_default_options() {
 		'account_defender'          => '0',
 		'ad_step_up'                => '0',
 		'ad_events'                 => '1',
+		'ad_block_signup'           => '0',
+		'ad_share_email'            => '0',
 		'account_salt'              => '',
 		// Admin email alerts on flagged events.
 		'alerts'                    => '0',
 		'alert_email'               => '',
 		'alert_mode'                => 'immediate',
 		'alert_login'               => '1',
+		'alert_registration'        => '1',
 		'alert_checkout'            => '1',
 		// Diagnostics.
 		'verbose_logging'           => '0',

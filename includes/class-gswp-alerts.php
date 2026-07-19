@@ -2,18 +2,19 @@
 /**
  * Admin Email Alerts Class
  *
- * Turns two already-detected security events into an email to the site
- * operator: reCAPTCHA Enterprise Account Defender flagging
- * SUSPICIOUS_LOGIN_ACTIVITY on an administrator-capable account, and a
- * checkout blocked as high risk by Transaction defense. Both events otherwise
- * only reach the WooCommerce log; for an agency running many sites this is the
- * difference between finding out during the incident and finding out from the
- * client.
+ * Turns already-detected security events into an email to the site operator:
+ * reCAPTCHA Enterprise Account Defender flagging SUSPICIOUS_LOGIN_ACTIVITY on
+ * an administrator-capable account, Account Defender flagging a registration
+ * as SUSPICIOUS_ACCOUNT_CREATION, and a checkout blocked as high risk by
+ * Transaction defense. These events otherwise only reach the log; for an
+ * agency running many sites this is the difference between finding out during
+ * the incident and finding out from the client.
  *
- * Delivery is decoupled from detection: the two detection sites fire the
- * plain actions gswp_suspicious_admin_login / gswp_checkout_blocked, and this
- * class is the only subscriber the plugin ships (leaving the actions as a seam
- * for Slack/webhook forwarding without core changes).
+ * Delivery is decoupled from detection: the detection sites fire the plain
+ * actions gswp_suspicious_admin_login / gswp_suspicious_registration /
+ * gswp_checkout_blocked, and this class is the only subscriber the plugin
+ * ships (leaving the actions as a seam for Slack/webhook forwarding without
+ * core changes).
  *
  * Throttling is the point of the feature. Two layers keep a credential-stuffing
  * run or a bot hammering checkout from becoming hundreds of emails:
@@ -73,6 +74,7 @@ class GSWP_Alerts {
 		}
 
 		add_action( 'gswp_suspicious_admin_login', array( $this, 'on_suspicious_login' ), 10, 3 );
+		add_action( 'gswp_suspicious_registration', array( $this, 'on_suspicious_registration' ), 10, 3 );
 		add_action( 'gswp_checkout_blocked', array( $this, 'on_checkout_blocked' ), 10, 3 );
 		add_action( 'shutdown', array( $this, 'flush_immediate' ) );
 	}
@@ -103,7 +105,7 @@ class GSWP_Alerts {
 	/**
 	 * Dedupe window in seconds for an event type.
 	 *
-	 * @param string $type 'login' or 'checkout'.
+	 * @param string $type 'login', 'registration', or 'checkout'.
 	 * @return int
 	 */
 	private static function dedupe_window( $type ) {
@@ -180,6 +182,38 @@ class GSWP_Alerts {
 		);
 
 		$this->handle_event( 'login', 'login_' . $user->ID, $data );
+	}
+
+	/**
+	 * Handle a registration flagged as a suspicious account creation.
+	 *
+	 * @param string   $email   Submitted registration email.
+	 * @param string[] $labels  Account Defender labels returned for the signup.
+	 * @param array    $context Extra flags: source, blocked, assessment.
+	 */
+	public function on_suspicious_registration( $email, $labels, $context = array() ) {
+		if ( '1' !== get_option( 'gswp_alert_registration', '1' ) ) {
+			return;
+		}
+
+		$email = (string) $email;
+		$ip    = self::client_ip();
+
+		$data = array(
+			'email'      => $email,
+			'labels'     => implode( ', ', (array) $labels ),
+			'source'     => isset( $context['source'] ) ? (string) $context['source'] : '',
+			'blocked'    => ! empty( $context['blocked'] ),
+			'assessment' => isset( $context['assessment'] ) ? (string) $context['assessment'] : '',
+			'ip'         => $ip,
+			'ua'         => self::user_agent(),
+		);
+
+		// One email per signup identity per window: key on the submitted email
+		// when present, otherwise the source IP.
+		$identity = '' !== $email ? strtolower( $email ) : $ip;
+
+		$this->handle_event( 'registration', 'registration_' . md5( $identity ), $data );
 	}
 
 	/**
@@ -423,6 +457,9 @@ class GSWP_Alerts {
 		if ( 'login' === $event['type'] ) {
 			return $this->format_login( $event );
 		}
+		if ( 'registration' === $event['type'] ) {
+			return $this->format_registration( $event );
+		}
 		return $this->format_checkout( $event );
 	}
 
@@ -480,6 +517,68 @@ class GSWP_Alerts {
 			$d['step_up'] ? __( 'yes', 'google-security-for-wordpress' ) : __( 'no', 'google-security-for-wordpress' )
 		);
 		$lines[] = sprintf( /* translators: %s: risk labels. */ __( 'Risk labels: %s', 'google-security-for-wordpress' ), $d['labels'] );
+		$lines[] = sprintf( /* translators: %s: IP address. */ __( 'IP address: %s', 'google-security-for-wordpress' ), $d['ip'] );
+		$lines[] = sprintf( /* translators: %s: user agent string. */ __( 'User agent: %s', 'google-security-for-wordpress' ), $d['ua'] );
+		$lines[] = sprintf( /* translators: %s: date and time. */ __( 'Time: %s', 'google-security-for-wordpress' ), self::format_time( $event['time'] ) );
+		if ( '' !== $d['assessment'] ) {
+			$lines[] = sprintf( /* translators: %s: assessment resource name. */ __( 'Assessment: %s', 'google-security-for-wordpress' ), $d['assessment'] );
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * Format a suspicious-registration alert.
+	 *
+	 * @param array $event Normalized event.
+	 * @return array{0:string,1:string}
+	 */
+	private function format_registration( $event ) {
+		$d = $event['data'];
+
+		$subject = sprintf(
+			/* translators: 1: site name, 2: registration email. */
+			__( '[%1$s] Suspicious sign-up flagged (%2$s)', 'google-security-for-wordpress' ),
+			self::blogname(),
+			'' !== $d['email'] ? $d['email'] : __( 'unknown email', 'google-security-for-wordpress' )
+		);
+
+		$lines   = array();
+		$lines[] = sprintf(
+			/* translators: %s: site URL. */
+			__( 'reCAPTCHA Account Defender flagged a new-account registration as a suspicious account creation at %s.', 'google-security-for-wordpress' ),
+			home_url()
+		);
+		$lines[] = '';
+		$lines   = array_merge( $lines, $this->registration_detail_lines( $event ) );
+		$lines[] = '';
+		$lines[] = $d['blocked']
+			? __( 'The sign-up was blocked before an account was created. Repeat attempts from the same email within the hour are suppressed so this alert does not become noise.', 'google-security-for-wordpress' )
+			: __( 'The account was still created (suspicious sign-up blocking is off under Account Defender). Review the new user and delete it if it is spam — deleting it also reports the sign-up to Google as fraudulent so detection improves. Repeat flags for the same email within the hour are suppressed.', 'google-security-for-wordpress' );
+
+		return array( $subject, implode( "\n", $lines ) );
+	}
+
+	/**
+	 * Detail lines for a registration event, shared by single and digest emails.
+	 *
+	 * @param array $event Normalized event.
+	 * @return string[]
+	 */
+	private function registration_detail_lines( $event ) {
+		$d     = $event['data'];
+		$lines = array();
+
+		$lines[] = sprintf( /* translators: %s: registration email. */ __( 'Email: %s', 'google-security-for-wordpress' ), '' !== $d['email'] ? $d['email'] : '—' );
+		$lines[] = sprintf( /* translators: %s: risk labels. */ __( 'Risk labels: %s', 'google-security-for-wordpress' ), $d['labels'] );
+		$lines[] = sprintf(
+			/* translators: %s: yes or no. */
+			__( 'Sign-up blocked: %s', 'google-security-for-wordpress' ),
+			$d['blocked'] ? __( 'yes', 'google-security-for-wordpress' ) : __( 'no', 'google-security-for-wordpress' )
+		);
+		if ( '' !== $d['source'] ) {
+			$lines[] = sprintf( /* translators: %s: registration form source. */ __( 'Form: %s', 'google-security-for-wordpress' ), $d['source'] );
+		}
 		$lines[] = sprintf( /* translators: %s: IP address. */ __( 'IP address: %s', 'google-security-for-wordpress' ), $d['ip'] );
 		$lines[] = sprintf( /* translators: %s: user agent string. */ __( 'User agent: %s', 'google-security-for-wordpress' ), $d['ua'] );
 		$lines[] = sprintf( /* translators: %s: date and time. */ __( 'Time: %s', 'google-security-for-wordpress' ), self::format_time( $event['time'] ) );
@@ -573,21 +672,25 @@ class GSWP_Alerts {
 	 * @return array{0:string,1:string}
 	 */
 	private function format_digest( $queue, $dropped ) {
-		$logins    = array();
-		$checkouts = array();
+		$logins        = array();
+		$registrations = array();
+		$checkouts     = array();
 		foreach ( $queue as $event ) {
 			if ( 'login' === $event['type'] ) {
 				$logins[] = $event;
+			} elseif ( 'registration' === $event['type'] ) {
+				$registrations[] = $event;
 			} else {
 				$checkouts[] = $event;
 			}
 		}
 
 		$subject = sprintf(
-			/* translators: 1: site name, 2: login count, 3: checkout count. */
-			__( '[%1$s] Security alert digest: %2$d flagged logins, %3$d blocked checkouts', 'google-security-for-wordpress' ),
+			/* translators: 1: site name, 2: login count, 3: sign-up count, 4: checkout count. */
+			__( '[%1$s] Security alert digest: %2$d flagged logins, %3$d suspicious sign-ups, %4$d blocked checkouts', 'google-security-for-wordpress' ),
 			self::blogname(),
 			count( $logins ),
+			count( $registrations ),
 			count( $checkouts )
 		);
 
@@ -607,6 +710,16 @@ class GSWP_Alerts {
 				count( $logins )
 			);
 			$lines = array_merge( $lines, $this->digest_section( $logins, $limit, 'login' ) );
+			$lines[] = '';
+		}
+
+		if ( ! empty( $registrations ) ) {
+			$lines[] = sprintf(
+				/* translators: %d: number of flagged sign-ups. */
+				_n( 'Suspicious sign-up (%d):', 'Suspicious sign-ups (%d):', count( $registrations ), 'google-security-for-wordpress' ),
+				count( $registrations )
+			);
+			$lines = array_merge( $lines, $this->digest_section( $registrations, $limit, 'registration' ) );
 			$lines[] = '';
 		}
 
@@ -636,7 +749,7 @@ class GSWP_Alerts {
 	 *
 	 * @param array[] $events Events of a single type.
 	 * @param int     $limit  Maximum detailed entries.
-	 * @param string  $type   'login' or 'checkout'.
+	 * @param string  $type   'login', 'registration', or 'checkout'.
 	 * @return string[]
 	 */
 	private function digest_section( $events, $limit, $type ) {
@@ -644,9 +757,13 @@ class GSWP_Alerts {
 		$shown = array_slice( $events, 0, $limit );
 
 		foreach ( $shown as $event ) {
-			$details = ( 'login' === $type )
-				? $this->login_detail_lines( $event )
-				: $this->checkout_detail_lines( $event );
+			if ( 'login' === $type ) {
+				$details = $this->login_detail_lines( $event );
+			} elseif ( 'registration' === $type ) {
+				$details = $this->registration_detail_lines( $event );
+			} else {
+				$details = $this->checkout_detail_lines( $event );
+			}
 			foreach ( $details as $detail ) {
 				$lines[] = '  ' . $detail;
 			}
