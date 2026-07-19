@@ -142,6 +142,17 @@ class GSWP_Powerpack {
 				)
 			);
 		}
+
+		// The score passed; also consult any Account Defender fake-signup labels.
+		$screen = GSWP_Account_Defender::screen_registration( $this->verifier, (string) $email, 'powerpack' );
+		if ( is_wp_error( $screen ) ) {
+			wp_send_json_error(
+				array(
+					'code'    => 'gswp_recaptcha',
+					'message' => $screen->get_error_message(),
+				)
+			);
+		}
 	}
 
 	/**
