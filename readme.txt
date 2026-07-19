@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.10.0
+Stable tag: 2.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.11.0 =
+* Added: reCAPTCHA v3 scoring for the PowerPack for Beaver Builder **Registration Form** module. This module renders its own registration form over admin-ajax and fires neither the WordPress core registration hooks nor the WooCommerce ones, so registrations through it were never scored — a gap that let bots farm spam accounts (gibberish names/URLs and Gmail dot-trick addresses) on sites that build registration with Beaver Builder + PowerPack, even with the plugin's other registration protections on. The token is now injected into the module's form and the score is checked immediately before the user is created, so a failed check blocks the registration inline and no account is created. It reuses the existing "WordPress registration" form toggle and its score threshold (no new settings), and when active it removes the module's own reCAPTCHA so this plugin's single, site-wide reCAPTCHA is the only one on the form. With an Enterprise key and Account Defender enabled, these registrations also feed Google's fake-signup labeling. Enable it under Settings → Google Security → Form Protection → WordPress registration.
 
 = 2.10.0 =
 * Added: two-factor authentication secrets are now bound to the site they were enrolled on, so a database clone (e.g. cloning a live site to a staging subdomain) no longer lets the same authenticator code work on both copies. A secret from a different site is treated as not-enrolled — the affected user signs in with their password and is prompted to set up 2FA again, so each site ends up with its own independent secret. This never blocks a login outright (a legitimate domain change gracefully falls back to re-enrollment, with a fresh enrolment grace period for enforced roles rather than an instant lockout). On by default; a new "Disable 2FA on cloned or moved sites" toggle under Two-Factor Authentication turns it off for sites that want the old cross-copy behavior. Existing enrolments are backfilled with their current site as the recorded origin on upgrade, so protection applies to any *future* clone; an already-existing clone (like a staging site set up before this update) should have its users re-enroll in 2FA there once to pick up its own secret.
