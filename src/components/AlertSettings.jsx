@@ -48,6 +48,10 @@ export default function AlertSettings( {
 		settings.alert_checkout === '1' ||
 		settings.alert_checkout === true ||
 		settings.alert_checkout === undefined;
+	const leakOn =
+		settings.alert_leak === '1' ||
+		settings.alert_leak === true ||
+		settings.alert_leak === undefined;
 	const mode = settings.alert_mode || 'immediate';
 
 	return (
@@ -277,6 +281,37 @@ export default function AlertSettings( {
 									/>
 								</div>
 							) }
+
+							{ /* Event: leaked credentials */ }
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Leaked credentials',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'Alert when Password Defense finds a submitted username+password pair in a known data breach, at login or when a new password is chosen.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Leaked credentials',
+										'google-security-for-wordpress'
+									) }
+									enabled={ leakOn }
+									onToggle={ () =>
+										onChange(
+											'alert_leak',
+											leakOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
 						</>
 					) }
 				</div>

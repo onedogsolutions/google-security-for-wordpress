@@ -5,14 +5,15 @@
  * Turns already-detected security events into an email to the site operator:
  * reCAPTCHA Enterprise Account Defender flagging SUSPICIOUS_LOGIN_ACTIVITY on
  * an administrator-capable account, Account Defender flagging a registration
- * as SUSPICIOUS_ACCOUNT_CREATION, and a checkout blocked as high risk by
- * Transaction defense. These events otherwise only reach the log; for an
+ * as SUSPICIOUS_ACCOUNT_CREATION, a checkout blocked as high risk by
+ * Transaction defense, and Password Defense finding a username+password pair
+ * in a known data breach. These events otherwise only reach the log; for an
  * agency running many sites this is the difference between finding out during
  * the incident and finding out from the client.
  *
  * Delivery is decoupled from detection: the detection sites fire the plain
  * actions gswp_suspicious_admin_login / gswp_suspicious_registration /
- * gswp_checkout_blocked, and this class is the only subscriber the plugin
+ * gswp_checkout_blocked / gswp_leaked_credentials, and this class is the only subscriber the plugin
  * ships (leaving the actions as a seam for Slack/webhook forwarding without
  * core changes).
  *
@@ -76,6 +77,7 @@ class GSWP_Alerts {
 		add_action( 'gswp_suspicious_admin_login', array( $this, 'on_suspicious_login' ), 10, 3 );
 		add_action( 'gswp_suspicious_registration', array( $this, 'on_suspicious_registration' ), 10, 3 );
 		add_action( 'gswp_checkout_blocked', array( $this, 'on_checkout_blocked' ), 10, 3 );
+		add_action( 'gswp_leaked_credentials', array( $this, 'on_leaked_credentials' ), 10, 3 );
 		add_action( 'shutdown', array( $this, 'flush_immediate' ) );
 	}
 
@@ -249,6 +251,35 @@ class GSWP_Alerts {
 		);
 
 		$this->handle_event( 'checkout', 'checkout_' . md5( $identity ), $data );
+	}
+
+	/**
+	 * Handle credentials Password Defense flagged as appearing in a known
+	 * data breach.
+	 *
+	 * @param WP_User|null $user    The affected account, when resolvable.
+	 * @param string       $context 'login', 'password_reset', 'profile_update',
+	 *                              'account_details', or 'registration'.
+	 * @param array        $context_extra Extra flags: blocked.
+	 */
+	public function on_leaked_credentials( $user, $context, $context_extra = array() ) {
+		if ( '1' !== get_option( 'gswp_alert_leak', '1' ) ) {
+			return;
+		}
+
+		$login = $user instanceof WP_User ? $user->user_login : '';
+		$ip    = self::client_ip();
+		$identity = '' !== $login ? $login : $ip;
+
+		$data = array(
+			'user_login' => $login,
+			'context'    => (string) $context,
+			'blocked'    => ! empty( $context_extra['blocked'] ),
+			'ip'         => $ip,
+			'ua'         => self::user_agent(),
+		);
+
+		$this->handle_event( 'leak', 'leak_' . md5( $identity ), $data );
 	}
 
 	/**
@@ -460,7 +491,67 @@ class GSWP_Alerts {
 		if ( 'registration' === $event['type'] ) {
 			return $this->format_registration( $event );
 		}
+		if ( 'leak' === $event['type'] ) {
+			return $this->format_leak( $event );
+		}
 		return $this->format_checkout( $event );
+	}
+
+	/**
+	 * Format a leaked-credentials alert.
+	 *
+	 * @param array $event Normalized event.
+	 * @return array{0:string,1:string}
+	 */
+	private function format_leak( $event ) {
+		$d = $event['data'];
+
+		$subject = sprintf(
+			/* translators: 1: site name, 2: username. */
+			__( '[%1$s] Leaked credentials detected for "%2$s"', 'google-security-for-wordpress' ),
+			self::blogname(),
+			'' !== $d['user_login'] ? $d['user_login'] : __( 'unknown account', 'google-security-for-wordpress' )
+		);
+
+		$lines   = array();
+		$lines[] = sprintf(
+			/* translators: %s: site URL. */
+			__( 'reCAPTCHA Password defense found this username+password pair in a known data breach at %s.', 'google-security-for-wordpress' ),
+			home_url()
+		);
+		$lines[] = '';
+		$lines   = array_merge( $lines, $this->leak_detail_lines( $event ) );
+		$lines[] = '';
+		$lines[] = $d['blocked']
+			? __( 'The password change was rejected and the account was told to choose a different password.', 'google-security-for-wordpress' )
+			: __( 'The account was not blocked. Recommend the account owner change this password (and anywhere else they reused it) as soon as possible.', 'google-security-for-wordpress' );
+
+		return array( $subject, implode( "\n", $lines ) );
+	}
+
+	/**
+	 * Detail lines for a leaked-credentials event, shared by single and
+	 * digest emails.
+	 *
+	 * @param array $event Normalized event.
+	 * @return string[]
+	 */
+	private function leak_detail_lines( $event ) {
+		$d     = $event['data'];
+		$lines = array();
+
+		$lines[] = sprintf( /* translators: %s: account login. */ __( 'Account: %s', 'google-security-for-wordpress' ), '' !== $d['user_login'] ? $d['user_login'] : '—' );
+		$lines[] = sprintf( /* translators: %s: surface where the leak was found. */ __( 'Detected at: %s', 'google-security-for-wordpress' ), $d['context'] );
+		$lines[] = sprintf(
+			/* translators: %s: yes or no. */
+			__( 'Change blocked: %s', 'google-security-for-wordpress' ),
+			$d['blocked'] ? __( 'yes', 'google-security-for-wordpress' ) : __( 'no', 'google-security-for-wordpress' )
+		);
+		$lines[] = sprintf( /* translators: %s: IP address. */ __( 'IP address: %s', 'google-security-for-wordpress' ), $d['ip'] );
+		$lines[] = sprintf( /* translators: %s: user agent string. */ __( 'User agent: %s', 'google-security-for-wordpress' ), $d['ua'] );
+		$lines[] = sprintf( /* translators: %s: date and time. */ __( 'Time: %s', 'google-security-for-wordpress' ), self::format_time( $event['time'] ) );
+
+		return $lines;
 	}
 
 	/**
@@ -675,23 +766,27 @@ class GSWP_Alerts {
 		$logins        = array();
 		$registrations = array();
 		$checkouts     = array();
+		$leaks         = array();
 		foreach ( $queue as $event ) {
 			if ( 'login' === $event['type'] ) {
 				$logins[] = $event;
 			} elseif ( 'registration' === $event['type'] ) {
 				$registrations[] = $event;
+			} elseif ( 'leak' === $event['type'] ) {
+				$leaks[] = $event;
 			} else {
 				$checkouts[] = $event;
 			}
 		}
 
 		$subject = sprintf(
-			/* translators: 1: site name, 2: login count, 3: sign-up count, 4: checkout count. */
-			__( '[%1$s] Security alert digest: %2$d flagged logins, %3$d suspicious sign-ups, %4$d blocked checkouts', 'google-security-for-wordpress' ),
+			/* translators: 1: site name, 2: login count, 3: sign-up count, 4: checkout count, 5: leaked-credential count. */
+			__( '[%1$s] Security alert digest: %2$d flagged logins, %3$d suspicious sign-ups, %4$d blocked checkouts, %5$d leaked credentials', 'google-security-for-wordpress' ),
 			self::blogname(),
 			count( $logins ),
 			count( $registrations ),
-			count( $checkouts )
+			count( $checkouts ),
+			count( $leaks )
 		);
 
 		$limit = 10;
@@ -733,6 +828,16 @@ class GSWP_Alerts {
 			$lines[] = '';
 		}
 
+		if ( ! empty( $leaks ) ) {
+			$lines[] = sprintf(
+				/* translators: %d: number of leaked-credential detections. */
+				_n( 'Leaked credentials detected (%d):', 'Leaked credentials detected (%d):', count( $leaks ), 'google-security-for-wordpress' ),
+				count( $leaks )
+			);
+			$lines = array_merge( $lines, $this->digest_section( $leaks, $limit, 'leak' ) );
+			$lines[] = '';
+		}
+
 		if ( $dropped > 0 ) {
 			$lines[] = sprintf(
 				/* translators: %d: number of events dropped. */
@@ -761,6 +866,8 @@ class GSWP_Alerts {
 				$details = $this->login_detail_lines( $event );
 			} elseif ( 'registration' === $type ) {
 				$details = $this->registration_detail_lines( $event );
+			} elseif ( 'leak' === $type ) {
+				$details = $this->leak_detail_lines( $event );
 			} else {
 				$details = $this->checkout_detail_lines( $event );
 			}

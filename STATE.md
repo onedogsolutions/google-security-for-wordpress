@@ -1,6 +1,114 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 27 (Account Defender registration feedback loop + suspicious sign-up controls)
+## Current Phase: Phase 28 (Password Defense — native PHP leaked-credential detection)
+
+### Phase 28 Modifications (v2.13.0)
+- **Where this came from.** The Fraud Defense console's other outstanding recommendation ("Detect
+  leaked passwords — Configure Password defense") is a sibling feature to Account Defender (closed
+  out in Phase 27) that the plugin did not implement at all. Google's console only offers Java/Node
+  client helpers for it; PHP is "Other," pointed at the raw protocol spec
+  (`docs.cloud.google.com/recaptcha/docs/check-passwords#cryptographic-function`). Full
+  investigation and design in `PLAN-password-defense.md`.
+- **Native PHP implementation of Google's privacy-preserving Password Check protocol** — no
+  dependency on Node or an external client. Three new `includes/` classes:
+  - `class-gswp-scrypt.php`: pure-PHP RFC 7914 scrypt (PBKDF2 legs via native `hash_pbkdf2()`;
+    ROMix/BlockMix/Salsa20/8 in PHP). Verified byte-for-byte against both official RFC 7914 test
+    vectors and the exact scrypt(N=4096,r=8,p=1) parameters the protocol uses.
+  - `class-gswp-ec-cipher.php`: NIST P-256 point arithmetic (GMP preferred, BCMath fallback) —
+    scalar multiplication, point compression, and the SHA-256 "random oracle" hash-to-curve
+    function from Google's `private-join-and-compute` `ECCommutativeCipher`. Implemented from the
+    published algorithm (not ported/translated — Apache-2.0 vs. this project's GPLv2-or-later,
+    see licensing note in the class docblock) and validated against it as an external test oracle.
+  - `class-gswp-password-defense.php`: orchestrator — capability gating, the standalone
+    `privatePasswordLeakVerification` assessment call (no token/event required), local verdict
+    computation, per-user weekly cadence, and the login/choice-time hooks.
+- **Verification methodology (unusually deep for this codebase, warranted by the stakes of silent
+  crypto bugs — the plan's own §4.1 warns that a wrong canonicalization or hash-to-curve step
+  produces silent false negatives, not errors).** Built php8.4-gmp/bcmath from PHP's own upstream
+  source (`ext/gmp`, `ext/bcmath` via `phpize`) since neither extension ships in this sandbox, then:
+  1. Fetched Google's official `recaptcha-password-check-helpers` npm package (Apache-2.0) and its
+     underlying `private-join-and-compute` C++ source (`ec_commutative_cipher.cc`, `ec_group.cc`,
+     `context.cc`) as read-only reference/oracle — never copied into this project.
+  2. Generated real test vectors by executing the official helper's WASM `EcCommutativeCipher`
+     (hash-to-curve, encrypt, decrypt, reencrypt with fixed keys) and its `CryptoHelper`
+     (canonicalization, username hash/prefix, scrypt pair hash) via Node.
+  3. Wrote a Python prototype of the full protocol (point arithmetic, hash-to-curve, scrypt) from
+     the published algorithm and confirmed it reproduces the official helper's vectors exactly.
+  4. Ported to PHP (both the GMP and BCMath backends) and re-verified against the same vectors.
+     This caught two real bugs before they could ship: **(a)** the hardcoded P-256 curve-order
+     constant was missing a trailing hex digit, making it composite instead of prime and silently
+     breaking every modular inverse (decrypt/reencrypt); **(b)** BCMath's `bcmod()` keeps the
+     dividend's sign (unlike `gmp_mod()`, which always returns non-negative), so the BCMath
+     backend's point arithmetic produced garbage on the first negative intermediate value until a
+     manual sign-fold was added. Both backends now reproduce Google's real WASM implementation
+     exactly across hash-to-curve, encrypt/decrypt, and a simulated two-party
+     blind/reencrypt/strip-and-verify round trip, plus a full leak-detected / not-leaked
+     end-to-end simulation.
+  5. Confirmed the canonicalization quirk from the plan (Google's own helper's
+     `.replace('.', '')` strips only the *first* dot despite the docs saying "stripping dots," and
+     the credentials-pair scrypt hash uses the **raw**, not canonicalized, username) by reading the
+     helper's `crypto_helper.ts` source directly, and matched both exactly.
+- **Login path (deferred, at most weekly per user).** `authenticate` filter at priority 45 (after
+  the core password check at 20 and Account Defender's capture at 40, before 2FA at 100): on a
+  correct password where a per-user cadence meta (`gswp_pd_last_check`, a `{time, fp}` pair keyed
+  to a `wp_hash()` of the *already-hashed* stored password so no new secret material is persisted)
+  says a check is due, the credentials are stashed and checked on `shutdown` — after the response
+  has been sent, so the scrypt hash and API round trip never add login latency. A detected leak
+  stores `gswp_pd_leaked` meta and fires `gswp_leaked_credentials`. On a later login with the same
+  (still-leaked) password, the plugin either refuses the login with a link to the lost-password
+  screen (opt-in `gswp_pd_force_reset`, default off) or lets it through with a persistent
+  `admin_notices` nag (default) — never a surprise lockout. The flag clears itself once the
+  password's fingerprint changes (password reset, profile change, or WooCommerce account-details
+  change).
+- **Choice-time surfaces (inline, may block).** `validate_password_reset`,
+  `user_profile_update_errors`, and `woocommerce_save_account_details_errors` each run the same
+  check synchronously against the newly submitted password (these POSTs are rare, so the ~0.3–1.5s
+  scrypt cost is acceptable inline) and, under `gswp_pd_block_choice` (default on), add a blocking
+  `WP_Error` so the form re-renders with an inline message instead of accepting a known-leaked
+  password. With blocking off, the event is only logged and can still alert.
+  **Scoped out of this pass** (documented, not silently dropped): the WooCommerce/PowerPack/Xootix
+  *registration* password fields are not yet checked — those forms' password handling varies
+  per-integration (Woo can auto-generate one) and would need the same source-verification rigor
+  Phase 26 used for the PowerPack registration module; left as a follow-up rather than guessed at.
+- **Alerts.** Fourth event type on the existing throttled pipeline: `gswp_leaked_credentials` →
+  `GSWP_Alerts::on_leaked_credentials()`, gated by new `gswp_alert_leak` (default on), dedupe key
+  `leak_{md5(login|ip)}` on the pipeline's default (non-login) 1-hour window, `format_leak()` /
+  `leak_detail_lines()`, and the digest subject/section extended to four event types.
+- **Settings.** New options: `gswp_password_defense` (master, default off, Enterprise-only),
+  `gswp_pd_login` (default on), `gswp_pd_block_choice` (default on), `gswp_pd_force_reset` (default
+  off), `gswp_alert_leak` (default on) — wired through `gswp_default_options()`, REST
+  `get_settings`/`update_settings` (plus a read-only `pd_supported` flag: `PHP_INT_SIZE >= 8` and
+  either `gmp` or `bcmath` loaded, so the UI can explain an inert toggle instead of guessing), the
+  `App.jsx` defaults, and a new `src/components/PasswordDefense.jsx` panel on the Enterprise
+  Defense tab (master + three sub-toggles, an Enterprise-required notice, an unsupported-server
+  notice, and privacy copy naming exactly what leaves the site). `AlertSettings.jsx` gained a
+  fourth "Leaked credentials" sub-toggle. MainWP bridge picks all of this up automatically (single-
+  source REST validation, per the established pattern).
+- **Fail-open throughout.** Any crypto exception, missing GMP/BCMath, missing credentials, or
+  non-200/malformed API response returns `null` from `check_credentials()` and is treated as "not
+  leaked, don't block" — a Password Defense outage or misconfiguration can never lock out or block
+  a legitimate user.
+- **Licensing note.** This project is GPLv2-or-later; Google's helper packages are Apache-2.0
+  (incompatible with GPL-only, and mixing under "or later" would muddy WordPress.org distribution).
+  Per the plan, the implementation is written from the publicly documented protocol; the official
+  helper and the `private-join-and-compute` C++ source were used only as an external, read-only
+  test oracle during development — never copied, ported, or translated — and this is noted in the
+  new classes' docblocks.
+- Version bumped to 2.13.0 (main header, `GSWP_VERSION`, `readme.txt` stable tag + Password
+  Defense feature bullet + Email Alerts bullet update + new "Why does the console recommend
+  Configure Password defense?" FAQ + changelog, `package.json`, `package-lock.json`). React assets
+  rebuilt (`npm run build`); `wp-scripts lint-js` clean on all touched JSX; `php -l` clean on all
+  touched/new PHP.
+- **Not yet done (follow-ups, not silently skipped):** registration-surface password checks
+  (WooCommerce/PowerPack/Xootix sign-up forms with a user-chosen password); the verifier-seam
+  optimization to fold the leak check into an already-in-flight token assessment and halve API
+  calls on choice-time surfaces; a live staging-site end-to-end run against Google's documented
+  leaked test credential pair (this pass's verification is a from-scratch reimplementation checked
+  against Google's *own* official client as an oracle — thorough, but not the same as an assessment
+  actually round-tripping through the live reCAPTCHA Enterprise API); Slack/webhook delivery for
+  the new alert type.
+
+## Historical Phase: Phase 27 (Account Defender registration feedback loop + suspicious sign-up controls)
 
 ### Phase 27 Modifications (v2.12.0)
 - **Reported (onedog.solutions, morning after 2.11.0):** two more spam registrations overnight (same gibberish-fields + Gmail dot-trick signature), and the Google Cloud **Fraud Defense** console still recommending "Configure Account defense" despite the four documented Account Defender pieces being coded. Investigation first (committed as `PLAN-account-defender-registration-feedback.md`): the console recommendation is a **console-side per-key enablement the plugin cannot perform** (operator must click it — new readme FAQ); the spam got through because blocking was **score-only** (default 0.5) with `SUSPICIOUS_ACCOUNT_CREATION` labels never read at registration time, registrations were **never annotated** (no fake-signup feedback loop at all), and the Gmail dot-trick made every alias hash to a **different accountId**, blinding Google's clustering.

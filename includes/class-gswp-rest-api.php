@@ -99,6 +99,13 @@ class GSWP_Rest_Api {
 			'tfa_grace_days'         => get_option( 'gswp_2fa_grace_days', '14' ),
 			'tfa_block_app_passwords' => get_option( 'gswp_2fa_block_app_passwords', '0' ),
 			'tfa_app_password_exempt_users' => get_option( 'gswp_2fa_app_password_exempt_users', '' ),
+			// Password Defense (leaked-credential detection).
+			'password_defense'       => get_option( 'gswp_password_defense', '0' ),
+			'pd_login'                => get_option( 'gswp_pd_login', '1' ),
+			'pd_block_choice'         => get_option( 'gswp_pd_block_choice', '1' ),
+			'pd_force_reset'          => get_option( 'gswp_pd_force_reset', '0' ),
+			'pd_supported'            => GSWP_Password_Defense::supported(),
+			'alert_leak'              => get_option( 'gswp_alert_leak', '1' ),
 		);
 
 		return new WP_REST_Response( $settings, 200 );
@@ -158,6 +165,11 @@ class GSWP_Rest_Api {
 			'enable_wp_login',
 			'enable_wp_register',
 			'enable_wp_lostpassword',
+			'password_defense',
+			'pd_login',
+			'pd_block_choice',
+			'pd_force_reset',
+			'alert_leak',
 		);
 		foreach ( $toggles as $toggle ) {
 			if ( isset( $params[ $toggle ] ) ) {
