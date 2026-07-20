@@ -9,6 +9,7 @@ import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
 import TransactionDefense from './TransactionDefense';
 import AccountDefender from './AccountDefender';
+import PasswordDefense from './PasswordDefense';
 import AlertSettings from './AlertSettings';
 import TwoFactorNotice from './TwoFactorNotice';
 
@@ -63,12 +64,18 @@ export default function App() {
 			ad_events: '1',
 			ad_block_signup: '0',
 			ad_share_email: '0',
+			password_defense: '0',
+			pd_login: '1',
+			pd_block_choice: '1',
+			pd_force_reset: '0',
+			pd_supported: false,
 			alerts: '0',
 			alert_email: '',
 			alert_mode: 'immediate',
 			alert_login: '1',
 			alert_registration: '1',
 			alert_checkout: '1',
+			alert_leak: '1',
 			verbose_logging: '0',
 			enable_wp_login: '0',
 			enable_wp_register: '0',
@@ -241,6 +248,10 @@ export default function App() {
 									/>
 								) }
 								<AccountDefender
+									settings={ settings }
+									onChange={ handleSettingChange }
+								/>
+								<PasswordDefense
 									settings={ settings }
 									onChange={ handleSettingChange }
 								/>

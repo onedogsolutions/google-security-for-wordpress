@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.12.0
+ * Version: 2.13.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.12.0' );
+define( 'GSWP_VERSION', '2.13.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -95,6 +95,12 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-mainwp-child.php';
 // loads unconditionally.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-totp.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-two-factor.php';
+// Password Defense (leaked-credential detection). Hooks the login flow and
+// several account-modification screens, so it loads unconditionally (inert
+// unless enabled with an Enterprise key and a supported bignum extension).
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-scrypt.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-ec-cipher.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-password-defense.php';
 
 if ( is_admin() ) {
 	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-admin.php';
@@ -158,6 +164,12 @@ function gswp_default_options() {
 		'2fa_block_app_passwords'   => '0',
 		'2fa_app_password_exempt_users' => '',
 		'2fa_env_binding'           => '1',
+		// Password Defense (leaked-credential detection).
+		'password_defense'         => '0',
+		'pd_login'                 => '1',
+		'pd_block_choice'          => '1',
+		'pd_force_reset'           => '0',
+		'alert_leak'                => '1',
 	);
 }
 
@@ -441,6 +453,11 @@ function gswp_init() {
 	// Two-factor authentication (TOTP / Google Authenticator). Inert unless the
 	// feature is enabled and a user has enrolled.
 	new GSWP_Two_Factor();
+
+	// Password Defense: checks credentials against Google's breach database on
+	// login and password-choice surfaces. Inert unless enabled with an
+	// Enterprise key and a GMP or BCMath extension is present.
+	new GSWP_Password_Defense();
 
 	if ( is_admin() ) {
 		new GSWP_Admin();
