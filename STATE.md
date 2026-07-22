@@ -1,6 +1,14 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 28 (Password Defense — native PHP leaked-credential detection)
+## Current Phase: Phase 29 (2FA popup focus on wp-login.php / LoginPress)
+
+### Phase 29 Modifications (v2.13.1)
+- Fixed the 2FA challenge popup losing keyboard focus on full-page-reload logins: native wp-login.php and skins built on it (LoginPress). Root cause: wp-login.php's core `wp_attempt_focus()` focuses and selects `#user_login` on a **200ms `setTimeout`**, which fires after the modal's on-open focus (the `requestAnimationFrame` retry pattern runs within ~2 frames, ≈32ms) and steals focus. AJAX logins (PowerPack, Xootix Login/Signup Popup) never reload the page, so nothing competed there — which is why focus already worked on those forms.
+- Fix in `assets/js/gswp-2fa-modal.js`: a timing race can't be won by focusing earlier, so the dialog now **traps focus while open** — a document-level `focusin` listener (added in `open()`, removed in `close()`) refocuses the code input whenever focus lands outside the overlay. This defeats core's timer (its `d.focus()` fires `focusin` synchronously; the following `d.select()` doesn't move focus), any other plugin's focus script, and also keeps Tab from wandering behind the overlay. The on-open rAF focus is kept for the initial placement.
+- Bumped version to 2.13.1 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`) so the cache-busting query arg forces caches to fetch the new modal script. Plain asset — no webpack rebuild required.
+- Provenance: this fix originated on the retired `charming-goodall-0vntw8` branch (authored against the then-current v2.2.3) during the old-branch cleanup; the JS change was ported unchanged onto v2.13.0 `main`, and the stale branch was retired once the fix landed here.
+
+## Historical Phase: Phase 28 (Password Defense — native PHP leaked-credential detection)
 
 ### Phase 28 Modifications (v2.13.0)
 - **Where this came from.** The Fraud Defense console's other outstanding recommendation ("Detect
