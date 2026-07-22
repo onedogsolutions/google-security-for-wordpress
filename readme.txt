@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.13.0
+Stable tag: 2.13.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.13.1 =
+* Fixed: the two-factor code prompt now keeps keyboard focus while it is open. On wp-login.php — both the native form and skins such as LoginPress — WordPress core focuses the username field on a short timer after the page loads, which could pull focus out of the 2FA dialog even after it had been focused on open. The dialog now returns focus to the code field whenever focus moves outside it while open.
 
 = 2.13.0 =
 * Added: Password Defense, a native PHP implementation of Google's "Password Check" / Fraud Defense "Password defense" protocol — the plugin's answer to the Fraud Defense console's "Configure Password defense" recommendation, which has no official client for PHP. Checks a submitted username and password against Google's database of billions of breached credentials without the password ever leaving the site in a form Google can read: a per-check elliptic-curve key blinds a scrypt hash of the credentials locally, Google re-encrypts it with its own key and returns candidate breach-database matches, and the site strips its own blinding and compares locally. Runs after a successful login in the background (never slows sign-in), at most once per user per week, and — new toggles under Enterprise Defense — can optionally refuse further sign-ins with a password already known to be leaked until it is changed, and can block a newly chosen leaked password on password reset, profile, or WooCommerce account-details changes. Requires the GMP or BCMath PHP extension (for the elliptic-curve math) and an Enterprise key; the settings screen shows a notice if neither extension is available. New "Leaked credentials" email alert sub-toggle rides the existing throttled alert pipeline.

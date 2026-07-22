@@ -130,6 +130,17 @@
 
 	var isOpen = false;
 
+	// While the dialog is open, pull focus back whenever anything outside it
+	// takes focus. Focusing once on open is not enough on wp-login.php (native
+	// and skins such as LoginPress): core's wp_attempt_focus() focuses the
+	// username field on a 200ms timer, after any on-open focus has already run.
+	function trapFocus( e ) {
+		if ( ! isOpen || overlay.contains( e.target ) ) {
+			return;
+		}
+		input.focus();
+	}
+
 	function open() {
 		if ( isOpen ) {
 			return;
@@ -138,6 +149,7 @@
 		isOpen = true;
 		overlay.classList.add( 'is-open' );
 		document.body.classList.add( 'gswp-2fa-lock' );
+		document.addEventListener( 'focusin', trapFocus );
 		// Focus the code input once the overlay is visible. The display
 		// transition (none -> flex) can prevent focus until the next frame.
 		window.requestAnimationFrame( function () {
@@ -152,6 +164,7 @@
 
 	function close() {
 		isOpen = false;
+		document.removeEventListener( 'focusin', trapFocus );
 		if ( overlay ) {
 			overlay.classList.remove( 'is-open' );
 			document.body.classList.remove( 'gswp-2fa-lock' );
