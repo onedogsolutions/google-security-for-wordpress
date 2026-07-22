@@ -1,6 +1,13 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 29 (2FA popup focus on wp-login.php / LoginPress)
+## Current Phase: Phase 30 (WP-CLI fatal error fix — unconditional class loading)
+
+### Phase 30 Modifications (v2.13.2)
+- **Fatal error under WP-CLI:** `Uncaught Error: Class "GSWP_Admin" not found` at line 463 of `google-security-for-wordpress.php`. Root cause: `class-gswp-admin.php` and `class-gswp-frontend.php` were conditionally `require`d based on `is_admin()` at plugin file-load time (lines 105–109), but the classes were instantiated inside `gswp_init()` on `plugins_loaded` using a *second* `is_admin()` check. During WP-CLI boot, `is_admin()` can return `false` at file-include time (so only the Frontend class was loaded) but `true` by the time `plugins_loaded` fires — causing `new GSWP_Admin()` to reference a class that was never required.
+- **Fix:** Both `class-gswp-admin.php` and `class-gswp-frontend.php` are now loaded unconditionally (matching the pattern already used by all other classes in the plugin: Login, REST API, MainWP, Two-Factor, etc.). The conditional *instantiation* in `gswp_init()` remains unchanged — only the appropriate class is created based on context at hook time.
+- Version bumped to 2.13.2 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`).
+
+## Historical Phase: Phase 29 (2FA popup focus on wp-login.php / LoginPress)
 
 ### Phase 29 Modifications (v2.13.1)
 - Fixed the 2FA challenge popup losing keyboard focus on full-page-reload logins: native wp-login.php and skins built on it (LoginPress). Root cause: wp-login.php's core `wp_attempt_focus()` focuses and selects `#user_login` on a **200ms `setTimeout`**, which fires after the modal's on-open focus (the `requestAnimationFrame` retry pattern runs within ~2 frames, ≈32ms) and steals focus. AJAX logins (PowerPack, Xootix Login/Signup Popup) never reload the page, so nothing competed there — which is why focus already worked on those forms.

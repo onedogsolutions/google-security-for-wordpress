@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.13.1
+Stable tag: 2.13.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.13.2 =
+* Fixed: fatal error "Class GSWP_Admin not found" when running WP-CLI commands. The admin and frontend class files are now loaded unconditionally, matching the pattern used by all other plugin classes. The error occurred because is_admin() could return different values at file-load time versus the plugins_loaded hook during WP-CLI boot.
 
 = 2.13.1 =
 * Fixed: the two-factor code prompt now keeps keyboard focus while it is open. On wp-login.php — both the native form and skins such as LoginPress — WordPress core focuses the username field on a short timer after the page loads, which could pull focus out of the 2FA dialog even after it had been focused on open. The dialog now returns focus to the code field whenever focus moves outside it while open.

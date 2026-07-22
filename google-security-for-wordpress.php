@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.13.1
+ * Version: 2.13.2
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.13.1' );
+define( 'GSWP_VERSION', '2.13.2' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -102,11 +102,11 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-scrypt.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-ec-cipher.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-password-defense.php';
 
-if ( is_admin() ) {
-	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-admin.php';
-} else {
-	require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-frontend.php';
-}
+// Admin and Frontend classes are loaded unconditionally because is_admin()
+// can differ between plugin file load time and the plugins_loaded hook (e.g.
+// during WP-CLI boot). Instantiation remains gated in gswp_init().
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-admin.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-frontend.php';
 
 /**
  * Default option values, keyed by option name without the gswp_ prefix.
