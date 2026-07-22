@@ -153,6 +153,23 @@ class GSWP_Powerpack {
 				)
 			);
 		}
+
+		// Local content heuristic: catch gibberish field data even when Google
+		// returns no Account Defender labels.
+		$content_fields = array(
+			'first_name' => is_array( $userdata ) && ! empty( $userdata['first_name'] ) ? $userdata['first_name'] : '',
+			'last_name'  => is_array( $userdata ) && ! empty( $userdata['last_name'] ) ? $userdata['last_name'] : '',
+			'user_url'   => is_array( $userdata ) && ! empty( $userdata['user_url'] ) ? $userdata['user_url'] : '',
+		);
+		$content_screen = GSWP_Account_Defender::screen_registration_content( $content_fields, (string) $email, 'powerpack' );
+		if ( is_wp_error( $content_screen ) ) {
+			wp_send_json_error(
+				array(
+					'code'    => 'gswp_recaptcha',
+					'message' => $content_screen->get_error_message(),
+				)
+			);
+		}
 	}
 
 	/**

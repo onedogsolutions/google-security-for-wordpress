@@ -465,6 +465,124 @@ class GSWP_Account_Defender {
 	}
 
 	/**
+	 * Screen registration field content for obviously bot-generated data.
+	 *
+	 * A local, Google-independent heuristic layer: analyses the submitted
+	 * name/website fields for random-character patterns that no human would
+	 * type (gibberish consonant clusters, random case alternation, extremely
+	 * low vowel ratios). Blocks when 2 or more fields are flagged, gated by
+	 * the same gswp_ad_block_signup toggle as the label-based screening.
+	 *
+	 * Does NOT require an Enterprise key or Account Defender to be active —
+	 * the patterns are unambiguous regardless of key type.
+	 *
+	 * @param array  $fields Associative array with optional keys 'first_name',
+	 *                       'last_name', 'user_url'.
+	 * @param string $email  Submitted registration email (for the alert action).
+	 * @param string $source Registration surface identifier.
+	 * @return WP_Error|null WP_Error to block the signup, null to allow.
+	 */
+	public static function screen_registration_content( $fields, $email = '', $source = 'unknown' ) {
+		if ( '1' !== get_option( 'gswp_ad_block_signup', '0' ) ) {
+			return null;
+		}
+
+		$flagged = array();
+		$check   = array( 'first_name', 'last_name', 'user_url' );
+
+		foreach ( $check as $key ) {
+			$value = isset( $fields[ $key ] ) ? trim( (string) $fields[ $key ] ) : '';
+			if ( '' === $value ) {
+				continue;
+			}
+			if ( self::is_gibberish_field( $value ) ) {
+				$flagged[] = $key;
+			}
+		}
+
+		// Require 2+ flagged fields to avoid false positives on a single
+		// unusual-but-legitimate value.
+		if ( count( $flagged ) < 2 ) {
+			return null;
+		}
+
+		self::static_log(
+			'Content heuristic flagged registration fields (' . implode( ', ', $flagged ) . ') from source: ' . $source . '.'
+		);
+
+		/**
+		 * Fires when a registration is flagged by local content heuristics.
+		 * Reuses the same action as the label-based screening so the alert
+		 * pipeline handles both uniformly.
+		 */
+		do_action(
+			'gswp_suspicious_registration',
+			$email,
+			array( 'CONTENT_HEURISTIC' ),
+			array(
+				'source'     => $source,
+				'blocked'    => true,
+				'assessment' => '',
+				'fields'     => $flagged,
+			)
+		);
+
+		return new WP_Error(
+			'recaptcha_suspicious_signup',
+			__( '<strong>Error:</strong> This sign-up was flagged as suspicious and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' )
+		);
+	}
+
+	/**
+	 * Whether a single field value looks like random bot-generated text.
+	 *
+	 * Triggers when at least one of the following unambiguous signals fires:
+	 *  1. Low vowel ratio: 10+ alpha chars with fewer than 20% vowels.
+	 *  2. Long consonant cluster: 8+ consecutive consonants.
+	 *  3. Random case alternation: 12+ alpha chars, no spaces, 5+ case
+	 *     transitions (real names and URLs do not alternate case randomly).
+	 *
+	 * @param string $value Trimmed field value.
+	 * @return bool True when the value appears machine-generated.
+	 */
+	private static function is_gibberish_field( $value ) {
+		// Strip non-alpha for ratio/cluster analysis; keep original for case.
+		$alpha = preg_replace( '/[^a-zA-Z]/', '', $value );
+		$len   = strlen( $alpha );
+
+		// Signal 1: extremely low vowel ratio in a long-enough string.
+		if ( $len >= 10 ) {
+			$vowels = preg_match_all( '/[aeiouyAEIOUY]/', $alpha );
+			if ( $vowels / $len < 0.20 ) {
+				return true;
+			}
+		}
+
+		// Signal 2: 8+ consecutive consonants (case-insensitive).
+		if ( $len >= 8 && preg_match( '/[^aeiouyAEIOUY]{8,}/', $alpha ) ) {
+			return true;
+		}
+
+		// Signal 3: random case alternation in a long, spaceless string.
+		if ( $len >= 12 && false === strpos( $value, ' ' ) ) {
+			$transitions = 0;
+			$prev_upper  = ctype_upper( $alpha[0] );
+			for ( $i = 1; $i < $len; $i++ ) {
+				$cur_upper = ctype_upper( $alpha[ $i ] );
+				if ( $cur_upper !== $prev_upper ) {
+					$transitions++;
+				}
+				$prev_upper = $cur_upper;
+			}
+			if ( $transitions >= 5 ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Annotate a failed login (wrong password) for the assessed attempt.
 	 *
 	 * @param string        $username Submitted username.

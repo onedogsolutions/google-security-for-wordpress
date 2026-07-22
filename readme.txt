@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.13.2
+Stable tag: 2.14.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.14.0 =
+* Added: local content-heuristic screening for registrations. When "Block suspicious sign-ups" is enabled, the plugin now also analyses submitted name and website fields for obviously bot-generated patterns (random case alternation, extreme consonant clusters, very low vowel ratios) and blocks the registration when 2 or more fields are flagged. This catches gibberish-field spam bots immediately, independent of whether Google's Account Defender has returned labels — closing the gap where well-scripted bots score above the reCAPTCHA threshold and the console model has not yet trained. Fires the same suspicious-registration alert action, so the operator is still notified.
 
 = 2.13.2 =
 * Fixed: fatal error "Class GSWP_Admin not found" when running WP-CLI commands. The admin and frontend class files are now loaded unconditionally, matching the pattern used by all other plugin classes. The error occurred because is_admin() could return different values at file-load time versus the plugins_loaded hook during WP-CLI boot.

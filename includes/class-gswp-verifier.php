@@ -118,6 +118,24 @@ class GSWP_Verifier {
 			$validation_errors->add( 'recaptcha_error', $screen->get_error_message() );
 		}
 
+		// Local content heuristic: catch gibberish field data even when Google
+		// returns no Account Defender labels.
+		if ( class_exists( 'GSWP_Account_Defender' ) && ( ! is_wp_error( $validation_errors ) || ! $validation_errors->has_errors() ) ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce validates its own nonce before this filter.
+			$content_fields = array(
+				'first_name' => isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '',
+				'last_name'  => isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '',
+				'user_url'   => isset( $_POST['website'] ) ? sanitize_text_field( wp_unslash( $_POST['website'] ) ) : '',
+			);
+			$content_screen = GSWP_Account_Defender::screen_registration_content( $content_fields, (string) $email, 'woocommerce' );
+			if ( is_wp_error( $content_screen ) ) {
+				if ( ! is_wp_error( $validation_errors ) ) {
+					$validation_errors = new WP_Error();
+				}
+				$validation_errors->add( 'recaptcha_error', $content_screen->get_error_message() );
+			}
+		}
+
 		return $validation_errors;
 	}
 

@@ -211,6 +211,23 @@ class GSWP_Login {
 			$errors->add( 'recaptcha_error', $screen->get_error_message() );
 		}
 
+		// Local content heuristic: catch gibberish field data even when Google
+		// returns no Account Defender labels. Core's form only has user_login
+		// and user_email, but themes/plugins may add name/website fields.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- core validates the registration nonce before this filter.
+		$content_fields = array(
+			'first_name' => isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '',
+			'last_name'  => isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '',
+			'user_url'   => isset( $_POST['user_url'] ) ? sanitize_text_field( wp_unslash( $_POST['user_url'] ) ) : '',
+		);
+		$content_screen = GSWP_Account_Defender::screen_registration_content( $content_fields, (string) $user_email, 'wp-login' );
+		if ( is_wp_error( $content_screen ) ) {
+			if ( ! is_wp_error( $errors ) ) {
+				$errors = new WP_Error();
+			}
+			$errors->add( 'recaptcha_error', $content_screen->get_error_message() );
+		}
+
 		return $errors;
 	}
 

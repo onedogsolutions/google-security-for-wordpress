@@ -1,6 +1,18 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 30 (WP-CLI fatal error fix — unconditional class loading)
+## Current Phase: Phase 31 (Local content-heuristic registration screening)
+
+### Phase 31 Modifications (v2.14.0)
+- **Problem:** the "Block suspicious sign-ups" toggle (`gswp_ad_block_signup`) only blocked registrations when Google's Account Defender returned the `SUSPICIOUS_ACCOUNT_CREATION` label. Bots submitting obvious gibberish fields (e.g. First Name: `XFMHSwoqvlpPhPaPgOMvGX`, Last Name: `QBraWnDOrDXaDpZZRYNFU`) passed through because labels require the console-side "Configure Account defense" enablement and a trained model — without those, `screen_registration()` saw empty labels and allowed the signup regardless of the toggle.
+- **Fix — local content-heuristic screening.** New static `GSWP_Account_Defender::screen_registration_content( $fields, $email, $source )` analyses submitted `first_name`, `last_name`, and `user_url` fields for unambiguously machine-generated patterns. A field is flagged when any one of three signals fires: (1) fewer than 20% vowels in a 10+ alpha-char string; (2) 8+ consecutive consonants; (3) 12+ alpha chars with no spaces and 5+ upper/lower case transitions. The registration is **blocked when 2 or more fields** are flagged (requiring multiple fields avoids false positives on a single unusual-but-legitimate value). Gated by the existing `gswp_ad_block_signup` toggle — no new option. Does NOT require an Enterprise key or Account Defender to be active (the patterns are unambiguous regardless of key type).
+- **Alert integration.** Fires the existing `gswp_suspicious_registration` action with labels `['CONTENT_HEURISTIC']` and context `'source' => $source, 'blocked' => true`, so the Phase 20/27 alert pipeline emails the operator identically to a label-based block.
+- **Wired into all four registration surfaces** after the existing score + label checks pass: `GSWP_Powerpack::validate_registration()` (reads `$userdata['first_name']`/`['last_name']`/`['user_url']`), `GSWP_Login::validate_register()` (reads `$_POST` — core's form lacks name fields but themes/plugins may add them), `GSWP_Xootix::validate_register()` (reads `$_POST`), and `GSWP_Verifier::validate_registration()` (WooCommerce — reads `$_POST['first_name']`/`['last_name']`/`['website']`).
+- **False-positive safety verified:** real names ("John", "Smith", "Bjorn", "Ng", "Xi Jinping") and normal URLs never trigger; the observed spam data triggers on 2+ fields and is blocked.
+- **Processing overhead:** negligible — pure in-memory string operations (regex + character loop) on 2–3 short fields; no network, database, or crypto. Several orders of magnitude less than the reCAPTCHA API round-trip that precedes it.
+- No new options, REST routes, React components, or MainWP changes. No webpack rebuild required (no `src/` changes).
+- Version bumped to 2.14.0 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). `php -l` clean on all touched PHP.
+
+## Historical Phase: Phase 30 (WP-CLI fatal error fix — unconditional class loading)
 
 ### Phase 30 Modifications (v2.13.2)
 - **Fatal error under WP-CLI:** `Uncaught Error: Class "GSWP_Admin" not found` at line 463 of `google-security-for-wordpress.php`. Root cause: `class-gswp-admin.php` and `class-gswp-frontend.php` were conditionally `require`d based on `is_admin()` at plugin file-load time (lines 105–109), but the classes were instantiated inside `gswp_init()` on `plugins_loaded` using a *second* `is_admin()` check. During WP-CLI boot, `is_admin()` can return `false` at file-include time (so only the Frontend class was loaded) but `true` by the time `plugins_loaded` fires — causing `new GSWP_Admin()` to reference a class that was never required.

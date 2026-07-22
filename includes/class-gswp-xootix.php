@@ -163,6 +163,24 @@ class GSWP_Xootix {
 			}
 		}
 
+		// Local content heuristic: catch gibberish field data even when Google
+		// returns no Account Defender labels.
+		if ( ! $had_error && ( ! is_wp_error( $validation_error ) || ! $validation_error->has_errors() ) ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Xootix validates its own nonce before this filter.
+			$content_fields = array(
+				'first_name' => isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '',
+				'last_name'  => isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '',
+				'user_url'   => isset( $_POST['user_url'] ) ? sanitize_text_field( wp_unslash( $_POST['user_url'] ) ) : '',
+			);
+			$content_screen = GSWP_Account_Defender::screen_registration_content( $content_fields, (string) $email, 'xootix' );
+			if ( is_wp_error( $content_screen ) ) {
+				if ( ! is_wp_error( $validation_error ) ) {
+					$validation_error = new WP_Error();
+				}
+				$validation_error->add( 'recaptcha_error', $content_screen->get_error_message() );
+			}
+		}
+
 		return $validation_error;
 	}
 
