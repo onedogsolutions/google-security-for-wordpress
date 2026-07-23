@@ -12,6 +12,7 @@ import AccountDefender from './AccountDefender';
 import PasswordDefense from './PasswordDefense';
 import AlertSettings from './AlertSettings';
 import TwoFactorNotice from './TwoFactorNotice';
+import Diagnostics from './Diagnostics';
 
 const TABS = [
 	{
@@ -255,6 +256,7 @@ export default function App() {
 									settings={ settings }
 									onChange={ handleSettingChange }
 								/>
+								<Diagnostics settings={ settings } />
 							</>
 						),
 						'two-factor': (

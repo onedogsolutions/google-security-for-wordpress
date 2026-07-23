@@ -1,6 +1,19 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 31 (Local content-heuristic registration screening)
+## Current Phase: Phase 32 (API Diagnostics tool)
+
+### Phase 32 Modifications (v2.15.0)
+- **Problem:** errors appearing in Google Cloud Console with no visibility into what the plugin is actually sending to Google's reCAPTCHA Enterprise API. Administrators had no way to audit payloads or verify connectivity without enabling verbose logging and reading WooCommerce logs.
+- **Fix — API Diagnostics endpoint and settings UI.** New admin-only REST route `POST /gswp/v1/diagnose` (in `class-gswp-rest-api.php`) performs live test assessments against Google's API and returns structured results:
+  1. **Configuration check** — validates all required credentials are present (site key, GCP project ID, API key) with masked values.
+  2. **Connectivity test** — sends a dummy token to the Enterprise assessments API (or classic siteverify). HTTP 200 with `tokenProperties.invalidReason=TOKEN_NOT_FOUND` proves credentials and API access are correct; non-200 reveals the exact error (400 = bad payload, 403 = bad key/permissions, 404 = wrong project).
+  3. **Account Defender test** — builds and sends a real `userInfo` payload (accountId hash, createAccountTime, optional email via `gswp_ad_share_email`) exactly as the verifier does during login, showing whether Google accepts the structure and whether `accountDefenderAssessment` labels are returned.
+  4. **Transaction Defense test** — builds and sends a full `transactionData` payload (billing/shipping address, items, payment method, `fraudPrevention: ENABLED`) matching a real checkout, verifying Google accepts it and showing whether `fraudPreventionAssessment` is returned.
+- **Settings UI.** New `Diagnostics.jsx` React component added to the Enterprise Defense tab. "Run Diagnostic" button triggers the endpoint; results display per-test status cards with expandable request/response JSON (API key redacted in URLs).
+- **No new options.** Uses existing credentials and feature toggles. Diagnostic is admin-only (`manage_options`).
+- Version bumped to 2.15.0 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). Webpack rebuilt.
+
+## Historical Phase: Phase 31 (Local content-heuristic registration screening)
 
 ### Phase 31 Modifications (v2.14.0)
 - **Problem:** the "Block suspicious sign-ups" toggle (`gswp_ad_block_signup`) only blocked registrations when Google's Account Defender returned the `SUSPICIOUS_ACCOUNT_CREATION` label. Bots submitting obvious gibberish fields (e.g. First Name: `XFMHSwoqvlpPhPaPgOMvGX`, Last Name: `QBraWnDOrDXaDpZZRYNFU`) passed through because labels require the console-side "Configure Account defense" enablement and a trained model — without those, `screen_registration()` saw empty labels and allowed the signup regardless of the toggle.
@@ -421,6 +434,6 @@
 
 ### Current Status
 - Assets successfully built.
-- Manual scan integration for Smart Key Scavenger successfully completed and linted.
+- API Diagnostics endpoint and settings UI complete.
 - Ready to compile final ZIP plugin package for distribution.
 - Ready to push code to GitHub.
