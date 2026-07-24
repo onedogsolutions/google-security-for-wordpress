@@ -147,6 +147,12 @@ class GSWP_Frontend {
 			}
 			window.gswpInit = true;
 
+			// Defer to Gravity Forms' own reCAPTCHA: if a GF form is present,
+			// GF handles token generation — our bootstrap must not interfere.
+			if (document.querySelector('.gform_wrapper, .gf-form, [id^="gform_"]')) {
+				return;
+			}
+
 			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
 			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
 			// reCAPTCHA v3 tokens expire after 120 seconds; refresh before that.

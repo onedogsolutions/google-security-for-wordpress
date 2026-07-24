@@ -32,6 +32,21 @@ class GSWP_Gravity_Forms {
 	);
 
 	/**
+	 * Whether Gravity Forms is active.
+	 *
+	 * Simple presence check — does not require reCAPTCHA to be configured.
+	 * Used by the Conflict Guard as a broad safety gate: when GF is active,
+	 * reCAPTCHA suppression is disabled because GF may load its own reCAPTCHA
+	 * on any page with a form and we cannot reliably detect which pages those
+	 * are due to script-enqueue timing differences across GF versions.
+	 *
+	 * @return bool True when Gravity Forms is installed and active.
+	 */
+	public static function is_active() {
+		return defined( 'GF_VERSION' ) || class_exists( 'GFForms' ) || class_exists( 'GFCommon' );
+	}
+
+	/**
 	 * Whether Gravity Forms is active and has a reCAPTCHA site key configured.
 	 *
 	 * GF stores its reCAPTCHA add-on settings in the

@@ -89,29 +89,13 @@ class GSWP_Conflict_Guard {
 	 * @return string The original tag, or an empty string to suppress it.
 	 */
 	public function filter_tag( $tag, $handle, $src ) {
-		// When deferring to Gravity Forms' own reCAPTCHA, never suppress.
-		if ( GSWP_Gravity_Forms::should_defer() ) {
+		// When Gravity Forms is active, never suppress reCAPTCHA scripts.
+		// GF may load its own Enterprise v3 reCAPTCHA on any page with a form;
+		// suppressing it breaks GF's form rendering and any payment gateway
+		// (e.g. Stripe) that depends on it. We cannot reliably detect which
+		// pages have GF forms due to script-enqueue timing across GF versions.
+		if ( GSWP_Gravity_Forms::is_active() ) {
 			return $tag;
-		}
-
-		// Safety net: when GF has reCAPTCHA configured, never suppress GF's
-		// own handles regardless of form detection timing. GF only loads its
-		// reCAPTCHA script on pages that render a form, so this is safe.
-		if ( GSWP_Gravity_Forms::is_recaptcha_configured() && GSWP_Gravity_Forms::is_gf_handle( $handle ) ) {
-			return $tag;
-		}
-
-		// Broadest safety net: when GF has reCAPTCHA configured, do not
-		// suppress any script whose src loads Google reCAPTCHA. GF's loader
-		// may use an unrecognized handle but still match our src needles;
-		// stripping it breaks GF's form rendering and any payment gateway
-		// (e.g. Stripe) that depends on it.
-		if ( GSWP_Gravity_Forms::is_recaptcha_configured() && ! empty( $src ) ) {
-			foreach ( $this->src_needles as $needle ) {
-				if ( false !== strpos( $src, $needle ) ) {
-					return $tag;
-				}
-			}
 		}
 
 		if ( ! $this->should_suppress( $handle, $src ) ) {
