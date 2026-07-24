@@ -1,6 +1,19 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 32 (API Diagnostics tool)
+## Current Phase: Phase 33 (Gravity Forms reCAPTCHA deferral)
+
+### Phase 33 Modifications (v2.16.0)
+- **Problem:** on pages where Gravity Forms renders its own Enterprise v3 reCAPTCHA (e.g. a GF Stripe checkout), our plugin's Conflict Guard and/or dual reCAPTCHA Enterprise script loading broke GF's form initialization. The Stripe payment link element (`#stripe-payment-link`) never mounted because GF's reCAPTCHA-dependent rendering failed. Disabling our plugin resolved the issue.
+- **Fix — automatic deferral to Gravity Forms.** New static utility class `includes/class-gswp-gravity-forms.php` detects when GF has reCAPTCHA configured (`gravityformsaddon_recaptcha_settings` option with a non-empty `site_key`) AND a form is rendered on the current page (enqueued GF scripts or `[gravityform]` shortcode / `gravityforms/form` block in post content). When both conditions are met, `GSWP_Gravity_Forms::should_defer()` returns true and:
+  1. `GSWP_Frontend::register_scripts()` bails early — our `enterprise.js` never loads.
+  2. `GSWP_Assets::enqueue_api_script()` returns false — all integration paths (Xootix, PowerPack) are blocked.
+  3. `GSWP_Conflict_Guard::filter_tag()` returns the original tag — GF's scripts are never suppressed.
+  4. `GSWP_Verifier::validate_checkout()` skips token validation when `$_POST['gform_submit']` is present — GF handles its own server-side verification.
+- **Per-request caching.** `should_defer()` caches its result so repeated calls from multiple classes are inexpensive.
+- **Admin UI.** Informational note added to `Compatibility.jsx` under the conflict-mode radio panel explaining the automatic GF deferral.
+- Version bumped to 2.16.0 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). Webpack rebuilt.
+
+## Historical Phase: Phase 32 (API Diagnostics tool)
 
 ### Phase 32 Modifications (v2.15.0)
 - **Problem:** errors appearing in Google Cloud Console with no visibility into what the plugin is actually sending to Google's reCAPTCHA Enterprise API. Administrators had no way to audit payloads or verify connectivity without enabling verbose logging and reading WooCommerce logs.
@@ -428,12 +441,13 @@
 - [x] [includes/class-gswp-xootix.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-xootix.php)
 - [x] [includes/class-gswp-powerpack.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-powerpack.php)
 - [x] [includes/class-gswp-conflict-guard.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-conflict-guard.php)
+- [x] [includes/class-gswp-gravity-forms.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-gravity-forms.php)
 - [x] [src/components/Compatibility.jsx](file:///Users/rwaterbury/Developer/google-security-for-wordpress/src/components/Compatibility.jsx)
 - [x] [readme.txt](file:///Users/rwaterbury/Developer/google-security-for-wordpress/readme.txt)
 - [x] [STATE.md](file:///Users/rwaterbury/Developer/google-security-for-wordpress/STATE.md)
 
 ### Current Status
 - Assets successfully built.
-- API Diagnostics endpoint and settings UI complete.
+- Gravity Forms reCAPTCHA deferral complete.
 - Ready to compile final ZIP plugin package for distribution.
 - Ready to push code to GitHub.
