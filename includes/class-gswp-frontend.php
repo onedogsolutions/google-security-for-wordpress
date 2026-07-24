@@ -17,7 +17,9 @@ class GSWP_Frontend {
 	 * Constructor.
 	 */
 	public function __construct() {
-		add_action( 'wp_enqueue_scripts', array( $this, 'register_scripts' ) );
+		// Priority 20: run after Gravity Forms and other plugins have enqueued
+		// their scripts so should_defer() can detect GF's reCAPTCHA presence.
+		add_action( 'wp_enqueue_scripts', array( $this, 'register_scripts' ), 20 );
 
 		// Check if forms are enabled and hook accordingly.
 		if ( '1' === get_option( 'gswp_enable_login', '0' ) ) {

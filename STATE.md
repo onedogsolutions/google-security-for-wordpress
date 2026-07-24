@@ -4,12 +4,17 @@
 
 ### Phase 33 Modifications (v2.16.0)
 - **Problem:** on pages where Gravity Forms renders its own Enterprise v3 reCAPTCHA (e.g. a GF Stripe checkout), our plugin's Conflict Guard and/or dual reCAPTCHA Enterprise script loading broke GF's form initialization. The Stripe payment link element (`#stripe-payment-link`) never mounted because GF's reCAPTCHA-dependent rendering failed. Disabling our plugin resolved the issue.
-- **Fix — automatic deferral to Gravity Forms.** New static utility class `includes/class-gswp-gravity-forms.php` detects when GF has reCAPTCHA configured (`gravityformsaddon_recaptcha_settings` option with a non-empty `site_key`) AND a form is rendered on the current page (enqueued GF scripts or `[gravityform]` shortcode / `gravityforms/form` block in post content). When both conditions are met, `GSWP_Gravity_Forms::should_defer()` returns true and:
+- **Fix — automatic deferral to Gravity Forms.** New static utility class `includes/class-gswp-gravity-forms.php` detects when GF has reCAPTCHA configured (`gravityformsaddon_recaptcha_settings` option with a non-empty `site_key` or `public_key`) AND a form is rendered on the current page. When both conditions are met, `GSWP_Gravity_Forms::should_defer()` returns true and:
   1. `GSWP_Frontend::register_scripts()` bails early — our `enterprise.js` never loads.
   2. `GSWP_Assets::enqueue_api_script()` returns false — all integration paths (Xootix, PowerPack) are blocked.
   3. `GSWP_Conflict_Guard::filter_tag()` returns the original tag — GF's scripts are never suppressed.
   4. `GSWP_Verifier::validate_checkout()` skips token validation when `$_POST['gform_submit']` is present — GF handles its own server-side verification.
-- **Per-request caching.** `should_defer()` caches its result so repeated calls from multiple classes are inexpensive.
+- **Timing-safe detection (revision 2).** Initial implementation cached the `should_defer()` result; when called early at priority 10, GF had not yet enqueued its scripts, so the cached `false` caused the Conflict Guard to suppress GF's reCAPTCHA anyway. Fixes:
+  - Removed per-request caching — `should_defer()` re-evaluates on each call so it catches GF's scripts once enqueued later in the lifecycle.
+  - `GSWP_Frontend::register_scripts()` moved to priority 20 on `wp_enqueue_scripts` (after GF's default 10).
+  - `is_form_rendered()` now checks both `enqueued` AND `registered` script states, additional handles (`gravityforms`), and content-based detection for `gform_wrapper` / `gf-form` markup (covers widgets, templates, GF routing).
+  - `is_recaptcha_configured()` checks both `site_key` and `public_key` (varies by GF version).
+  - Conflict Guard gains a handle-based whitelist (`is_gf_handle()`) and a src-based safety net: when GF has reCAPTCHA configured, any script whose src matches `google.com/recaptcha` is never suppressed — catches GF's loader even under an unrecognized handle.
 - **Admin UI.** Informational note added to `Compatibility.jsx` under the conflict-mode radio panel explaining the automatic GF deferral.
 - Version bumped to 2.16.0 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). Webpack rebuilt.
 
