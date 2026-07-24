@@ -146,6 +146,11 @@ class GSWP_Verifier {
 	 * @param WP_Error $errors Validation errors object.
 	 */
 	public function validate_checkout( $data, $errors ) {
+		// Gravity Forms handles its own reCAPTCHA validation.
+		if ( GSWP_Gravity_Forms::is_form_submission() ) {
+			return;
+		}
+
 		if ( '1' !== get_option( 'gswp_enable_checkout', '0' ) ) {
 			return;
 		}

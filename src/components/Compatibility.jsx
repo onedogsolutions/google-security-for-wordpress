@@ -96,6 +96,13 @@ export default function Compatibility( { settings, onChange } ) {
 					</div>
 				</fieldset>
 
+				<p className="mt-4 text-xs leading-5 text-gray-400">
+					{ __(
+						'When Gravity Forms has its own reCAPTCHA Enterprise integration active, this plugin automatically defers to it on pages rendering a Gravity Form.',
+						'google-security-for-wordpress'
+					) }
+				</p>
+
 				{ /* Diagnostics: verbose logging */ }
 				<div className="mt-8 border-t border-gray-100 pt-6 flex flex-col gap-y-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8">
 					<div className="flex-1">

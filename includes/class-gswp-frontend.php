@@ -37,6 +37,11 @@ class GSWP_Frontend {
 	 * Register the Google reCAPTCHA v3 script.
 	 */
 	public function register_scripts() {
+		// Defer to Gravity Forms' own reCAPTCHA on GF pages.
+		if ( GSWP_Gravity_Forms::should_defer() ) {
+			return;
+		}
+
 		$site_key = get_option( 'gswp_site_key', '' );
 		if ( empty( $site_key ) ) {
 			return;

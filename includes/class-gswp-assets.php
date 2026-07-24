@@ -48,6 +48,11 @@ class GSWP_Assets {
 	 * @return bool True when enqueued, false when no site key is configured.
 	 */
 	public static function enqueue_api_script() {
+		// Defer to Gravity Forms' own reCAPTCHA on GF pages.
+		if ( GSWP_Gravity_Forms::should_defer() ) {
+			return false;
+		}
+
 		$site_key = self::site_key();
 		if ( empty( $site_key ) ) {
 			return false;

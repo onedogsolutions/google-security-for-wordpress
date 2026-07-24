@@ -56,6 +56,7 @@ define( 'GSWP_FILE', __FILE__ );
  * Autoload classes or include them.
  */
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-gravity-forms.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-conflict-guard.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
 // reCAPTCHA Enterprise Transaction defense: annotates WooCommerce orders so

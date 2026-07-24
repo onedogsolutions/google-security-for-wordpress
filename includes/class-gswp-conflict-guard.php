@@ -89,6 +89,11 @@ class GSWP_Conflict_Guard {
 	 * @return string The original tag, or an empty string to suppress it.
 	 */
 	public function filter_tag( $tag, $handle, $src ) {
+		// When deferring to Gravity Forms' own reCAPTCHA, never suppress.
+		if ( GSWP_Gravity_Forms::should_defer() ) {
+			return $tag;
+		}
+
 		if ( ! $this->should_suppress( $handle, $src ) ) {
 			return $tag;
 		}
