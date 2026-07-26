@@ -121,6 +121,7 @@ class GSWP_Admin {
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
+			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),
@@ -142,6 +143,7 @@ class GSWP_Admin {
 				'roles'              => wp_roles()->get_names(),
 				'loaderConflict'     => GSWP_Recaptcha_Loader::stored_conflict(),
 				'ourSiteKeyMasked'   => GSWP_Recaptcha_Loader::mask_key( GSWP_Recaptcha_Loader::site_key() ),
+				'formProviders'      => GSWP_Form_Provider_Registry::audit_all(),
 			)
 		);
 	}

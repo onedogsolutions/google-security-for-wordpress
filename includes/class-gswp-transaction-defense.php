@@ -130,7 +130,7 @@ class GSWP_Transaction_Defense {
 
 		list( $annotation, $event_type ) = $map[ $new_status ];
 
-		$this->annotate( $name, $annotation, $event_type, $order );
+		self::annotate_assessment( $name, $annotation, $event_type, $order );
 
 		$order->update_meta_data( self::META_ANNOTATED, $new_status );
 		$order->save();
@@ -142,15 +142,22 @@ class GSWP_Transaction_Defense {
 	 * Fails open: a network or configuration error is logged and ignored so an
 	 * order's lifecycle is never blocked by the feedback call.
 	 *
-	 * @param string   $name       Assessment resource name (projects/…/assessments/…).
-	 * @param string   $annotation LEGITIMATE or FRAUDULENT.
-	 * @param string   $event_type Optional transactionEvent eventType, or ''.
-	 * @param WC_Order $order      Order being annotated.
+	 * Source-agnostic since 2.19.0: the WooCommerce order is optional context, so
+	 * form providers (Gravity Forms and others) can annotate their own
+	 * assessments through the same path. Without this the feedback loop — the
+	 * half of Transaction Defense where Google's model actually learns — would be
+	 * reachable only from WooCommerce.
+	 *
+	 * @param string        $name       Assessment resource name (projects/…/assessments/…).
+	 * @param string        $annotation LEGITIMATE or FRAUDULENT.
+	 * @param string        $event_type Optional transactionEvent eventType, or ''.
+	 * @param WC_Order|null $order      Optional order to add a note to.
+	 * @return bool True when Google accepted the annotation.
 	 */
-	private function annotate( $name, $annotation, $event_type, $order ) {
+	public static function annotate_assessment( $name, $annotation, $event_type = '', $order = null ) {
 		$api_key = get_option( 'gswp_gcp_api_key', '' );
 		if ( '' === $api_key || '' === $name ) {
-			return;
+			return false;
 		}
 
 		$body = array( 'annotation' => $annotation );
@@ -178,24 +185,41 @@ class GSWP_Transaction_Defense {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			$this->log( 'Transaction defense annotation failed to connect: ' . $response->get_error_message() );
-			return;
+			self::log_static( 'Transaction defense annotation failed to connect: ' . $response->get_error_message() );
+			return false;
 		}
 
 		$status = wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $status ) {
 			$detail = wp_remote_retrieve_body( $response );
-			$this->log( 'Transaction defense annotation returned HTTP ' . $status . ' (' . $detail . ').' );
-			return;
+			self::log_static( 'Transaction defense annotation returned HTTP ' . $status . ' (' . $detail . ').' );
+			return false;
 		}
 
-		$order->add_order_note(
-			sprintf(
-				/* translators: %s: annotation label sent to Google (LEGITIMATE or FRAUDULENT). */
-				__( 'reCAPTCHA Transaction defense annotated this order as %s.', 'google-security-for-wordpress' ),
-				$annotation
-			)
-		);
+		if ( $order instanceof WC_Order ) {
+			$order->add_order_note(
+				sprintf(
+					/* translators: %s: annotation label sent to Google (LEGITIMATE or FRAUDULENT). */
+					__( 'reCAPTCHA Transaction defense annotated this order as %s.', 'google-security-for-wordpress' ),
+					$annotation
+				)
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Static logger for the source-agnostic annotation path.
+	 *
+	 * @param string $message Log message.
+	 */
+	private static function log_static( $message ) {
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
+		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( 'GSWP Transaction Defense: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		}
 	}
 
 	/**

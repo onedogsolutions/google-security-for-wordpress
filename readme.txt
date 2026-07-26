@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.18.1
+Stable tag: 2.19.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,16 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.19.0 =
+* Added: Form Protection. This plugin can now be the reCAPTCHA implementation for Gravity Forms, so Gravity Forms' own reCAPTCHA can eventually be switched off and a single implementation scores every form and payment on the site. Includes reCAPTCHA Enterprise Transaction Defense on Gravity Forms payment submissions — billing address, amount and payment method are sent with the assessment, and the outcome is annotated back to Google when the payment completes or is refunded, which Gravity Forms' own integration does not do.
+* Added: staged takeover. Off, then Shadow (score and log, never block, with Gravity Forms' reCAPTCHA still protecting), then Active (block, with Gravity Forms' reCAPTCHA still on as a backstop), then Sole (Gravity Forms' reCAPTCHA switched off). Every provider starts at Off, so upgrading changes nothing until you opt in.
+* Added: coverage audit. Gravity Forms' own reCAPTCHA covers all of its forms automatically; this plugin covers only the forms it hooks. The Form Protection panel lists every form and states whether it is actually covered, whether it takes payment, and what happens to a submission with no token. Sole mode cannot be selected while any eligible form is uncovered.
+* Added: asymmetric enforcement. A payment form with no verification token is rejected; a non-payment form is accepted, logged, and its entry flagged, because a contact form that will not submit is worse than a spam entry.
+* Added: form protection master switch, plus a GSWP_DISABLE_FORM_PROVIDERS constant for wp-config.php. Either stops all form interception immediately without deactivating the plugin, so two-factor authentication, WooCommerce protection, Account Defender and Password Defense keep running.
+* Added: form coverage section in the API Diagnostics tool.
+* Changed: forms using a visible "I'm not a robot" checkbox are excluded from takeover — this plugin scores invisibly and has no equivalent challenge. Those forms keep Gravity Forms' own reCAPTCHA.
+* Changed: Transaction Defense outcome annotation is no longer WooCommerce-only, so payments taken through other plugins can also train Google's fraud model.
 
 = 2.18.1 =
 * Changed: reCAPTCHA conflict handling no longer removes another plugin's script in the recommended mode. Plugins using the same site key share one loader as before; a plugin using a *different* site key is now reported to you and left alone, so its forms keep working. Only the explicit "Remove other plugins' reCAPTCHA" mode still strips anything, and it is clearly labelled as destructive. The two settings that previously suppressed have been relabelled to describe what they actually do.

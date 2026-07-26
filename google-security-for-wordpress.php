@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.18.1
+ * Version: 2.19.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.18.1' );
+define( 'GSWP_VERSION', '2.19.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -63,6 +63,12 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-gravity-forms.php';
 // Admin warnings for divergent-site-key loader conflicts.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-loader-notices.php';
+// Form providers: make this plugin the reCAPTCHA implementation for third-party
+// form plugins so their own reCAPTCHA can be retired. Staged takeover, default
+// off, with a coverage audit and a kill switch.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-form-provider.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-form-provider-registry.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-provider-gravity-forms.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-conflict-guard.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
 // reCAPTCHA Enterprise Transaction defense: annotates WooCommerce orders so
@@ -163,6 +169,10 @@ function gswp_default_options() {
 		'threshold_wp_register'     => '0.5',
 		'threshold_wp_lostpassword' => '0.5',
 		'conflict_mode'             => 'off',
+		// Form providers: master switch on, but every provider starts at 'off'
+		// so upgrading changes nothing until an operator opts in.
+		'form_providers_enabled'    => '1',
+		'provider_gravity_forms_mode' => 'off',
 		// Two-factor authentication.
 		'2fa_enabled'               => '1',
 		'2fa_enforced_roles'        => array(),
@@ -444,6 +454,10 @@ function gswp_init() {
 	// Extend the same protection to the PowerPack (Beaver Builder) Login Form
 	// module. Inert unless PowerPack is active.
 	new GSWP_Powerpack( $verifier );
+
+	// Form providers. Inert unless a provider is advanced past 'off' and the
+	// kill switch is clear.
+	GSWP_Form_Provider_Registry::init( $verifier );
 
 	// Own the reCAPTCHA loader: deduplicate tags carrying the same site key so
 	// this plugin and any other reCAPTCHA consumer share one loader, print the

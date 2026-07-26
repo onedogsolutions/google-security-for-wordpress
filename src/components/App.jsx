@@ -7,6 +7,7 @@ import SettingsTabs from './SettingsTabs';
 import SettingsPanel from './SettingsPanel';
 import PageToggles from './PageToggles';
 import Compatibility from './Compatibility';
+import FormProtection from './FormProtection';
 import TransactionDefense from './TransactionDefense';
 import AccountDefender from './AccountDefender';
 import PasswordDefense from './PasswordDefense';
@@ -126,10 +127,19 @@ export default function App() {
 
 	// Handle option changes
 	const handleSettingChange = ( key, value ) => {
-		setSettings( ( prev ) => ( {
-			...prev,
-			[ key ]: value,
-		} ) );
+		setSettings( ( prev ) => {
+			// provider_modes is a map keyed by provider id; merge rather than
+			// replace so a pending change to one provider is not discarded by
+			// a change to another.
+			if ( key === 'provider_modes' ) {
+				return {
+					...prev,
+					provider_modes: { ...prev.provider_modes, ...value },
+				};
+			}
+
+			return { ...prev, [ key ]: value };
+		} );
 	};
 
 	// Helper to show alert
@@ -277,6 +287,10 @@ export default function App() {
 									}
 								/>
 								<Compatibility
+									settings={ settings }
+									onChange={ handleSettingChange }
+								/>
+								<FormProtection
 									settings={ settings }
 									onChange={ handleSettingChange }
 								/>

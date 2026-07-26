@@ -101,6 +101,8 @@ class GSWP_Rest_Api {
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
+			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
+			'form_providers'         => GSWP_Form_Provider_Registry::audit_all(),
 			// Two-factor authentication.
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
@@ -140,9 +142,84 @@ class GSWP_Rest_Api {
 			'account_defender' => $this->diagnose_account_defender(),
 			'transaction_defense' => $this->diagnose_transaction_defense(),
 			'loader_conflicts' => $this->diagnose_loader_conflicts(),
+			'form_coverage' => $this->diagnose_form_coverage(),
 		);
 
 		return new WP_REST_Response( $results, 200 );
+	}
+
+	/**
+	 * Report per-form coverage for every active form provider.
+	 *
+	 * The guard against silent gaps: the form plugin's own reCAPTCHA covers all
+	 * of its forms automatically, we cover only what we hook, so this states
+	 * plainly which forms we would actually protect if the plugin's own
+	 * implementation were retired.
+	 *
+	 * @return array Coverage status.
+	 */
+	private function diagnose_form_coverage() {
+		$audit = GSWP_Form_Provider_Registry::audit_all();
+
+		if ( empty( $audit['providers'] ) ) {
+			return array(
+				'status'  => 'ok',
+				'message' => __( 'No supported form plugins are active, so there is nothing to take over.', 'google-security-for-wordpress' ),
+			);
+		}
+
+		if ( ! $audit['enabled'] ) {
+			return array(
+				'status'  => 'warning',
+				'message' => __( 'Form provider interception is switched off by the kill switch. Form plugins are using their own reCAPTCHA.', 'google-security-for-wordpress' ),
+			);
+		}
+
+		$rows       = array();
+		$status     = 'ok';
+		$messages   = array();
+
+		foreach ( $audit['providers'] as $provider ) {
+			$uncovered  = count( $provider['uncovered'] );
+			$ineligible = count( $provider['ineligible'] );
+
+			$rows[] = array(
+				'provider'   => $provider['label'],
+				'mode'       => $provider['mode'],
+				'forms'      => count( $provider['forms'] ),
+				'uncovered'  => $uncovered,
+				'ineligible' => $ineligible,
+				'detail'     => $provider['forms'],
+			);
+
+			if ( 'sole' === $provider['mode'] && $uncovered > 0 ) {
+				$status     = 'error';
+				$messages[] = sprintf(
+					/* translators: 1: provider name, 2: number of forms. */
+					__( '%1$s is in sole mode but %2$d eligible form(s) are uncovered — those forms have no bot protection.', 'google-security-for-wordpress' ),
+					$provider['label'],
+					$uncovered
+				);
+			} elseif ( $uncovered > 0 && 'off' !== $provider['mode'] ) {
+				if ( 'error' !== $status ) {
+					$status = 'warning';
+				}
+				$messages[] = sprintf(
+					/* translators: 1: provider name, 2: number of forms. */
+					__( '%1$s has %2$d eligible form(s) not yet covered. Do not advance to sole mode until this is zero.', 'google-security-for-wordpress' ),
+					$provider['label'],
+					$uncovered
+				);
+			}
+		}
+
+		return array(
+			'status'    => $status,
+			'message'   => empty( $messages )
+				? __( 'Every eligible form is covered.', 'google-security-for-wordpress' )
+				: implode( ' ', $messages ),
+			'providers' => $rows,
+		);
 	}
 
 	/**
@@ -795,6 +872,35 @@ class GSWP_Rest_Api {
 		}
 
 		// Conflict handling mode. Only known modes are accepted.
+		if ( isset( $params['form_providers_enabled'] ) ) {
+			update_option(
+				GSWP_Form_Provider_Registry::ENABLED_OPTION,
+				'1' === (string) $params['form_providers_enabled'] ? '1' : '0'
+			);
+		}
+
+		// Provider takeover stages. can_set_mode() is the authority, not the
+		// UI: 'sole' retires the form plugin's own reCAPTCHA, so it must not be
+		// selectable while an eligible form is uncovered. Rejections are
+		// returned to the caller rather than silently downgraded.
+		if ( isset( $params['provider_modes'] ) && is_array( $params['provider_modes'] ) ) {
+			foreach ( $params['provider_modes'] as $provider_id => $mode ) {
+				$provider_id = sanitize_key( $provider_id );
+				$mode        = sanitize_key( $mode );
+
+				$allowed = GSWP_Form_Provider_Registry::can_set_mode( $provider_id, $mode );
+				if ( is_wp_error( $allowed ) ) {
+					return new WP_Error(
+						$allowed->get_error_code(),
+						$allowed->get_error_message(),
+						array( 'status' => 400 )
+					);
+				}
+
+				update_option( GSWP_Form_Provider_Registry::mode_option( $provider_id ), $mode );
+			}
+		}
+
 		if ( isset( $params['conflict_mode'] ) ) {
 			$mode = in_array( $params['conflict_mode'], array( 'off', 'active', 'site' ), true )
 				? $params['conflict_mode']
