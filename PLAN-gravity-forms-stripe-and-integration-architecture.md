@@ -574,11 +574,19 @@ integration ≈ 3–5 days; an SPA/REST checkout ≈ 5–8 days.
 
 ### 6.2 Gravity Forms — the Stripe payment assessment
 
-> **Specified for implementation in `PLAN-gravity-forms-stripe-assessment.md`
-> (target 2.19.0).** That document supersedes this section for design, sequencing
-> and estimates; the estimate there is ~6 days rather than the 3–5 below, because
-> the GF field-mapping problem and the WooCommerce coupling in the annotation
-> layer were both underestimated here.
+> **Superseded twice. The plan of record is now
+> `PLAN-form-provider-replacement.md`.**
+>
+> `PLAN-gravity-forms-stripe-assessment.md` first specified this as an *additive*
+> feature (our assessment alongside GF's). The operator has since decided this
+> plugin should **replace** Gravity Forms' reCAPTCHA entirely, and extend the same
+> approach to Fluent Forms — so the work is now a staged ownership transfer with a
+> provider abstraction, coverage audit and takeover workflow, not a single
+> integration. S5a becomes stage 2 of that plan.
+>
+> Estimates: ~3–5 days below, ~6 in the S5a plan, **~19 across the replacement
+> plan** — the growth is the machinery required to make the transfer safe, not
+> scope creep in the assessment itself.
 
 A2 fixes the loader conflict and restores our coverage on GF pages. It does not
 fix S5a: GF's own assessment for a Stripe payment still carries no

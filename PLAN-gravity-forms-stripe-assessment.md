@@ -2,7 +2,25 @@
 
 Closes finding **S5a** from `PLAN-gravity-forms-stripe-and-integration-architecture.md` §2.
 
-**Target release: 2.19.0.**
+> ## SUPERSEDED (2026-07-26) by `PLAN-form-provider-replacement.md`
+>
+> The operator has decided this plugin should **replace** Gravity Forms' reCAPTCHA
+> rather than run alongside it. S5a is no longer a standalone feature: it becomes
+> stage 2 (release 2.20.0) of that plan.
+>
+> What carries over unchanged and is still the reference for implementation:
+> **§2** (why GF's token cannot be reused and its assessment cannot be read),
+> **§3.3** (deriving transaction-data field mappings from the existing GF Stripe
+> feed) and **§3.5** (decoupling the annotation layer from WooCommerce).
+>
+> What changed: the two-assessment cost model in §3.6 assumed permanent
+> coexistence. Under replacement the end state is one assessment per submission —
+> the same count as today, with better data — and only the transition period
+> doubles. See the replacement plan §2.
+>
+> Read the rest of this document as design background, not as the plan of record.
+
+**Target release: 2.19.0** *(superseded — now 2.20.0)*.
 **Depends on: 2.18.0** (shared loader). That dependency is already satisfied and
 does real work here — see §3.1.
 
