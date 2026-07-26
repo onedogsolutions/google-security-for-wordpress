@@ -134,18 +134,4 @@ class GSWP_Gravity_Forms {
 	public static function is_gf_handle( $handle ) {
 		return in_array( $handle, self::$gf_handles, true );
 	}
-
-	/**
-	 * Whether the current request is a Gravity Forms form submission.
-	 *
-	 * Used server-side to skip our reCAPTCHA token validation when GF handles
-	 * its own verification. GF includes a 'gform_submit' POST field with the
-	 * form ID on every submission.
-	 *
-	 * @return bool True when this POST is a GF submission.
-	 */
-	public static function is_form_submission() {
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- GF validates its own nonce before our hook fires.
-		return isset( $_POST['gform_submit'] );
-	}
 }
