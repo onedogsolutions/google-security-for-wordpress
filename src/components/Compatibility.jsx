@@ -22,26 +22,26 @@ export default function Compatibility( { settings, onChange } ) {
 			id: 'off',
 			label: __( 'Disabled', 'google-security-for-wordpress' ),
 			description: __(
-				'Leave other plugins to load their own reCAPTCHA scripts, whatever site key they use.',
+				'Legacy setting, identical to the recommended option below. Nothing is removed.',
 				'google-security-for-wordpress'
 			),
 		},
 		{
 			id: 'active',
-			label: __(
-				'On this plugin’s reCAPTCHA pages',
-				'google-security-for-wordpress'
-			),
+			label: __( 'Share one loader', 'google-security-for-wordpress' ),
 			description: __(
-				'Recommended. Remove other plugins’ reCAPTCHA only where it uses a different site key and this plugin already loads its own. Loaders using the same site key are always shared, never removed.',
+				'Recommended. Plugins using the same site key share a single reCAPTCHA loader. A plugin using a different site key is reported to you but never removed, so its forms keep working.',
 				'google-security-for-wordpress'
 			),
 		},
 		{
 			id: 'site',
-			label: __( 'Site-wide', 'google-security-for-wordpress' ),
+			label: __(
+				'Remove other plugins’ reCAPTCHA',
+				'google-security-for-wordpress'
+			),
 			description: __(
-				'Remove other plugins’ differently-keyed reCAPTCHA on every front-end page. Use only when you have removed reCAPTCHA from those plugins’ forms, or their submissions may fail.',
+				'Destructive. Strips other plugins’ reCAPTCHA from every front-end page when it uses a different site key. Those plugins’ forms — including payment forms — may stop submitting. Use only after removing reCAPTCHA from them yourself.',
 				'google-security-for-wordpress'
 			),
 		},
@@ -58,7 +58,7 @@ export default function Compatibility( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'Google recommends loading reCAPTCHA only once per page. Plugins using the same site key as this one now share a single loader automatically. These settings control what happens when another plugin uses a different site key, which cannot be shared.',
+						'Google recommends loading reCAPTCHA only once per page, so plugins using the same site key as this one automatically share a single loader. Two different site keys cannot share one — these settings control what happens then.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -136,7 +136,7 @@ export default function Compatibility( { settings, onChange } ) {
 						>
 							{ suppressing
 								? __(
-										'This plugin is removing another plugin’s reCAPTCHA script because it uses a different site key. That plugin’s forms — including payment forms such as Gravity Forms with Stripe — may be failing to submit.',
+										'“Remove other plugins’ reCAPTCHA” is switched on and this plugin is stripping another plugin’s reCAPTCHA script because it uses a different site key. That plugin’s forms — including payment forms such as Gravity Forms with Stripe — may be failing to submit. Switch to “Share one loader” to stop this.',
 										'google-security-for-wordpress'
 								  )
 								: __(
@@ -171,7 +171,7 @@ export default function Compatibility( { settings, onChange } ) {
 							}` }
 						>
 							{ __(
-								'Set both plugins to the same reCAPTCHA site key, or choose “Disabled” above. Matching keys are shared automatically — this plugin and the other one will use a single loader, and neither is removed.',
+								'Set both plugins to the same reCAPTCHA site key. Matching keys are shared automatically — this plugin and the other one use a single loader, and neither is removed.',
 								'google-security-for-wordpress'
 							) }
 						</p>

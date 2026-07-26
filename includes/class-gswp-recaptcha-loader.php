@@ -410,18 +410,11 @@ class GSWP_Recaptcha_Loader {
 	 * @return bool
 	 */
 	public static function is_suppressing() {
-		$mode = get_option( 'gswp_conflict_mode', 'off' );
-
-		if ( 'site' === $mode ) {
-			return true;
-		}
-
-		if ( 'active' === $mode ) {
-			// 'active' only suppresses where our own reCAPTCHA is running.
-			return wp_script_is( self::HANDLE, 'enqueued' ) || wp_script_is( self::HANDLE, 'done' );
-		}
-
-		return false;
+		// Since 2.18.1 only 'site' mode removes anything. 'off' and 'active' are
+		// both non-destructive: matching keys are shared, divergent ones are
+		// reported. So the Critical state can now only arise when an operator
+		// has deliberately opted into suppression.
+		return 'site' === get_option( 'gswp_conflict_mode', 'off' );
 	}
 
 	/**

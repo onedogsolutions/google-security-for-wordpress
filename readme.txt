@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.18.0
+Stable tag: 2.18.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.18.1 =
+* Changed: reCAPTCHA conflict handling no longer removes another plugin's script in the recommended mode. Plugins using the same site key share one loader as before; a plugin using a *different* site key is now reported to you and left alone, so its forms keep working. Only the explicit "Remove other plugins' reCAPTCHA" mode still strips anything, and it is clearly labelled as destructive. The two settings that previously suppressed have been relabelled to describe what they actually do.
 
 = 2.18.0 =
 * Fixed: reCAPTCHA is now loaded once per page even when another plugin also loads it. When a third-party loader uses the same site key as this plugin, the two share a single script tag instead of emitting two — the underlying cause of the Gravity Forms Stripe payment element failing to mount in 2.16.0. Detection is generic (any script whose source is a Google reCAPTCHA loader, matched on its `render` site key), so it works with Gravity Forms, WPForms, Elementor, Fluent Forms, Contact Form 7 and others without naming any of them.

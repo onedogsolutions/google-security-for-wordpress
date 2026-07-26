@@ -10,11 +10,13 @@
  *               we are not suppressing it. Both loaders are on the page and one
  *               of them will fail to execute — only one key can be pre-rendered.
  *               Dismissible.
- *  - Critical : the same, except the Conflict Guard IS suppressing it. Another
- *               plugin's reCAPTCHA is being removed from pages, so its forms —
- *               including payment forms — may be failing right now. This is the
- *               state that broke Gravity Forms' Stripe checkout in 2.16.0, so
- *               it is not dismissible while it persists.
+ *  - Critical : the same, except the operator has switched conflict handling to
+ *               'site' mode, so the other plugin's reCAPTCHA is being stripped
+ *               from pages and its forms — including payment forms — may be
+ *               failing right now. This is the state that broke Gravity Forms'
+ *               Stripe checkout in 2.16.0, so it is not dismissible while it
+ *               persists. Since 2.18.1 it can only arise by deliberate choice:
+ *               the recommended mode removes nothing.
  *
  * Notices are shown site-wide on any screen the operator can act from, not just
  * this plugin's settings page: whoever never opens our settings is exactly who
@@ -127,7 +129,7 @@ class GSWP_Loader_Notices {
 
 		echo '<p>' . esc_html(
 			$critical
-				? __( 'This plugin is removing another plugin’s reCAPTCHA script because it is configured with a different site key. That plugin’s forms — including payment forms such as Gravity Forms with Stripe — may be failing to submit.', 'google-security-for-wordpress' )
+				? __( 'The “Remove other plugins’ reCAPTCHA” conflict-handling mode is switched on, and this plugin is stripping another plugin’s reCAPTCHA script because it is configured with a different site key. That plugin’s forms — including payment forms such as Gravity Forms with Stripe — may be failing to submit.', 'google-security-for-wordpress' )
 				: __( 'Another plugin is loading reCAPTCHA with a different site key than this plugin. Only one site key can be pre-rendered per page, so one of the two will fail to execute.', 'google-security-for-wordpress' )
 		) . '</p>';
 
@@ -142,7 +144,11 @@ class GSWP_Loader_Notices {
 		}
 		echo '</ul>';
 
-		echo '<p>' . esc_html__( 'Fix this by setting both plugins to the same reCAPTCHA site key, or by setting reCAPTCHA Conflict Handling to “Disabled”.', 'google-security-for-wordpress' ) . '</p>';
+		echo '<p>' . esc_html(
+			$critical
+				? __( 'Fix this by setting both plugins to the same reCAPTCHA site key, or by switching reCAPTCHA Conflict Handling to “Share one loader”, which removes nothing.', 'google-security-for-wordpress' )
+				: __( 'Fix this by setting both plugins to the same reCAPTCHA site key. Nothing is being removed — both scripts are loading, but only one site key can be pre-rendered.', 'google-security-for-wordpress' )
+		) . '</p>';
 
 		echo '<p><a class="button button-primary" href="' . esc_url( $settings ) . '">'
 			. esc_html__( 'Open Google Security settings', 'google-security-for-wordpress' )
@@ -178,7 +184,7 @@ class GSWP_Loader_Notices {
 
 		echo '<tr class="plugin-update-tr active"><td colspan="' . (int) $columns . '" class="plugin-update colspanchange">';
 		echo '<div class="update-message notice inline notice-error notice-alt"><p>';
-		echo esc_html__( 'This plugin is currently blocking another plugin’s reCAPTCHA because their site keys differ. That plugin’s forms, including payment forms, may be failing.', 'google-security-for-wordpress' );
+		echo esc_html__( 'Google Security is set to remove other plugins’ reCAPTCHA, and is currently stripping one whose site key differs. That plugin’s forms, including payment forms, may be failing.', 'google-security-for-wordpress' );
 		echo ' <a href="' . esc_url( admin_url( 'options-general.php?page=gswp-admin' ) ) . '">'
 			. esc_html__( 'Review reCAPTCHA Conflict Handling', 'google-security-for-wordpress' )
 			. '</a>';

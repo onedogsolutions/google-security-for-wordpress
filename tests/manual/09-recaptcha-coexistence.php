@@ -1,6 +1,6 @@
 <?php
 /**
- * Manual verification: reCAPTCHA loader coexistence (v2.18.0)
+ * Manual verification: reCAPTCHA loader coexistence (v2.18.1)
  *
  * Verifies that this plugin shares a single reCAPTCHA loader with any other
  * plugin using the same site key, never suppresses a matching-key loader, and
@@ -126,6 +126,31 @@ if ( '' === $our_key ) {
 		$tag === $guard->filter_tag( $tag, 'gform_recaptcha', $src ),
 		'this is the 2.16.0 Stripe regression'
 	);
+
+	// Warn-only: a DIVERGENT key must also survive in every mode except 'site'.
+	$other_src = 'https://www.google.com/recaptcha/enterprise.js?render=SOMEOTHERKEY';
+	$other_tag = '<script src="' . $other_src . '"></script>';
+	$mode      = get_option( 'gswp_conflict_mode', 'off' );
+
+	if ( 'site' === $mode ) {
+		$check(
+			'Divergent-key loader IS suppressed in "site" mode',
+			'' === $guard->filter_tag( $other_tag, 'gform_recaptcha', $other_src ),
+			'site mode is the one destructive mode'
+		);
+		echo "  NOTE  'site' mode is destructive by design — other plugins' forms may fail.\n";
+	} else {
+		$check(
+			'Divergent-key loader survives (warn only)',
+			$other_tag === $guard->filter_tag( $other_tag, 'gform_recaptcha', $other_src ),
+			'suppression must be limited to "site" mode'
+		);
+	}
+
+	$check(
+		'is_suppressing() is true only in "site" mode',
+		GSWP_Recaptcha_Loader::is_suppressing() === ( 'site' === $mode )
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,12 +204,15 @@ Browser scenarios to run manually on staging
     -> GF Stripe payment element mounts
     -> Woo checkout completes
  2. As (1) with conflict mode "active"      -> identical to (1); nothing suppressed
- 3. As (1) with conflict mode "site"        -> GF loader suppressed, warnings raised
- 4a. GF pointed at a DIFFERENT key, mode off
-    -> both tags present; dismissible Warning notice; Compatibility panel amber
- 4b. Same, mode "active", our reCAPTCHA on the page
+ 3. As (1) with conflict mode "site"        -> STILL nothing suppressed: the key
+                                              matches, so it is shared, not removed
+ 4a. GF pointed at a DIFFERENT key, mode "Share one loader" (recommended)
+    -> BOTH tags present, nothing suppressed, GF form still works
+    -> dismissible Warning notice; Compatibility panel amber
+ 4b. Same, mode "Remove other plugins' reCAPTCHA"
     -> GF loader suppressed; NON-dismissible Critical notice; plugins-row notice;
        WooCommerce log line at error level; diagnostic reports suppressing=true
+    -> this is the only mode that can break another plugin's forms
  4c. Dismiss the Warning, then change the foreign key
     -> notice re-arms (dismissal is keyed to the conflict hash)
  5. Woo login/registration on a page containing a GF form

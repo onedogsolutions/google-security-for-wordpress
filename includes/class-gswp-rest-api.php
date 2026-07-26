@@ -172,8 +172,8 @@ class GSWP_Rest_Api {
 			'suppressing' => $suppressing,
 			'observed'    => isset( $conflict['observed'] ) ? gmdate( 'Y-m-d H:i:s', (int) $conflict['observed'] ) . ' UTC' : '',
 			'message'     => $suppressing
-				? __( 'This plugin is removing another plugin\'s reCAPTCHA script because it uses a different site key. That plugin\'s forms, including payment forms, may be failing to submit. Align the site keys, or set reCAPTCHA Conflict Handling to Disabled.', 'google-security-for-wordpress' )
-				: __( 'Another plugin loads reCAPTCHA with a different site key. Only one site key can be pre-rendered per page, so one of the two will fail to execute. Align the site keys.', 'google-security-for-wordpress' ),
+				? __( 'Conflict handling is set to remove other plugins\' reCAPTCHA, and this plugin is stripping one that uses a different site key. That plugin\'s forms, including payment forms, may be failing to submit. Align the site keys, or switch conflict handling to "Share one loader".', 'google-security-for-wordpress' )
+				: __( 'Another plugin loads reCAPTCHA with a different site key. Nothing is being removed, but only one site key can be pre-rendered per page, so one of the two will fail to execute. Align the site keys.', 'google-security-for-wordpress' ),
 			'our_key'     => GSWP_Recaptcha_Loader::mask_key( GSWP_Recaptcha_Loader::site_key() ),
 			'loaders'     => $conflict['loaders'],
 		);

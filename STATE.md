@@ -1,6 +1,19 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 35 (reCAPTCHA loader ownership and conflict corrections)
+## Current Phase: Phase 36 (conflict handling becomes warn-only)
+
+### Phase 36 Modifications (v2.18.1)
+- **Operator decision, reversing the Phase 35 sub-decision.** Phase 35 kept suppression as the behaviour of the recommended `active` mode and relied on loud warnings to make it survivable. The operator has since chosen **warn only**: this plugin no longer removes another plugin's reCAPTCHA in the recommended configuration.
+- **Only `site` mode suppresses now.** `GSWP_Conflict_Guard` registers its `script_loader_tag` filter only when the mode is `site`; `off` and `active` are both non-destructive and hook nothing. `our_recaptcha_active()` had no callers left and was removed. `GSWP_Recaptcha_Loader::is_suppressing()` reduces to `'site' === $mode`.
+- **`off` and `active` are now behaviourally identical.** Stated plainly rather than disguised: dedup and warnings are unconditional in every mode, so with suppression gone from `active` there is nothing left to distinguish the two. Both stored values are retained so no migration is needed, and `active` stays the recommended value per the operator's earlier decision. The UI relabels the modes to describe what they actually do — "Share one loader" (recommended) and "Remove other plugins' reCAPTCHA" (marked destructive) — with `off` described as a legacy equivalent.
+- **The Critical warning state is now coherent.** It can only arise when an operator has deliberately selected the destructive mode, so a non-dismissible notice is proportionate rather than something the plugin inflicts by default. All Critical-state copy (admin notice, plugins-row notice, REST diagnostic) now names the setting responsible and tells the operator how to switch it off.
+- **Residual risk from Phase 35 is closed for the default configuration.** With divergent keys in the recommended mode, both loaders now load. Only one site key can be pre-rendered, so one of the two will still fail to execute — that is unchanged and unfixable without the multi-key `grecaptcha.enterprise.render()` path — but this plugin no longer *causes* the other plugin's failure, it reports the situation and leaves it intact.
+- `tests/manual/09-recaptcha-coexistence.php` gains assertions that a divergent-key loader survives in every mode except `site`, and that `is_suppressing()` tracks the mode. Browser scenarios 3 and 4a/4b updated: scenario 3 (matching key, `site` mode) now expects **nothing** suppressed, since a matching key is shared rather than removed even there.
+- No option schema change and no migration. `php -l` clean on all touched PHP; `npm run lint:js` at its pre-existing baseline of 35 errors in the untouched portion of `Diagnostics.jsx`. Webpack rebuilt.
+- **Still not verified on staging** — Phase 35's browser scenarios remain outstanding, and scenario 4b now requires deliberately selecting the destructive mode to reach the Critical state.
+- Version bumped to 2.18.1 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`).
+
+## Historical Phase: Phase 35 (reCAPTCHA loader ownership and conflict corrections)
 
 ### Phase 35 Modifications (v2.18.0)
 Implements items A2–A7 of `PLAN-recaptcha-loader-corrections.md`. Closes findings S2, S3, S4 and the loader half of the Phase 33 incident. S5a (Gravity Forms' own assessments carrying no transactionData) is **not** addressed here — see §6.2 of the analysis plan.

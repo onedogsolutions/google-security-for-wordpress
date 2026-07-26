@@ -19,15 +19,19 @@
  * element in 2.16.0.
  *
  * Divergent keys cannot be resolved automatically: two Enterprise site keys
- * cannot both be pre-rendered via `?render=` on one page. Suppression resolves
- * that in this plugin's favour, which is destructive to the other plugin's
- * forms, so every occurrence is reported loudly through GSWP_Loader_Notices.
+ * cannot both be pre-rendered via `?render=` on one page. Since 2.18.1 the
+ * default response is to report that, not to resolve it — the operator is told
+ * loudly through GSWP_Loader_Notices and decides. Only 'site' mode still
+ * suppresses, and only because someone deliberately asked for it.
  *
  * Modes (gswp_conflict_mode):
- *  - 'off'    : do nothing.
- *  - 'active' : suppress divergent-key loaders only on pages where this plugin
- *               loads its own reCAPTCHA (default recommendation).
- *  - 'site'   : suppress divergent-key loaders on every front-end page.
+ *  - 'off'    : non-destructive. Share matching-key loaders, report divergent
+ *               ones, remove nothing.
+ *  - 'active' : identical to 'off' since 2.18.1, and the recommended setting.
+ *               Retained as a distinct stored value so no migration is needed.
+ *  - 'site'   : the only mode that removes anything. Suppresses divergent-key
+ *               loaders on every front-end page. Destructive by design and
+ *               opt-in only: the other plugin's forms may stop working.
  *
  * @package Google_Security_For_WordPress
  */
@@ -79,7 +83,10 @@ class GSWP_Conflict_Guard {
 	public function __construct() {
 		$mode = get_option( 'gswp_conflict_mode', 'off' );
 
-		if ( 'active' !== $mode && 'site' !== $mode ) {
+		// Only 'site' suppresses. 'off' and 'active' are both non-destructive:
+		// matching-key loaders are shared by GSWP_Recaptcha_Loader and divergent
+		// ones are reported, never removed. Nothing to hook.
+		if ( 'site' !== $mode ) {
 			return;
 		}
 
@@ -101,6 +108,11 @@ class GSWP_Conflict_Guard {
 	 * @return string The original tag, or an empty string to suppress it.
 	 */
 	public function filter_tag( $tag, $handle, $src ) {
+		// Defensive: only 'site' mode reaches this filter at all.
+		if ( 'site' !== $this->mode ) {
+			return $tag;
+		}
+
 		// Never suppress a loader carrying OUR site key. Deduplication has
 		// already collapsed it into a single tag (GSWP_Recaptcha_Loader), so
 		// both plugins share one `grecaptcha` and nothing needs removing.
@@ -112,11 +124,6 @@ class GSWP_Conflict_Guard {
 		}
 
 		if ( ! $this->should_suppress( $handle, $src ) ) {
-			return $tag;
-		}
-
-		// In 'active' mode only strip others where our own reCAPTCHA runs.
-		if ( 'active' === $this->mode && ! $this->our_recaptcha_active() ) {
 			return $tag;
 		}
 
@@ -153,13 +160,4 @@ class GSWP_Conflict_Guard {
 		return false;
 	}
 
-	/**
-	 * Whether this plugin enqueued its own reCAPTCHA script on this request.
-	 *
-	 * @return bool True when this plugin's script is in the queue.
-	 */
-	private function our_recaptcha_active() {
-		return wp_script_is( GSWP_Assets::HANDLE, 'enqueued' )
-			|| wp_script_is( GSWP_Assets::HANDLE, 'done' );
-	}
 }

@@ -211,11 +211,19 @@ if warnings prove insufficient; not built on speculation.
 - `GSWP_Conflict_Guard`'s blanket `is_active()` escape at
   `class-gswp-conflict-guard.php:97`.
 
-### 3.7 Conflict Guard (A6) — `active` stays Recommended
+### 3.7 Conflict Guard (A6) — `active` stays Recommended, and warns only
 
-**Operator decision (2026-07-26): `active` remains the Recommended mode; the
-warning does the work instead of a default change.** This section is written to
-that decision and supersedes the earlier draft, which moved "Recommended" to `off`.
+**Operator decisions (2026-07-26), applied in that order:**
+1. `active` remains the Recommended mode; warnings do the work instead of a
+   default change. (Superseded the earlier draft, which moved Recommended to `off`.)
+2. **Warn only** — suppression is removed from the recommended mode entirely.
+   Shipped in **2.18.1**.
+
+Net effect: dedup and warnings are unconditional; `off` and `active` are
+behaviourally identical and both non-destructive; `site` is the only mode that
+removes anything, is labelled destructive, and is the only way to reach the
+Critical warning state. The tables below describe the 2.18.0 shape and are kept
+for the reasoning; where they show `active` suppressing, read `site` only.
 
 Dedup changes what each mode means, and it is worth being precise, because
 otherwise `active` would quietly become a synonym for `off`:
@@ -236,13 +244,15 @@ and another plugin wants a *different* key, two Enterprise keys cannot both be
 pre-rendered. `active` resolves that in our favour — which is what the setting has
 always claimed to do — and the warning states the cost.
 
-**Residual risk, stated plainly.** In `active` or `site` mode with divergent keys,
-we will still suppress another plugin's loader and its forms may fail — including a
-Gravity Forms Stripe payment, exactly as in the original incident. Suppression is
-no longer *silent*, but it is still *destructive*. The warning is what makes this
-survivable, not the suppression logic. If that trade is unacceptable, the change is
-one line (never suppress, warn only) and can be made at implementation time — see
-§8 Q1.
+**Residual risk — closed for the default configuration in 2.18.1.** The 2.18.0
+shape left `active` suppressing divergent-key loaders, so this plugin could still
+break another plugin's payment forms exactly as in the original incident. The
+operator chose warn-only, so in every configuration except the explicitly
+destructive `site` mode, nothing is removed. What remains and cannot be fixed
+without the multi-key `grecaptcha.enterprise.render()` path: with two different
+keys on one page, only one can be pre-rendered, so one of the two loaders will
+still fail to execute. The difference is that this plugin now *reports* that
+rather than *causing* it.
 
 Migration: sites on `active` stay on `active`; its behaviour becomes correct for
 matching keys and loud for divergent ones. No option rewrite, no migration routine.
@@ -334,14 +344,12 @@ Est. 0.5 d after discovery. Discovery itself is 0.5–1 d on staging.
 
 ## 8. Open questions for the operator
 
-1. ~~**Conflict mode default.**~~ **Answered 2026-07-26: `active` stays
-   Recommended, with loud warnings instead of a default change.** Implemented as
-   §3.7. One sub-decision remains open and is cheap to flip at implementation
-   time: in `active`/`site` mode with divergent keys, do we actually suppress
-   (honouring the setting, accepting that the other plugin's forms may break), or
-   warn only? §3.7 currently specifies **suppress + warn loudly**, on the reading
-   that a mode which never suppresses anything is indistinguishable from `off`.
-   Say so if the safer reading was intended.
+1. ~~**Conflict mode default.**~~ **Fully answered.** `active` stays Recommended
+   (2.18.0), and the suppress-vs-warn sub-decision resolved to **warn only**
+   (2.18.1). `off` and `active` are now identical; `site` alone suppresses. The
+   objection that a non-suppressing mode is indistinguishable from `off` was
+   correct and is simply accepted — both values are kept for migration, and the
+   UI labels describe the behaviour rather than implying a difference.
 2. ~~**Notice audience.**~~ Resolved by the same decision — if warnings carry the
    weight instead of the default, they must be **site-wide** on any
    `manage_options` screen. Specified in §3.5.
