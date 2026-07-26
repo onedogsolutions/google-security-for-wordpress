@@ -226,6 +226,15 @@ export default function Diagnostics( { settings } ) {
 							title={ __( 'Transaction Defense Assessment', 'google-security-for-wordpress' ) }
 							result={ results.transaction_defense }
 						/>
+
+						{ /* reCAPTCHA loader conflicts */ }
+						<TestCard
+							title={ __(
+								'reCAPTCHA Loader Conflicts',
+								'google-security-for-wordpress'
+							) }
+							result={ results.loader_conflicts }
+						/>
 					</div>
 				) }
 			</div>

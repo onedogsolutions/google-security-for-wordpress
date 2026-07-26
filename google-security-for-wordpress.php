@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.17.0
+ * Version: 2.18.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.17.0' );
+define( 'GSWP_VERSION', '2.18.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -55,8 +55,14 @@ define( 'GSWP_FILE', __FILE__ );
 /**
  * Autoload classes or include them.
  */
+// Owns the reCAPTCHA loader script: one tag per page, generic detection of
+// third-party loaders, and the shared token bootstrap. Must load before
+// GSWP_Assets, whose HANDLE constant aliases this class.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-recaptcha-loader.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-gravity-forms.php';
+// Admin warnings for divergent-site-key loader conflicts.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-loader-notices.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-conflict-guard.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-verifier.php';
 // reCAPTCHA Enterprise Transaction defense: annotates WooCommerce orders so
@@ -439,8 +445,13 @@ function gswp_init() {
 	// module. Inert unless PowerPack is active.
 	new GSWP_Powerpack( $verifier );
 
-	// Suppress other plugins' reCAPTCHA scripts so this implementation is the
-	// only one on the page. Inert unless a conflict mode is configured.
+	// Own the reCAPTCHA loader: deduplicate tags carrying the same site key so
+	// this plugin and any other reCAPTCHA consumer share one loader, print the
+	// token bootstrap from the footer, and record divergent-key conflicts.
+	GSWP_Recaptcha_Loader::init();
+
+	// Suppress OTHER plugins' reCAPTCHA scripts only when they carry a
+	// different site key. Inert unless a conflict mode is configured.
 	new GSWP_Conflict_Guard();
 
 	// Routes only register when rest_api_init fires, so this is a no-op
@@ -462,6 +473,9 @@ function gswp_init() {
 
 	if ( is_admin() ) {
 		new GSWP_Admin();
+		// Warn about divergent-site-key reCAPTCHA loaders observed on the
+		// front end. Inert until one is actually detected.
+		new GSWP_Loader_Notices();
 	} else {
 		new GSWP_Frontend();
 	}

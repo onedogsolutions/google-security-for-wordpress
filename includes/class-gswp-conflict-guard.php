@@ -12,11 +12,22 @@
  * source loads Google reCAPTCHA at render time, which is robust across plugins
  * and versions.
  *
+ * Since 2.18.0 this only ever applies to loaders configured with a site key
+ * DIFFERENT from ours. A third-party loader carrying our own key is
+ * deduplicated into a single shared tag by GSWP_Recaptcha_Loader and is never
+ * suppressed — suppressing it is what broke Gravity Forms' Stripe payment
+ * element in 2.16.0.
+ *
+ * Divergent keys cannot be resolved automatically: two Enterprise site keys
+ * cannot both be pre-rendered via `?render=` on one page. Suppression resolves
+ * that in this plugin's favour, which is destructive to the other plugin's
+ * forms, so every occurrence is reported loudly through GSWP_Loader_Notices.
+ *
  * Modes (gswp_conflict_mode):
- *  - 'off'    : do nothing (default).
- *  - 'active' : suppress others only on pages where this plugin loads its own
- *               reCAPTCHA. Standalone reCAPTCHA on other pages keeps working.
- *  - 'site'   : suppress others on every front-end page.
+ *  - 'off'    : do nothing.
+ *  - 'active' : suppress divergent-key loaders only on pages where this plugin
+ *               loads its own reCAPTCHA (default recommendation).
+ *  - 'site'   : suppress divergent-key loaders on every front-end page.
  *
  * @package Google_Security_For_WordPress
  */
@@ -38,14 +49,15 @@ class GSWP_Conflict_Guard {
 	 * Known third-party reCAPTCHA script handles that do not always carry a
 	 * matchable src (registered as dependencies, inline config, etc.).
 	 *
+	 * Kept deliberately short. A handle with no src cannot be checked for which
+	 * site key it carries, so suppressing on handle alone risks removing a
+	 * loader that shares our key and would have been safely deduplicated. The
+	 * Gravity Forms handles previously listed here were removed in 2.18.0 for
+	 * exactly that reason.
+	 *
 	 * @var string[]
 	 */
 	private $handles = array(
-		// Gravity Forms core and reCAPTCHA Add-On.
-		'gform_recaptcha',
-		'gform_recaptcha_v3',
-		'gforms_recaptcha_frontend',
-		'gforms_recaptcha_recaptcha',
 		// PowerPack (Beaver Builder) reCAPTCHA loader.
 		'g-recaptcha',
 	);
@@ -89,12 +101,13 @@ class GSWP_Conflict_Guard {
 	 * @return string The original tag, or an empty string to suppress it.
 	 */
 	public function filter_tag( $tag, $handle, $src ) {
-		// When Gravity Forms is active, never suppress reCAPTCHA scripts.
-		// GF may load its own Enterprise v3 reCAPTCHA on any page with a form;
-		// suppressing it breaks GF's form rendering and any payment gateway
-		// (e.g. Stripe) that depends on it. We cannot reliably detect which
-		// pages have GF forms due to script-enqueue timing across GF versions.
-		if ( GSWP_Gravity_Forms::is_active() ) {
+		// Never suppress a loader carrying OUR site key. Deduplication has
+		// already collapsed it into a single tag (GSWP_Recaptcha_Loader), so
+		// both plugins share one `grecaptcha` and nothing needs removing.
+		// Suppressing a matching-key loader is what broke Gravity Forms'
+		// Stripe payment element in 2.16.0; it is pure harm.
+		$key = GSWP_Recaptcha_Loader::key_from_src( $src );
+		if ( '' !== $key && $key === GSWP_Recaptcha_Loader::site_key() ) {
 			return $tag;
 		}
 

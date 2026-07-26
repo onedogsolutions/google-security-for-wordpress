@@ -17,8 +17,11 @@ class GSWP_Assets {
 
 	/**
 	 * Script handle for the Google reCAPTCHA API.
+	 *
+	 * Retained as an alias of GSWP_Recaptcha_Loader::HANDLE so existing callers
+	 * (and the Conflict Guard) keep working.
 	 */
-	const HANDLE = 'google-recaptcha-v3';
+	const HANDLE = GSWP_Recaptcha_Loader::HANDLE;
 
 	/**
 	 * Configured reCAPTCHA site key.
@@ -26,7 +29,7 @@ class GSWP_Assets {
 	 * @return string Site key, or empty string when unset.
 	 */
 	public static function site_key() {
-		return get_option( 'gswp_site_key', '' );
+		return GSWP_Recaptcha_Loader::site_key();
 	}
 
 	/**
@@ -35,197 +38,30 @@ class GSWP_Assets {
 	 * @return bool True for Enterprise, false for classic v3.
 	 */
 	public static function is_enterprise() {
-		return 'enterprise' === get_option( 'gswp_key_type', 'classic' );
+		return GSWP_Recaptcha_Loader::is_enterprise();
 	}
 
 	/**
 	 * Register and enqueue the Google reCAPTCHA API script.
 	 *
-	 * Enterprise site keys load enterprise.js; classic v3 keys load api.js. No
-	 * jQuery dependency: the bootstrap is vanilla JS so script optimizers that
-	 * delay jQuery cannot delay token generation.
+	 * Delegates to GSWP_Recaptcha_Loader, which owns registration and decides
+	 * at render time whether our tag is emitted or deduplicated against another
+	 * plugin's loader for the same site key.
 	 *
 	 * @return bool True when enqueued, false when no site key is configured.
 	 */
 	public static function enqueue_api_script() {
-		// Defer to Gravity Forms' own reCAPTCHA on GF pages.
-		if ( GSWP_Gravity_Forms::should_defer() ) {
-			return false;
-		}
-
-		$site_key = self::site_key();
-		if ( empty( $site_key ) ) {
-			return false;
-		}
-
-		if ( ! wp_script_is( self::HANDLE, 'registered' ) ) {
-			$script_base = self::is_enterprise()
-				? 'https://www.google.com/recaptcha/enterprise.js'
-				: 'https://www.google.com/recaptcha/api.js';
-
-			wp_register_script(
-				self::HANDLE,
-				$script_base . '?render=' . rawurlencode( $site_key ),
-				array(),
-				GSWP_VERSION,
-				true
-			);
-		}
-
-		wp_enqueue_script( self::HANDLE );
-
-		return true;
+		return GSWP_Recaptcha_Loader::enqueue();
 	}
 
 	/**
-	 * Attach the generic token refresh bootstrap to the API script once.
+	 * Request the shared token refresh bootstrap.
 	 *
-	 * Keeps every `.g-recaptcha-response` field on the page populated with a
-	 * fresh token: fetched on load, refreshed before the two-minute expiry, on
-	 * tab refocus, and whenever a matching field is added to the DOM. Suitable
-	 * for AJAX login plugins that read the token value when serializing a form.
+	 * The bootstrap is printed once from the footer by GSWP_Recaptcha_Loader
+	 * rather than attached to our script handle, so it survives our loader tag
+	 * being deduplicated away.
 	 */
 	public static function add_refresh_bootstrap() {
-		static $added = false;
-		if ( $added ) {
-			return;
-		}
-
-		if ( ! wp_script_is( self::HANDLE, 'registered' ) ) {
-			return;
-		}
-
-		wp_add_inline_script( self::HANDLE, self::get_refresh_js() );
-		$added = true;
-	}
-
-	/**
-	 * Build the generic token refresh bootstrap JavaScript.
-	 *
-	 * @return string Inline JavaScript.
-	 */
-	private static function get_refresh_js() {
-		$site_key      = self::site_key();
-		$is_enterprise = self::is_enterprise();
-
-		ob_start();
-		?>
-		(function() {
-			'use strict';
-
-			if (window.gswpRefreshInit) {
-				return;
-			}
-			window.gswpRefreshInit = true;
-
-			// Defer to Gravity Forms' own reCAPTCHA: if a GF form is present,
-			// GF handles token generation — our bootstrap must not interfere.
-			if (document.querySelector('.gform_wrapper, .gf-form, [id^="gform_"]')) {
-				return;
-			}
-
-			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
-			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
-			// reCAPTCHA v3 tokens expire after 120 seconds; refresh before that.
-			var REFRESH_INTERVAL = 100 * 1000;
-
-			function api() {
-				if (typeof grecaptcha === 'undefined') {
-					return null;
-				}
-				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
-			}
-
-			function fetchToken(input) {
-				return new Promise(function(resolve, reject) {
-					var client = api();
-
-					if (!client || !input) {
-						reject();
-						return;
-					}
-
-					client.ready(function() {
-						var action = input.getAttribute('data-recaptcha-action') || 'submit';
-						client.execute(siteKey, { action: action }).then(
-							function(token) {
-								input.value = token;
-								resolve(token);
-							},
-							reject
-						);
-					});
-				});
-			}
-
-			function noop() {}
-
-			function refreshAll() {
-				var inputs = document.querySelectorAll('.g-recaptcha-response');
-				for (var i = 0; i < inputs.length; i++) {
-					fetchToken(inputs[i]).catch(noop);
-				}
-			}
-
-			// Coalesce bursts of DOM mutations into a single refresh.
-			var refreshTimer = null;
-			function queueRefresh() {
-				if (refreshTimer) {
-					return;
-				}
-				refreshTimer = setTimeout(function() {
-					refreshTimer = null;
-					refreshAll();
-				}, 250);
-			}
-
-			function containsMatch(node) {
-				if (node.nodeType !== 1) {
-					return false;
-				}
-				return (node.matches && node.matches('.g-recaptcha-response')) ||
-					!!node.querySelector('.g-recaptcha-response');
-			}
-
-			function init() {
-				refreshAll();
-
-				setInterval(function() {
-					if (!document.hidden) {
-						refreshAll();
-					}
-				}, REFRESH_INTERVAL);
-
-				// Tokens go stale while the tab is in the background.
-				document.addEventListener('visibilitychange', function() {
-					if (!document.hidden) {
-						refreshAll();
-					}
-				});
-
-				// AJAX login plugins inject or reveal their forms dynamically;
-				// refresh whenever a token field is added to the DOM.
-				var observer = new MutationObserver(function(mutations) {
-					for (var i = 0; i < mutations.length; i++) {
-						var added = mutations[i].addedNodes;
-						for (var j = 0; j < added.length; j++) {
-							if (containsMatch(added[j])) {
-								queueRefresh();
-								return;
-							}
-						}
-					}
-				});
-				observer.observe(document.body, { childList: true, subtree: true });
-			}
-
-			if ('loading' === document.readyState) {
-				document.addEventListener('DOMContentLoaded', init);
-			} else {
-				init();
-			}
-		})();
-		<?php
-		return ob_get_clean();
+		GSWP_Recaptcha_Loader::request_bootstrap();
 	}
 }

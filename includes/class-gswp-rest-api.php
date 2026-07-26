@@ -139,9 +139,44 @@ class GSWP_Rest_Api {
 			'connectivity'   => $this->diagnose_connectivity(),
 			'account_defender' => $this->diagnose_account_defender(),
 			'transaction_defense' => $this->diagnose_transaction_defense(),
+			'loader_conflicts' => $this->diagnose_loader_conflicts(),
 		);
 
 		return new WP_REST_Response( $results, 200 );
+	}
+
+	/**
+	 * Report third-party reCAPTCHA loaders observed on the front end.
+	 *
+	 * Detection happens during front-end rendering (GSWP_Recaptcha_Loader), so
+	 * this reads the recorded observation rather than re-scanning: a REST
+	 * request enqueues no front-end scripts and would always look clean.
+	 *
+	 * @return array Loader conflict status.
+	 */
+	private function diagnose_loader_conflicts() {
+		$conflict = GSWP_Recaptcha_Loader::stored_conflict();
+
+		if ( null === $conflict || empty( $conflict['loaders'] ) ) {
+			return array(
+				'status'  => 'ok',
+				'message' => __( 'No conflicting reCAPTCHA loaders have been observed. Either this plugin is the only one loading reCAPTCHA, or the others use the same site key and share a single loader.', 'google-security-for-wordpress' ),
+				'loaders' => array(),
+			);
+		}
+
+		$suppressing = ! empty( $conflict['suppressing'] );
+
+		return array(
+			'status'      => $suppressing ? 'error' : 'warning',
+			'suppressing' => $suppressing,
+			'observed'    => isset( $conflict['observed'] ) ? gmdate( 'Y-m-d H:i:s', (int) $conflict['observed'] ) . ' UTC' : '',
+			'message'     => $suppressing
+				? __( 'This plugin is removing another plugin\'s reCAPTCHA script because it uses a different site key. That plugin\'s forms, including payment forms, may be failing to submit. Align the site keys, or set reCAPTCHA Conflict Handling to Disabled.', 'google-security-for-wordpress' )
+				: __( 'Another plugin loads reCAPTCHA with a different site key. Only one site key can be pre-rendered per page, so one of the two will fail to execute. Align the site keys.', 'google-security-for-wordpress' ),
+			'our_key'     => GSWP_Recaptcha_Loader::mask_key( GSWP_Recaptcha_Loader::site_key() ),
+			'loaders'     => $conflict['loaders'],
+		);
 	}
 
 	/**

@@ -122,8 +122,9 @@ class GSWP_Login {
 	 * @param string $action The reCAPTCHA action name for this form.
 	 */
 	private function inject_field( $action ) {
-		$site_key = get_option( 'gswp_site_key', '' );
-		if ( empty( $site_key ) ) {
+		// Single gate shared with server-side enforcement: never print a token
+		// field this plugin cannot populate.
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
 			return;
 		}
 
@@ -355,10 +356,11 @@ class GSWP_Login {
 	 * matter how long the screen sits open.
 	 */
 	public function print_scripts() {
-		$site_key = get_option( 'gswp_site_key', '' );
-		if ( empty( $site_key ) ) {
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
 			return;
 		}
+
+		$site_key = GSWP_Recaptcha_Loader::site_key();
 
 		$is_enterprise = 'enterprise' === get_option( 'gswp_key_type', 'classic' );
 		$script_base   = $is_enterprise

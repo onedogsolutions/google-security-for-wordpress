@@ -202,6 +202,17 @@ class GSWP_Verifier {
 			$event_extra = array_merge( is_array( $event_extra ) ? $event_extra : array(), $user_info );
 		}
 
+		// A4: the same predicate that decides whether a token field is printed.
+		// It reads only stored options, so the render request and this
+		// validation request always agree — enforcement can never outlive the
+		// field. Deciding this from anything in the request body would let a
+		// caller opt out by omitting a field, which is the bypass class removed
+		// in 2.17.0.
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			$this->log( 'No reCAPTCHA site key is configured, so no token field was printed. Verification skipped for context "' . $context . '".' );
+			return true;
+		}
+
 		$key_type = get_option( 'gswp_key_type', 'classic' );
 
 		// Skip verification if credentials are not configured to avoid blocking users.

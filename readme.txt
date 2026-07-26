@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.17.0
+Stable tag: 2.18.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,14 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.18.0 =
+* Fixed: reCAPTCHA is now loaded once per page even when another plugin also loads it. When a third-party loader uses the same site key as this plugin, the two share a single script tag instead of emitting two — the underlying cause of the Gravity Forms Stripe payment element failing to mount in 2.16.0. Detection is generic (any script whose source is a Google reCAPTCHA loader, matched on its `render` site key), so it works with Gravity Forms, WPForms, Elementor, Fluent Forms, Contact Form 7 and others without naming any of them.
+* Fixed: removed the Gravity Forms "deferral" behaviour added in 2.16.0. It treated a merely registered script handle as proof a form was on the page, so on sites with Gravity Forms it could disable this plugin's script loading on pages containing no Gravity Form — while still printing a token field it then refused to populate. The result was WooCommerce login, registration and checkout submissions failing with "Anti-spam verification token is missing." Field printing and server-side enforcement are now driven by one predicate that reads only stored settings, so they can never disagree.
+* Fixed: the Conflict Guard no longer suppresses a third-party reCAPTCHA loader that uses the same site key as this plugin, and no longer switches itself off entirely whenever Gravity Forms is installed (which left the settings screen showing conflict handling as active while nothing was running).
+* Fixed: removed the client-side checks that stopped token generation whenever Gravity Forms markup appeared anywhere on the page. They disabled scoring for this plugin's own forms on those pages, and matched broadly enough that page content could switch off token generation.
+* Added: loud reporting when another plugin loads reCAPTCHA with a *different* site key. Only one site key can be pre-rendered per page, so this cannot be resolved automatically. A dismissible warning appears when both loaders are simply present; a non-dismissible critical warning appears when conflict handling is actively removing the other plugin's script, since that plugin's forms — including payment forms — may be failing. Surfaced as an admin notice, on the plugins screen, in the Compatibility settings panel, in the log, and in the API Diagnostics tool.
+* Changed: "On this plugin's reCAPTCHA pages" remains the recommended conflict-handling mode. It now only ever applies to loaders using a different site key.
 
 = 2.17.0 =
 * Security: removed a checkout verification bypass introduced in 2.16.0. The checkout validator skipped all reCAPTCHA scoring, Transaction Defense assessment, and high-risk order blocking whenever a `gform_submit` field was present in the submitted data. That field is supplied by the client and the check was not gated on Gravity Forms being installed, so any checkout submission could opt out of verification by including it. The bypass never applied to genuine Gravity Forms submissions — the WooCommerce checkout validation hook it guarded does not fire for them — so removing it restores scoring on checkout with no change to Gravity Forms behaviour. Sites running 2.16.0 should update.

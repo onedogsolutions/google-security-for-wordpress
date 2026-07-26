@@ -39,24 +39,12 @@ class GSWP_Blocks_Integration implements Automattic\WooCommerce\Blocks\Integrati
 	 * exposing window.wc.blocksCheckout), and the Google reCAPTCHA loader.
 	 */
 	public function initialize() {
-		$site_key      = get_option( 'gswp_site_key', '' );
-		$is_enterprise = 'enterprise' === get_option( 'gswp_key_type', 'classic' );
-
-		// Register the Google reCAPTCHA loader (enterprise.js vs api.js) so
-		// grecaptcha is available when the block script executes a token.
-		if ( '' !== $site_key && ! wp_script_is( 'google-recaptcha-v3', 'registered' ) ) {
-			$base = $is_enterprise
-				? 'https://www.google.com/recaptcha/enterprise.js'
-				: 'https://www.google.com/recaptcha/api.js';
-
-			wp_register_script(
-				'google-recaptcha-v3',
-				$base . '?render=' . rawurlencode( $site_key ),
-				array(),
-				GSWP_VERSION,
-				true
-			);
-		}
+		// Registration is owned by GSWP_Recaptcha_Loader so the Store API path
+		// shares one loader with the rest of the plugin — and so the handle is
+		// always registered, which matters because the block script below lists
+		// it as a dependency and WordPress silently refuses to enqueue a script
+		// whose dependency is unregistered.
+		GSWP_Recaptcha_Loader::ensure_registered();
 
 		$dependencies = array(
 			'wp-element',

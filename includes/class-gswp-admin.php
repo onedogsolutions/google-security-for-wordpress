@@ -140,6 +140,8 @@ class GSWP_Admin {
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
 				'roles'              => wp_roles()->get_names(),
+				'loaderConflict'     => GSWP_Recaptcha_Loader::stored_conflict(),
+				'ourSiteKeyMasked'   => GSWP_Recaptcha_Loader::mask_key( GSWP_Recaptcha_Loader::site_key() ),
 			)
 		);
 	}

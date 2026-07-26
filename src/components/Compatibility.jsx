@@ -9,12 +9,20 @@ export default function Compatibility( { settings, onChange } ) {
 	const verbose =
 		settings.verbose_logging === '1' || settings.verbose_logging === true;
 
+	const adminData =
+		typeof window !== 'undefined' && window.gswpAdminData
+			? window.gswpAdminData
+			: {};
+	const conflict = adminData.loaderConflict || null;
+	const suppressing = !! ( conflict && conflict.suppressing );
+	const ourKey = adminData.ourSiteKeyMasked || '';
+
 	const modes = [
 		{
 			id: 'off',
 			label: __( 'Disabled', 'google-security-for-wordpress' ),
 			description: __(
-				'Leave other plugins to load their own reCAPTCHA scripts.',
+				'Leave other plugins to load their own reCAPTCHA scripts, whatever site key they use.',
 				'google-security-for-wordpress'
 			),
 		},
@@ -25,7 +33,7 @@ export default function Compatibility( { settings, onChange } ) {
 				'google-security-for-wordpress'
 			),
 			description: __(
-				'Recommended. Remove other reCAPTCHA scripts only on pages where this plugin already loads its own, so standalone forms elsewhere keep working.',
+				'Recommended. Remove other plugins’ reCAPTCHA only where it uses a different site key and this plugin already loads its own. Loaders using the same site key are always shared, never removed.',
 				'google-security-for-wordpress'
 			),
 		},
@@ -33,7 +41,7 @@ export default function Compatibility( { settings, onChange } ) {
 			id: 'site',
 			label: __( 'Site-wide', 'google-security-for-wordpress' ),
 			description: __(
-				'Remove other plugins’ reCAPTCHA on every front-end page. Use only when you have removed reCAPTCHA from those plugins’ forms, or their submissions may fail.',
+				'Remove other plugins’ differently-keyed reCAPTCHA on every front-end page. Use only when you have removed reCAPTCHA from those plugins’ forms, or their submissions may fail.',
 				'google-security-for-wordpress'
 			),
 		},
@@ -50,7 +58,7 @@ export default function Compatibility( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'Google recommends loading reCAPTCHA only once per page. Suppress reCAPTCHA scripts from other plugins (such as Gravity Forms) so this implementation is the only one running.',
+						'Google recommends loading reCAPTCHA only once per page. Plugins using the same site key as this one now share a single loader automatically. These settings control what happens when another plugin uses a different site key, which cannot be shared.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -96,12 +104,86 @@ export default function Compatibility( { settings, onChange } ) {
 					</div>
 				</fieldset>
 
-				<p className="mt-4 text-xs leading-5 text-gray-400">
-					{ __(
-						'When Gravity Forms has its own reCAPTCHA Enterprise integration active, this plugin automatically defers to it on pages rendering a Gravity Form.',
-						'google-security-for-wordpress'
-					) }
-				</p>
+				{ conflict &&
+				conflict.loaders &&
+				conflict.loaders.length > 0 ? (
+					<div
+						className={ `mt-6 rounded-lg border p-4 ${
+							suppressing
+								? 'border-red-300 bg-red-50'
+								: 'border-amber-300 bg-amber-50'
+						}` }
+					>
+						<h3
+							className={ `text-sm font-semibold ${
+								suppressing ? 'text-red-800' : 'text-amber-800'
+							}` }
+						>
+							{ suppressing
+								? __(
+										'Blocking another plugin’s reCAPTCHA',
+										'google-security-for-wordpress'
+								  )
+								: __(
+										'Conflicting reCAPTCHA site key detected',
+										'google-security-for-wordpress'
+								  ) }
+						</h3>
+						<p
+							className={ `mt-1 text-xs leading-5 ${
+								suppressing ? 'text-red-700' : 'text-amber-700'
+							}` }
+						>
+							{ suppressing
+								? __(
+										'This plugin is removing another plugin’s reCAPTCHA script because it uses a different site key. That plugin’s forms — including payment forms such as Gravity Forms with Stripe — may be failing to submit.',
+										'google-security-for-wordpress'
+								  )
+								: __(
+										'Another plugin loads reCAPTCHA with a different site key. Only one site key can be pre-rendered per page, so one of the two will fail to execute.',
+										'google-security-for-wordpress'
+								  ) }
+						</p>
+						<ul className="mt-3 space-y-1">
+							{ conflict.loaders.map( ( loader ) => (
+								<li
+									key={ loader.handle }
+									className={ `text-xs font-mono ${
+										suppressing
+											? 'text-red-800'
+											: 'text-amber-800'
+									}` }
+								>
+									{ loader.handle } — { loader.key }
+								</li>
+							) ) }
+							<li className="text-xs font-mono text-gray-600">
+								{ __(
+									'this plugin',
+									'google-security-for-wordpress'
+								) }{ ' ' }
+								— { ourKey }
+							</li>
+						</ul>
+						<p
+							className={ `mt-3 text-xs leading-5 ${
+								suppressing ? 'text-red-700' : 'text-amber-700'
+							}` }
+						>
+							{ __(
+								'Set both plugins to the same reCAPTCHA site key, or choose “Disabled” above. Matching keys are shared automatically — this plugin and the other one will use a single loader, and neither is removed.',
+								'google-security-for-wordpress'
+							) }
+						</p>
+					</div>
+				) : (
+					<p className="mt-4 text-xs leading-5 text-gray-400">
+						{ __(
+							'No conflicting reCAPTCHA loaders have been observed. Other plugins using the same site key as this one share a single loader automatically and are never removed.',
+							'google-security-for-wordpress'
+						) }
+					</p>
+				) }
 
 				{ /* Diagnostics: verbose logging */ }
 				<div className="mt-8 border-t border-gray-100 pt-6 flex flex-col gap-y-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8">

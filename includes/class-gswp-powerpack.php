@@ -103,7 +103,9 @@ class GSWP_Powerpack {
 	 * @param object|null $settings The module settings (unused).
 	 */
 	public function inject_registration_field( $settings = null ) {
-		if ( empty( GSWP_Assets::site_key() ) ) {
+		// Single gate shared with server-side enforcement: never print a token
+		// field this plugin cannot populate.
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
 			return;
 		}
 
