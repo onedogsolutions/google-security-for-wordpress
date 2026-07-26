@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.16.0
+Stable tag: 2.17.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.17.0 =
+* Security: removed a checkout verification bypass introduced in 2.16.0. The checkout validator skipped all reCAPTCHA scoring, Transaction Defense assessment, and high-risk order blocking whenever a `gform_submit` field was present in the submitted data. That field is supplied by the client and the check was not gated on Gravity Forms being installed, so any checkout submission could opt out of verification by including it. The bypass never applied to genuine Gravity Forms submissions — the WooCommerce checkout validation hook it guarded does not fire for them — so removing it restores scoring on checkout with no change to Gravity Forms behaviour. Sites running 2.16.0 should update.
 
 = 2.16.0 =
 * Added: automatic Gravity Forms reCAPTCHA deferral. When Gravity Forms has its own Enterprise v3 reCAPTCHA integration active, the plugin now detects GF's form rendering and steps aside entirely — no script loading, no Conflict Guard suppression, and no server-side token validation for GF submissions. Fixes Stripe payment link mount failures on GF checkout pages caused by dual reCAPTCHA Enterprise instances.

@@ -1,6 +1,19 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 33 (Gravity Forms reCAPTCHA deferral)
+## Current Phase: Phase 34 (checkout verification bypass removal)
+
+### Phase 34 Modifications (v2.17.0)
+- **Problem (security).** Phase 33 added `GSWP_Gravity_Forms::is_form_submission()` — a bare `isset( $_POST['gform_submit'] )` — and used it in `GSWP_Verifier::validate_checkout()` to skip verification for "Gravity Forms submissions". The predicate reads a client-supplied POST field and was not gated on Gravity Forms being installed, on a valid form ID, or on a GF nonce. Adding `gform_submit=1` to any WooCommerce classic checkout POST skipped the reCAPTCHA score check, the expected-action check, Transaction Defense scoring and `transactionData`, the `gswp_txn_block` high-risk block, and the `gswp_checkout_blocked` alert — on every install, Gravity Forms present or not.
+- **The guard was also inert for its stated purpose.** `woocommerce_after_checkout_validation` fires from `WC_Checkout::process_checkout()`. A Gravity Forms submission never invokes it, so the bypass could not have fired for a legitimate GF submission — only for a crafted WooCommerce checkout POST. Removing it therefore restores checkout scoring with no change to Gravity Forms behaviour and no regression risk for normal traffic (an ordinary Woo checkout never posts `gform_submit`).
+- **Fix.** Deleted the early return in `GSWP_Verifier::validate_checkout()` and removed `GSWP_Gravity_Forms::is_form_submission()` entirely (it had no other caller).
+- **Scope.** This is item A1 of `PLAN-gravity-forms-stripe-and-integration-architecture.md`, shipped on its own because the hole is live in 2.16.0. The remaining Phase 33 defects documented in that plan are **not** addressed here and remain open:
+  - `is_form_rendered()` still treats a merely *registered* GF script handle as proof a form is on the page, so `should_defer()` can disable our asset pipeline on pages with no Gravity Form while `inject_recaptcha_field()` still prints an empty token field — those submissions then fail closed with "verification token is missing".
+  - `GSWP_Conflict_Guard::filter_tag()` still returns early whenever Gravity Forms is merely installed, disabling suppression sitewide while the Compatibility tab still shows it as active.
+  - The `document.querySelector('.gform_wrapper, .gf-form, [id^="gform_"]')` bail-outs in `GSWP_Frontend` and `GSWP_Assets` are still present and still page-scoped.
+  - No site-key arbitration exists; the underlying dual-loader cause of the GF/Stripe failure is unfixed.
+- Version bumped to 2.17.0 (main file header, `GSWP_VERSION`, `readme.txt` stable tag + changelog, `package.json`, `package-lock.json`). No `src/` changes, so no webpack rebuild required. `php -l` clean on both touched files.
+
+## Historical Phase: Phase 33 (Gravity Forms reCAPTCHA deferral)
 
 ### Phase 33 Modifications (v2.16.0)
 - **Problem:** on pages where Gravity Forms renders its own Enterprise v3 reCAPTCHA (e.g. a GF Stripe checkout), our plugin's Conflict Guard and/or dual reCAPTCHA Enterprise script loading broke GF's form initialization. The Stripe payment link element (`#stripe-payment-link`) never mounted because GF's reCAPTCHA-dependent rendering failed. Disabling our plugin resolved the issue.
