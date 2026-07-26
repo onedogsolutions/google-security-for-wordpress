@@ -14,6 +14,26 @@ its transaction-data design, both of which carry over unchanged.
 **Releases: 2.19.0 → 2.22.0.** Four stages, each independently shippable, with the
 irreversible-feeling step deliberately last and gated on evidence.
 
+> ## §6's staging SUPERSEDED (2026-07-26) by `PLAN-gravity-forms-direct-replacement.md`
+>
+> The staged Shadow → Active → Sole ladder in §6, and the 2.19.0 release that
+> implements it, were not what was asked for: the request was to replace Gravity
+> Forms' reCAPTCHA, and what shipped was a mechanism for gradually approaching
+> replacement, defaulted to off, which changes nothing on a live site.
+>
+> **2.20.0 replaces it directly** — one switch, on by default, and this plugin
+> disables GF's implementation itself rather than instructing the operator to.
+>
+> Still current in this document: §3 (the provider abstraction), §4 (the coverage
+> audit, now reporting rather than a gate), §5 (asymmetric enforcement), §8 (the
+> kill switch) and §4.3 (v2 checkbox forms remain ineligible — a capability gap,
+> not caution). §7.4 (Fluent Forms) is unchanged and still follows the same
+> provider interface.
+>
+> The replacement plan also raises the bar on injection coverage, because
+> removing the staging removes the discovery period that would have caught missed
+> render paths. See its §3.
+
 ---
 
 ## 1. What changes, and the risk that comes with it
