@@ -542,7 +542,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	}
 
 	/**
-	 * Score a submission and, outside shadow mode, reject it when warranted.
+	 * Score a submission and reject it when warranted.
 	 *
 	 * @param array $validation_result GF validation result.
 	 * @return array Filtered validation result.
