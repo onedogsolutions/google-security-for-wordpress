@@ -185,30 +185,29 @@ class GSWP_Rest_Api {
 
 			$rows[] = array(
 				'provider'   => $provider['label'],
-				'mode'       => $provider['mode'],
+				'on'         => $provider['on'],
 				'forms'      => count( $provider['forms'] ),
 				'uncovered'  => $uncovered,
 				'ineligible' => $ineligible,
 				'detail'     => $provider['forms'],
 			);
 
-			if ( 'sole' === $provider['mode'] && $uncovered > 0 ) {
-				$status     = 'error';
-				$messages[] = sprintf(
-					/* translators: 1: provider name, 2: number of forms. */
-					__( '%1$s is in sole mode but %2$d eligible form(s) are uncovered — those forms have no bot protection.', 'google-security-for-wordpress' ),
-					$provider['label'],
-					$uncovered
-				);
-			} elseif ( $uncovered > 0 && 'off' !== $provider['mode'] ) {
-				if ( 'error' !== $status ) {
-					$status = 'warning';
+			// A form we are supposed to be covering but have never observed a
+			// token field reaching is the signal that matters here.
+			$never_injected = 0;
+			foreach ( $provider['forms'] as $form ) {
+				if ( $form['covered'] && empty( $form['injected'] ) ) {
+					++$never_injected;
 				}
+			}
+
+			if ( $provider['on'] && $never_injected > 0 ) {
+				$status     = 'warning';
 				$messages[] = sprintf(
 					/* translators: 1: provider name, 2: number of forms. */
-					__( '%1$s has %2$d eligible form(s) not yet covered. Do not advance to sole mode until this is zero.', 'google-security-for-wordpress' ),
+					__( '%1$s: %2$d covered form(s) have never been observed receiving a token field. Load each on the front end and re-run this check; a form that never receives one is submitted unscored.', 'google-security-for-wordpress' ),
 					$provider['label'],
-					$uncovered
+					$never_injected
 				);
 			}
 		}
@@ -879,25 +878,18 @@ class GSWP_Rest_Api {
 			);
 		}
 
-		// Provider takeover stages. can_set_mode() is the authority, not the
-		// UI: 'sole' retires the form plugin's own reCAPTCHA, so it must not be
-		// selectable while an eligible form is uncovered. Rejections are
-		// returned to the caller rather than silently downgraded.
-		if ( isset( $params['provider_modes'] ) && is_array( $params['provider_modes'] ) ) {
-			foreach ( $params['provider_modes'] as $provider_id => $mode ) {
+		// Per-provider on/off. Turning one off restores that form plugin's own
+		// reCAPTCHA on the next request — nothing was written to its settings,
+		// so there is nothing to restore.
+		if ( isset( $params['provider_enabled'] ) && is_array( $params['provider_enabled'] ) ) {
+			foreach ( $params['provider_enabled'] as $provider_id => $on ) {
 				$provider_id = sanitize_key( $provider_id );
-				$mode        = sanitize_key( $mode );
 
-				$allowed = GSWP_Form_Provider_Registry::can_set_mode( $provider_id, $mode );
-				if ( is_wp_error( $allowed ) ) {
-					return new WP_Error(
-						$allowed->get_error_code(),
-						$allowed->get_error_message(),
-						array( 'status' => 400 )
-					);
+				if ( null === GSWP_Form_Provider_Registry::get( $provider_id ) ) {
+					continue;
 				}
 
-				update_option( GSWP_Form_Provider_Registry::mode_option( $provider_id ), $mode );
+				GSWP_Form_Provider_Registry::set( $provider_id, '1' === (string) $on || true === $on );
 			}
 		}
 

@@ -45,6 +45,7 @@ class GSWP_Loader_Notices {
 	 * Constructor.
 	 */
 	public function __construct() {
+		add_action( 'admin_notices', array( $this, 'render_takeover_notice' ) );
 		add_action( 'admin_notices', array( $this, 'render_notice' ) );
 		add_action( 'admin_init', array( $this, 'handle_dismiss' ) );
 		add_action( 'after_plugin_row_' . plugin_basename( GSWP_FILE ), array( $this, 'render_plugin_row' ), 10, 2 );
@@ -105,6 +106,52 @@ class GSWP_Loader_Notices {
 		}
 
 		return $conflict;
+	}
+
+	/**
+	 * Announce that this plugin has taken over a form plugin's reCAPTCHA.
+	 *
+	 * 2.20.0 enables replacement on upgrade wherever it can work. That is a
+	 * deliberate behaviour change, so it is stated plainly rather than left for
+	 * someone to discover — including where to turn it off, which restores the
+	 * form plugin's own reCAPTCHA on the next request.
+	 */
+	public function render_takeover_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$activated = get_option( 'gswp_form_providers_activated_notice', array() );
+		if ( empty( $activated ) || ! is_array( $activated ) ) {
+			return;
+		}
+
+		if ( isset( $_GET['gswp_ack_takeover'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			delete_option( 'gswp_form_providers_activated_notice' );
+			return;
+		}
+
+		$settings = admin_url( 'options-general.php?page=gswp-admin' );
+
+		echo '<div class="notice notice-info"><p><strong>'
+			. esc_html__( 'Google Security is now handling reCAPTCHA for your forms', 'google-security-for-wordpress' )
+			. '</strong></p>';
+
+		echo '<p>' . esc_html(
+			sprintf(
+				/* translators: %s: comma-separated list of form plugin names. */
+				__( 'This plugin now scores submissions for %s, and that plugin’s own reCAPTCHA has been switched off so only one implementation runs. Nothing in its settings was changed — turning this off restores it immediately.', 'google-security-for-wordpress' ),
+				implode( ', ', array_map( 'strval', $activated ) )
+			)
+		) . '</p>';
+
+		echo '<p>' . esc_html__( 'Check the Form Protection panel to confirm every form is receiving a token, especially multi-page and AJAX forms.', 'google-security-for-wordpress' ) . '</p>';
+
+		echo '<p><a class="button button-primary" href="' . esc_url( $settings ) . '">'
+			. esc_html__( 'Review Form Protection', 'google-security-for-wordpress' )
+			. '</a> <a class="button" href="' . esc_url( add_query_arg( 'gswp_ack_takeover', '1' ) ) . '">'
+			. esc_html__( 'Dismiss', 'google-security-for-wordpress' )
+			. '</a></p></div>';
 	}
 
 	/**

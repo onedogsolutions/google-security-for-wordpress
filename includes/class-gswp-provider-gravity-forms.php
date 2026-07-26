@@ -2,8 +2,9 @@
 /**
  * Gravity Forms Provider
  *
- * Makes this plugin the reCAPTCHA implementation for Gravity Forms, so GF's own
- * reCAPTCHA can eventually be switched off.
+ * Makes this plugin the reCAPTCHA implementation for Gravity Forms. When the
+ * provider is on, GF's own reCAPTCHA is stood down (disable_native()) and every
+ * eligible form is scored here instead.
  *
  * ---------------------------------------------------------------------------
  * VERIFICATION STATUS
@@ -21,12 +22,19 @@
  *   - unreadable transaction mappings yield no transactionData, which
  *     GSWP_Verifier already degrades to a plain score rather than an API error.
  *
- * Combined with the registry's default stage of 'off' and the 'sole' gate on a
- * clean coverage audit, a wrong binding costs coverage — which the audit then
- * reports — and cannot break a form or silently drop protection while GF's own
- * reCAPTCHA is still running.
+ * Since 2.20.0 there is no staged rollout to catch a bad binding over time, so
+ * two mechanisms carry that weight instead:
  *
- * Confirm against the installed source before advancing any form to 'sole'.
+ *   - inject_into_markup() injects into the finished form HTML whenever the
+ *     primary hook did not, so coverage does not depend on having guessed the
+ *     render paths correctly;
+ *   - validate_submission() refuses to penalise a submission for a form we have
+ *     no record of injecting into, and reports it as a coverage gap instead.
+ *
+ * disable_native() is likewise built to fail safe: it filters GF's settings
+ * read rather than unhooking its internals, so a wrong option name means GF
+ * keeps scoring alongside us (deduplicated by the loader owner) rather than
+ * anything breaking.
  * ---------------------------------------------------------------------------
  *
  * @package Google_Security_For_WordPress
@@ -63,6 +71,17 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * Entry meta key guarding against double annotation.
 	 */
 	const META_ANNOTATED = 'gswp_annotated';
+
+	/**
+	 * Option recording, per form, when a token field was last successfully
+	 * injected on a real front-end render.
+	 *
+	 * This is what turns a coverage gap from silent into loud. With the staged
+	 * rollout gone there is no shadow period in which to discover a render path
+	 * we failed to hook, so the question "did we actually inject into this
+	 * form?" has to be answerable at validation time.
+	 */
+	const INJECTION_OPTION = 'gswp_gf_injection_log';
 
 	/**
 	 * Add-on slugs whose presence marks a form as taking payment.
@@ -308,6 +327,88 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * Gravity Forms' reCAPTCHA add-on decides whether to load its script and
+	 * whether to validate by reading its own settings option. Filtering that
+	 * read to look unconfigured stands the whole add-on down — front end and
+	 * server side — without unhooking anything, without knowing its class name,
+	 * and without touching the database.
+	 *
+	 * Chosen over removing its hooks at runtime because it degrades safely: if
+	 * the option name is wrong the filter simply never matches, GF keeps
+	 * scoring alongside us, and the loader owner deduplicates the shared script.
+	 * A wrong guess costs us the retirement of GF's implementation, never the
+	 * protection of a form.
+	 *
+	 * Built-in CAPTCHA fields are deliberately left alone: a visible challenge
+	 * is not something we can replace (see form_is_eligible()), and those forms
+	 * are excluded from takeover rather than silently downgraded.
+	 */
+	public function disable_native() {
+		foreach ( $this->native_v3_option_candidates() as $option ) {
+			add_filter( 'option_' . $option, array( $this, 'blank_native_settings' ), 999 );
+			add_filter( 'pre_option_' . $option, array( $this, 'blank_native_settings' ), 999 );
+		}
+	}
+
+	/**
+	 * Present GF's reCAPTCHA add-on settings as unconfigured.
+	 *
+	 * Read-time only. The stored option is never modified, so disabling this
+	 * provider restores GF's own reCAPTCHA on the next request.
+	 *
+	 * @param mixed $value Stored settings.
+	 * @return array Settings with the keys blanked.
+	 */
+	public function blank_native_settings( $value ) {
+		if ( ! is_array( $value ) ) {
+			// pre_option_* passes false when no short-circuit is in play; leave
+			// that alone so the real option is still read (and then filtered by
+			// option_* above).
+			return $value;
+		}
+
+		foreach ( array( 'site_key', 'public_key', 'siteKey', 'secret_key', 'private_key' ) as $key ) {
+			if ( isset( $value[ $key ] ) ) {
+				$value[ $key ] = '';
+			}
+		}
+
+		return $value;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function last_injection( $form_id ) {
+		$log = get_option( self::INJECTION_OPTION, array() );
+
+		return is_array( $log ) && isset( $log[ (int) $form_id ] ) ? (int) $log[ (int) $form_id ] : 0;
+	}
+
+	/**
+	 * Record that a token field reached the browser for this form.
+	 *
+	 * Written at most once per form per day so a busy site does not turn every
+	 * page view into an option write.
+	 *
+	 * @param int $form_id Form id.
+	 */
+	private function record_injection( $form_id ) {
+		$form_id = (int) $form_id;
+		$log     = get_option( self::INJECTION_OPTION, array() );
+		$log     = is_array( $log ) ? $log : array();
+
+		if ( isset( $log[ $form_id ] ) && ( time() - (int) $log[ $form_id ] ) < DAY_IN_SECONDS ) {
+			return;
+		}
+
+		$log[ $form_id ] = time();
+		update_option( self::INJECTION_OPTION, $log, false );
+	}
+
+	/**
+	 * {@inheritDoc}
 	 */
 	public function register_hooks( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
@@ -317,6 +418,13 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		// render path (multi-page, AJAX, conditional logic) during staging —
 		// scenario D of the test plan exists precisely to catch a miss here.
 		add_filter( 'gform_submit_button', array( $this, 'inject_token_field' ), 10, 2 );
+
+		// Coverage backstop. gform_submit_button is fast and clean when it
+		// fires, but it depends on assumptions about GF's render paths and on
+		// the theme not replacing the button markup. This filter receives the
+		// complete rendered form HTML, so if the field is not already in it we
+		// put it there — independent of which path produced the markup.
+		add_filter( 'gform_get_form_filter', array( $this, 'inject_into_markup' ), 99, 2 );
 
 		// UNVERIFIED hook choice: gform_validation is GF's canonical validation
 		// filter and runs before payment feeds process. The critical unknown is
@@ -357,13 +465,80 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		// 120-second expiry. No provider-specific JavaScript.
 		GSWP_Recaptcha_Loader::enqueue();
 
-		$field = sprintf(
+		$this->record_injection( $form['id'] );
+
+		return $this->token_field( $form['id'] ) . $button;
+	}
+
+	/**
+	 * Coverage backstop: inject into the rendered form markup.
+	 *
+	 * gform_submit_button is the clean injection point, but it rests on
+	 * assumptions about Gravity Forms' render paths and on the theme not
+	 * replacing the button markup. This filter receives the finished HTML, so
+	 * if the field is not already present we add it before the closing form
+	 * tag — whatever produced the markup, and whether or not the primary hook
+	 * fired.
+	 *
+	 * Without a staged rollout there is no discovery period in which to notice
+	 * a missed render path, so coverage has to be answered here rather than in
+	 * the logs six weeks from now.
+	 *
+	 * @param string $markup Rendered form HTML.
+	 * @param array  $form   Form definition.
+	 * @return string Markup guaranteed to carry the token field, when eligible.
+	 */
+	public function inject_into_markup( $markup, $form ) {
+		if ( ! is_string( $markup ) || '' === $markup ) {
+			return $markup;
+		}
+		if ( ! is_array( $form ) || empty( $form['id'] ) ) {
+			return $markup;
+		}
+		if ( ! GSWP_Recaptcha_Loader::will_load() || ! $this->form_is_eligible( $form['id'] ) ) {
+			return $markup;
+		}
+
+		// Already injected by the primary hook.
+		if ( false !== strpos( $markup, 'name="' . self::TOKEN_FIELD . '"' ) ) {
+			return $markup;
+		}
+
+		$close = strripos( $markup, '</form>' );
+		if ( false === $close ) {
+			// Rendered without a closing form tag: we cannot place the field,
+			// and pretending otherwise would leave the form silently unscored.
+			$this->log(
+				sprintf(
+					'COVERAGE GAP: Gravity Forms #%d rendered without a closing form tag, so no reCAPTCHA token field could be injected.',
+					(int) $form['id']
+				)
+			);
+			do_action( 'gswp_form_coverage_gap', $this->id(), (int) $form['id'] );
+
+			return $markup;
+		}
+
+		GSWP_Recaptcha_Loader::enqueue();
+		$this->record_injection( $form['id'] );
+
+		return substr( $markup, 0, $close )
+			. $this->token_field( $form['id'] )
+			. substr( $markup, $close );
+	}
+
+	/**
+	 * The hidden token field markup for a form.
+	 *
+	 * @param int|string $form_id Form id.
+	 * @return string
+	 */
+	private function token_field( $form_id ) {
+		return sprintf(
 			'<input type="hidden" name="%s" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
 			esc_attr( self::TOKEN_FIELD ),
-			esc_attr( $this->form_has_payment( $form['id'] ) ? 'checkout' : 'submit' )
+			esc_attr( $this->form_has_payment( $form_id ) ? 'checkout' : 'submit' )
 		);
-
-		return $field . $button;
 	}
 
 	/**
@@ -392,19 +567,44 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return $validation_result;
 		}
 
-		$mode    = GSWP_Form_Provider_Registry::mode( $this->id() );
-		$shadow  = ( 'shadow' === $mode );
 		$payment = $this->form_has_payment( $form_id );
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Gravity Forms validates its own nonce before this filter runs.
 		$token = isset( $_POST[ self::TOKEN_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ self::TOKEN_FIELD ] ) ) : '';
 
 		if ( '' === $token ) {
-			// Asymmetric enforcement. The decision is read from the stored form
-			// definition, never from the request — a request-derived predicate
-			// would let a caller opt out by omitting the field, which is the
-			// bypass class removed in 2.17.0.
-			if ( $payment && ! $shadow ) {
+			// Coverage assertion. A missing token means one of two very
+			// different things, and they deserve opposite responses.
+			if ( 0 === $this->last_injection( $form_id ) ) {
+				// We have no record of ever getting a token field into this
+				// form. That is our coverage bug, not an attack, and a visitor
+				// must never be blocked for it. Fail open on every form type,
+				// including payment forms, and make the gap loud.
+				$this->pending_unverified[ $form_id ] = true;
+
+				$this->log(
+					sprintf(
+						'COVERAGE GAP: Gravity Forms #%d was submitted with no reCAPTCHA token and this plugin has no record of ever injecting one into it. The submission was allowed through unscored. Check that the form renders our token field.',
+						$form_id
+					)
+				);
+
+				/**
+				 * A form is not receiving its token field. Fires once per
+				 * submission so the alert layer can surface a coverage gap the
+				 * way it surfaces any other security-relevant event.
+				 */
+				do_action( 'gswp_form_coverage_gap', $this->id(), $form_id );
+
+				return $validation_result;
+			}
+
+			// We do inject into this form, so a submission without a token is
+			// adversarial or broken client-side. Asymmetric enforcement: the
+			// decision is read from the stored form definition, never from the
+			// request — a request-derived predicate would let a caller opt out
+			// by omitting the field, the bypass class removed in 2.17.0.
+			if ( $payment ) {
 				return $this->reject(
 					$validation_result,
 					__( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' ),
@@ -415,9 +615,8 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			$this->pending_unverified[ $form_id ] = true;
 			$this->log(
 				sprintf(
-					'Gravity Forms #%d submitted with no reCAPTCHA token; admitted (%s). If this repeats, token generation is broken on that page.',
-					$form_id,
-					$shadow ? 'shadow mode' : 'non-payment form, fail-open'
+					'Gravity Forms #%d submitted with no reCAPTCHA token; admitted (non-payment form, fail-open). If this repeats, token generation is broken on that page.',
+					$form_id
 				)
 			);
 
@@ -436,18 +635,6 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		if ( is_wp_error( $result ) ) {
-			if ( $shadow ) {
-				$this->log(
-					sprintf(
-						'SHADOW: Gravity Forms #%d would have been rejected (%s). Not blocked.',
-						$form_id,
-						$result->get_error_code()
-					)
-				);
-
-				return $validation_result;
-			}
-
 			return $this->reject( $validation_result, wp_strip_all_tags( $result->get_error_message() ), $form_id );
 		}
 
@@ -462,7 +649,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				if ( '1' === get_option( 'gswp_txn_block', '0' ) ) {
 					$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
 					if ( $risk >= $threshold ) {
-						$this->log( sprintf( 'Gravity Forms #%d %s: risk %.2f >= %.2f.', $form_id, $shadow ? 'would be blocked' : 'blocked', $risk, $threshold ) );
+						$this->log( sprintf( 'Gravity Forms #%d blocked: risk %.2f >= %.2f.', $form_id, $risk, $threshold ) );
 
 						do_action(
 							'gswp_checkout_blocked',
@@ -475,20 +662,14 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 							)
 						);
 
-						if ( ! $shadow ) {
-							return $this->reject(
-								$validation_result,
-								__( 'This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' ),
-								$form_id
-							);
-						}
+						return $this->reject(
+							$validation_result,
+							__( 'This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' ),
+							$form_id
+						);
 					}
 				}
 			}
-		}
-
-		if ( $shadow && '1' === get_option( 'gswp_verbose_logging', '0' ) ) {
-			$this->log( sprintf( 'SHADOW: Gravity Forms #%d passed.', $form_id ) );
 		}
 
 		return $validation_result;

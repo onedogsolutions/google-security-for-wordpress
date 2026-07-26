@@ -78,6 +78,7 @@ class GSWP_Alerts {
 		add_action( 'gswp_suspicious_registration', array( $this, 'on_suspicious_registration' ), 10, 3 );
 		add_action( 'gswp_checkout_blocked', array( $this, 'on_checkout_blocked' ), 10, 3 );
 		add_action( 'gswp_leaked_credentials', array( $this, 'on_leaked_credentials' ), 10, 3 );
+		add_action( 'gswp_form_coverage_gap', array( $this, 'on_form_coverage_gap' ), 10, 2 );
 		add_action( 'shutdown', array( $this, 'flush_immediate' ) );
 	}
 
@@ -251,6 +252,32 @@ class GSWP_Alerts {
 		);
 
 		$this->handle_event( 'checkout', 'checkout_' . md5( $identity ), $data );
+	}
+
+	/**
+	 * Handle a form that was submitted without ever receiving a token field.
+	 *
+	 * This is an operational alert, not a security one: it means this plugin
+	 * believes it is protecting a form but no token field is reaching the
+	 * browser, so that form is being submitted unscored. Since replacement
+	 * switched the form plugin's own reCAPTCHA off, nothing else is covering it
+	 * either — which is exactly why it needs to be noisy rather than a log line
+	 * nobody reads.
+	 *
+	 * Throttled to one alert per form per hour by the shared dedupe key so a
+	 * busy broken form cannot flood the inbox.
+	 *
+	 * @param string     $provider_id Provider id, e.g. 'gravity-forms'.
+	 * @param int|string $form_id     Form identifier.
+	 */
+	public function on_form_coverage_gap( $provider_id, $form_id ) {
+		$data = array(
+			'provider' => (string) $provider_id,
+			'form_id'  => (string) $form_id,
+			'ip'       => self::client_ip(),
+		);
+
+		$this->handle_event( 'coverage', 'coverage_' . md5( $provider_id . '|' . $form_id ), $data );
 	}
 
 	/**
@@ -494,7 +521,49 @@ class GSWP_Alerts {
 		if ( 'leak' === $event['type'] ) {
 			return $this->format_leak( $event );
 		}
+		if ( 'coverage' === $event['type'] ) {
+			return $this->format_coverage_gap( $event );
+		}
 		return $this->format_checkout( $event );
+	}
+
+	/**
+	 * Format a form coverage-gap alert.
+	 *
+	 * @param array $event Normalized event.
+	 * @return array{0:string,1:string}
+	 */
+	private function format_coverage_gap( $event ) {
+		$d = $event['data'];
+
+		$subject = sprintf(
+			/* translators: 1: site name, 2: form identifier. */
+			__( '[%1$s] A form is being submitted without bot protection (form %2$s)', 'google-security-for-wordpress' ),
+			self::blogname(),
+			isset( $d['form_id'] ) ? $d['form_id'] : '?'
+		);
+
+		$lines   = array();
+		$lines[] = sprintf(
+			/* translators: 1: provider name, 2: form identifier, 3: site URL. */
+			__( 'A submission arrived for %1$s form %2$s at %3$s with no reCAPTCHA token, and this plugin has no record of ever placing a token field in that form.', 'google-security-for-wordpress' ),
+			isset( $d['provider'] ) ? $d['provider'] : 'unknown',
+			isset( $d['form_id'] ) ? $d['form_id'] : '?',
+			home_url()
+		);
+		$lines[] = '';
+		$lines[] = __( 'The submission was allowed through rather than blocked, because a form this plugin failed to reach is its own fault and not the visitor\'s. That form is currently being submitted unscored.', 'google-security-for-wordpress' );
+		$lines[] = '';
+		$lines[] = __( 'Since this plugin took over, the form plugin\'s own reCAPTCHA is switched off, so nothing else is covering it either.', 'google-security-for-wordpress' );
+		$lines[] = '';
+		$lines[] = __( 'What to check:', 'google-security-for-wordpress' );
+		$lines[] = __( '  1. Load the form on the front end and view source for a hidden input named gswp_gf_token.', 'google-security-for-wordpress' );
+		$lines[] = __( '  2. If it is absent, the form uses a render path this plugin does not reach.', 'google-security-for-wordpress' );
+		$lines[] = __( '  3. Until it is fixed, re-enable that form plugin\'s own reCAPTCHA, or switch Form Protection off to restore it everywhere.', 'google-security-for-wordpress' );
+		$lines[] = '';
+		$lines[] = admin_url( 'options-general.php?page=gswp-admin' );
+
+		return array( $subject, implode( "\n", $lines ) );
 	}
 
 	/**

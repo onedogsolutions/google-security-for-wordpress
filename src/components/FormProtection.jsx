@@ -1,40 +1,5 @@
 import { __ } from '@wordpress/i18n';
 
-const STAGES = [
-	{
-		id: 'off',
-		label: __( 'Off', 'google-security-for-wordpress' ),
-		description: __(
-			'The form plugin uses its own reCAPTCHA. Nothing changes.',
-			'google-security-for-wordpress'
-		),
-	},
-	{
-		id: 'shadow',
-		label: __( 'Shadow', 'google-security-for-wordpress' ),
-		description: __(
-			'Score submissions and log the result, but never block. The form plugin’s own reCAPTCHA is still the real protection. Start here.',
-			'google-security-for-wordpress'
-		),
-	},
-	{
-		id: 'active',
-		label: __( 'Active', 'google-security-for-wordpress' ),
-		description: __(
-			'Block submissions that fail. Keep the form plugin’s own reCAPTCHA switched on as a backstop during this stage.',
-			'google-security-for-wordpress'
-		),
-	},
-	{
-		id: 'sole',
-		label: __( 'Sole', 'google-security-for-wordpress' ),
-		description: __(
-			'You have switched off the form plugin’s reCAPTCHA and this plugin is the only protection. Only available once every eligible form is covered.',
-			'google-security-for-wordpress'
-		),
-	},
-];
-
 function nativeLabel( state ) {
 	switch ( state ) {
 		case 'off':
@@ -56,6 +21,12 @@ export default function FormProtection( { settings, onChange } ) {
 
 	const audit = adminData.formProviders || { enabled: true, providers: {} };
 	const providers = Object.values( audit.providers || {} );
+
+	const pending = settings.provider_enabled || {};
+	const isOn = ( provider ) =>
+		pending[ provider.id ] !== undefined
+			? pending[ provider.id ] === '1'
+			: !! provider.on;
 
 	const killed =
 		settings.form_providers_enabled === '0' || audit.enabled === false;
@@ -89,7 +60,7 @@ export default function FormProtection( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'Replace a form plugin’s own reCAPTCHA with this one, so a single implementation scores every form and payment on the site. Move through the stages in order — each one is reversible, and the form plugin’s own reCAPTCHA stays as a backstop until the last.',
+						'This plugin replaces a form plugin’s own reCAPTCHA, so a single implementation scores every form and payment on the site. When this is on, that plugin’s reCAPTCHA is switched off. Nothing in its settings is changed — turning this off restores it on the next page load.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -112,9 +83,7 @@ export default function FormProtection( { settings, onChange } ) {
 				) }
 
 				{ providers.map( ( provider ) => {
-					const uncovered = ( provider.uncovered || [] ).length;
 					const ineligible = ( provider.ineligible || [] ).length;
-					const canGoSole = uncovered === 0;
 
 					return (
 						<div key={ provider.id } className="mt-8">
@@ -131,72 +100,57 @@ export default function FormProtection( { settings, onChange } ) {
 								</span>
 							</div>
 
-							<fieldset className="mt-3">
-								<legend className="sr-only">
-									{ __(
-										'Takeover stage',
-										'google-security-for-wordpress'
-									) }
-								</legend>
-								<div className="space-y-2">
-									{ STAGES.map( ( stage ) => {
-										const disabled =
-											stage.id === 'sole' && ! canGoSole;
-										const checked =
-											provider.mode === stage.id;
-
-										return (
-											// eslint-disable-next-line jsx-a11y/label-has-associated-control -- the label wraps the input and its dynamic text.
-											<label
-												key={ stage.id }
-												className={ `relative flex rounded-lg border p-3 shadow-sm transition ${
-													disabled
-														? 'cursor-not-allowed border-gray-200 bg-gray-50 opacity-60'
-														: 'cursor-pointer'
-												} ${
-													checked && ! disabled
-														? 'border-indigo-600 ring-1 ring-indigo-600 bg-indigo-50/50'
-														: 'border-gray-300 bg-white'
-												}` }
-											>
-												<input
-													type="radio"
-													name={ `stage-${ provider.id }` }
-													value={ stage.id }
-													checked={ checked }
-													disabled={ disabled }
-													onChange={ () =>
-														onChange(
-															'provider_modes',
-															{
-																[ provider.id ]:
-																	stage.id,
-															}
-														)
-													}
-													className="sr-only"
-												/>
-												<span className="flex flex-col">
-													<span className="block text-sm font-semibold text-gray-900">
-														{ stage.label }
-													</span>
-													<span className="mt-1 block text-xs leading-5 text-gray-500">
-														{ stage.description }
-													</span>
-													{ disabled && (
-														<span className="mt-1 block text-xs leading-5 text-red-600">
-															{ __(
-																'Unavailable: some eligible forms are not yet covered.',
-																'google-security-for-wordpress'
-															) }
-														</span>
-													) }
-												</span>
-											</label>
-										);
-									} ) }
+							<div className="mt-3 flex items-center justify-between rounded-lg border border-gray-300 p-3">
+								<div className="flex-1 pr-4">
+									<p className="text-sm font-semibold text-gray-900">
+										{ isOn( provider )
+											? __(
+													'This plugin is handling reCAPTCHA for these forms',
+													'google-security-for-wordpress'
+											  )
+											: __(
+													'This form plugin is using its own reCAPTCHA',
+													'google-security-for-wordpress'
+											  ) }
+									</p>
+									<p className="mt-1 text-xs leading-5 text-gray-500">
+										{ isOn( provider )
+											? __(
+													'Its own reCAPTCHA is switched off so only one implementation runs. Payments are scored with transaction data and the outcome is reported back to Google.',
+													'google-security-for-wordpress'
+											  )
+											: __(
+													'Turn this on to score these forms here instead, with one reCAPTCHA implementation across the whole site.',
+													'google-security-for-wordpress'
+											  ) }
+									</p>
 								</div>
-							</fieldset>
+								<button
+									type="button"
+									aria-label={ provider.label }
+									className={ `relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
+										isOn( provider )
+											? 'bg-indigo-600'
+											: 'bg-gray-200'
+									}` }
+									onClick={ () =>
+										onChange( 'provider_enabled', {
+											[ provider.id ]: isOn( provider )
+												? '0'
+												: '1',
+										} )
+									}
+								>
+									<span
+										aria-hidden="true"
+										className={ `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+											isOn( provider )
+												? 'translate-x-5'
+												: 'translate-x-0'
+										}` }
+									/>
+								</button>
+							</div>
 
 							<div className="mt-4 overflow-x-auto">
 								<table className="min-w-full text-left text-xs">
@@ -210,7 +164,7 @@ export default function FormProtection( { settings, onChange } ) {
 											</th>
 											<th className="py-2 pr-4 font-medium">
 												{ __(
-													'Covered',
+													'Token seen',
 													'google-security-for-wordpress'
 												) }
 											</th>

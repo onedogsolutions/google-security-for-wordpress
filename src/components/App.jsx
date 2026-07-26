@@ -128,13 +128,13 @@ export default function App() {
 	// Handle option changes
 	const handleSettingChange = ( key, value ) => {
 		setSettings( ( prev ) => {
-			// provider_modes is a map keyed by provider id; merge rather than
+			// provider_enabled is a map keyed by provider id; merge rather than
 			// replace so a pending change to one provider is not discarded by
 			// a change to another.
-			if ( key === 'provider_modes' ) {
+			if ( key === 'provider_enabled' ) {
 				return {
 					...prev,
-					provider_modes: { ...prev.provider_modes, ...value },
+					provider_enabled: { ...prev.provider_enabled, ...value },
 				};
 			}
 

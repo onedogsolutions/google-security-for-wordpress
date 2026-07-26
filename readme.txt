@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.19.0
+Stable tag: 2.20.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,13 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.0 =
+* Changed: Form Protection now replaces Gravity Forms' reCAPTCHA outright rather than offering a staged path towards it. When it is on, Gravity Forms' own reCAPTCHA is switched off and this plugin scores every eligible form. The four-stage rollout added in 2.19.0 is gone — there is one switch.
+* Changed: this is enabled automatically on upgrade wherever it can work (Gravity Forms active and a reCAPTCHA site key configured), and an admin notice explains what changed. Nothing in Gravity Forms' settings is modified, so switching it off restores its own reCAPTCHA on the very next page load, with nothing to re-enter and no forms to re-edit.
+* Added: coverage backstop. As well as the standard injection point, the token field is now injected into the finished form markup whenever it is not already there — so coverage does not depend on which render path produced the form. Multi-page, AJAX and theme-customised forms are covered by the same mechanism.
+* Added: coverage assertion. A submission with no token is treated very differently depending on cause. On a form we have injected into, it is enforced normally. On a form we have never successfully injected into, the submission is allowed through, an error is logged, and the site operator is emailed — a form this plugin failed to reach is its own fault, not the visitor's, and now says so loudly instead of failing silently.
+* Added: "Token seen" column in the Form Protection panel, showing which forms have actually been observed receiving a token field on the front end rather than only which ones are expected to.
 
 = 2.19.0 =
 * Added: Form Protection. This plugin can now be the reCAPTCHA implementation for Gravity Forms, so Gravity Forms' own reCAPTCHA can eventually be switched off and a single implementation scores every form and payment on the site. Includes reCAPTCHA Enterprise Transaction Defense on Gravity Forms payment submissions — billing address, amount and payment method are sent with the assessment, and the outcome is annotated back to Google when the payment completes or is refunded, which Gravity Forms' own integration does not do.

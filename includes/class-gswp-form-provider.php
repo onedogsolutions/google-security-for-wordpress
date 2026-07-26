@@ -88,12 +88,38 @@ interface GSWP_Form_Provider {
 	public function native_captcha_state( $form_id );
 
 	/**
+	 * Stand down the host plugin's own reCAPTCHA.
+	 *
+	 * Called before register_hooks() when the provider is on. Must be
+	 * runtime-only: never write to the host plugin's stored configuration, so
+	 * that turning this provider off restores its implementation on the next
+	 * request with nothing to undo and no forms to re-edit. That reversibility
+	 * is the safety property that replaces the staged rollout.
+	 *
+	 * Failing to disable is safe — the host plugin keeps scoring alongside us
+	 * and the loader owner deduplicates the shared script — so an implementation
+	 * that cannot confirm the mechanism should do nothing rather than guess.
+	 */
+	public function disable_native();
+
+	/**
 	 * Register the runtime hooks: field injection and submission validation.
 	 *
-	 * Called only when the provider's mode is not 'off' and the global kill
-	 * switch is not engaged.
+	 * Called only when the provider is on and the kill switch is not engaged.
 	 *
 	 * @param GSWP_Verifier $verifier Shared verifier.
 	 */
 	public function register_hooks( GSWP_Verifier $verifier );
+
+	/**
+	 * When a token field was last observed being injected into a form.
+	 *
+	 * Feeds both the coverage report and the server-side coverage assertion: a
+	 * submission with no token on a form we have never successfully injected
+	 * into is our bug, not an attack, and must not be punished.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return int Unix timestamp, or 0 when never observed.
+	 */
+	public function last_injection( $form_id );
 }

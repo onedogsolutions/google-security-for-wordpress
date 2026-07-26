@@ -2,27 +2,19 @@
 /**
  * Form Provider Registry
  *
- * Holds the providers, owns the staged-takeover state machine, the coverage
- * audit, and the kill switch.
+ * Holds the providers, owns the on/off state, the coverage report, and the
+ * kill switch.
  *
- * Takeover stages, per provider, stored in "gswp_provider_{id}_mode":
+ * Since 2.20.0 a provider is simply on or off. The Shadow → Active → Sole
+ * ladder shipped in 2.19.0 is gone: it was a mechanism for gradually
+ * approaching replacement, defaulted to off, which replaced nothing. When a
+ * provider is on, this plugin scores that form plugin's submissions and that
+ * plugin's own reCAPTCHA is switched off.
  *
- *  - 'off'    : (default) nothing is hooked. The host plugin's own reCAPTCHA is
- *               the only protection, exactly as before this feature existed.
- *  - 'shadow' : we inject tokens and create assessments, and NEVER block. The
- *               host plugin's reCAPTCHA is still the real protection. Purpose:
- *               prove coverage and calibrate thresholds against live traffic at
- *               zero customer risk.
- *  - 'active' : we block per the enforcement policy. The host plugin's
- *               reCAPTCHA is expected to still be on — a transitional state.
- *  - 'sole'   : the host plugin's reCAPTCHA has been switched off and we are
- *               the only layer. Cannot be selected for a provider whose
- *               coverage audit is not clean.
- *
- * The staging exists because replacement removes a backstop. Until 'sole',
- * a bug in this plugin cannot leave a form unprotected — the host plugin is
- * still scoring. That property is what makes the transfer safe, and it is the
- * reason 'off' is the default and nothing advances automatically.
+ * What replaces the staging as the safety property is reversibility. Disabling
+ * a provider — or throwing the kill switch — restores the form plugin's own
+ * implementation on the very next request, because nothing we do writes to its
+ * stored configuration. There is no migration to undo and no form to re-edit.
  *
  * @package Google_Security_For_WordPress
  */
@@ -37,13 +29,18 @@ class GSWP_Form_Provider_Registry {
 	 * Master switch. Setting this option to '0', or defining
 	 * GSWP_DISABLE_FORM_PROVIDERS, stops all provider interception immediately
 	 * without deactivating the plugin — 2FA, WooCommerce protection, Account
-	 * Defender and Password Defense keep running.
+	 * Defender and Password Defense keep running, and every form plugin's own
+	 * reCAPTCHA comes back on the next request.
 	 *
-	 * Required infrastructure for a plugin that owns form submission. The
-	 * constant exists so recovery is possible from wp-config.php when wp-admin
-	 * is unreachable.
+	 * The constant exists so recovery is possible from wp-config.php when
+	 * wp-admin is unreachable.
 	 */
 	const ENABLED_OPTION = 'gswp_form_providers_enabled';
+
+	/**
+	 * Option recording that the 2.20.0 upgrade has run.
+	 */
+	const MIGRATED_OPTION = 'gswp_form_providers_migrated';
 
 	/**
 	 * Registered providers, keyed by id.
@@ -53,13 +50,6 @@ class GSWP_Form_Provider_Registry {
 	private static $providers = array();
 
 	/**
-	 * Valid takeover stages, in order of increasing responsibility.
-	 *
-	 * @var string[]
-	 */
-	private static $modes = array( 'off', 'shadow', 'active', 'sole' );
-
-	/**
 	 * Register the built-in providers and wire their hooks.
 	 *
 	 * @param GSWP_Verifier $verifier Shared verifier.
@@ -67,18 +57,21 @@ class GSWP_Form_Provider_Registry {
 	public static function init( GSWP_Verifier $verifier ) {
 		self::register( new GSWP_Provider_Gravity_Forms() );
 
+		self::maybe_migrate();
+
 		if ( ! self::enabled() ) {
 			return;
 		}
 
 		foreach ( self::$providers as $provider ) {
-			if ( ! $provider->is_active() ) {
-				continue;
-			}
-			if ( 'off' === self::mode( $provider->id() ) ) {
+			if ( ! $provider->is_active() || ! self::is_on( $provider->id() ) ) {
 				continue;
 			}
 
+			// Order matters: stand down the host plugin's own reCAPTCHA first,
+			// then take over. Both are runtime-only and leave its stored
+			// settings untouched.
+			$provider->disable_native();
 			$provider->register_hooks( $verifier );
 		}
 	}
@@ -125,104 +118,102 @@ class GSWP_Form_Provider_Registry {
 	}
 
 	/**
-	 * Option name holding a provider's takeover stage.
+	 * Option name holding a provider's on/off state.
 	 *
 	 * @param string $id Provider id.
 	 * @return string
 	 */
-	public static function mode_option( $id ) {
-		return 'gswp_provider_' . str_replace( '-', '_', $id ) . '_mode';
+	public static function option( $id ) {
+		return 'gswp_provider_' . str_replace( '-', '_', $id ) . '_enabled';
 	}
 
 	/**
-	 * A provider's current takeover stage.
+	 * Whether a provider is replacing its form plugin's reCAPTCHA.
 	 *
-	 * Returns 'off' when the kill switch is engaged, so every caller — runtime
-	 * and UI alike — sees one consistent answer.
+	 * Returns false when the kill switch is engaged, so runtime and UI can
+	 * never disagree about whether interception is live.
 	 *
 	 * @param string $id Provider id.
-	 * @return string One of 'off', 'shadow', 'active', 'sole'.
+	 * @return bool
 	 */
-	public static function mode( $id ) {
+	public static function is_on( $id ) {
 		if ( ! self::enabled() ) {
-			return 'off';
+			return false;
 		}
 
-		$mode = get_option( self::mode_option( $id ), 'off' );
-
-		return in_array( $mode, self::$modes, true ) ? $mode : 'off';
+		return '1' === get_option( self::option( $id ), '0' );
 	}
 
 	/**
-	 * Whether a stage may be selected for a provider.
-	 *
-	 * 'sole' is gated on a clean coverage audit: the operator must not be able
-	 * to switch off the host plugin's reCAPTCHA while any eligible form is
-	 * uncovered. Enforced here rather than in the UI so the REST route and any
-	 * future WP-CLI path inherit the same guard.
-	 *
-	 * @param string $id   Provider id.
-	 * @param string $mode Requested stage.
-	 * @return true|WP_Error True when allowed, WP_Error explaining why not.
-	 */
-	public static function can_set_mode( $id, $mode ) {
-		if ( ! in_array( $mode, self::$modes, true ) ) {
-			return new WP_Error( 'gswp_invalid_mode', __( 'Unknown takeover stage.', 'google-security-for-wordpress' ) );
-		}
-
-		$provider = self::get( $id );
-		if ( null === $provider ) {
-			return new WP_Error( 'gswp_unknown_provider', __( 'Unknown form provider.', 'google-security-for-wordpress' ) );
-		}
-
-		if ( 'sole' !== $mode ) {
-			return true;
-		}
-
-		$audit = self::audit( $id );
-		if ( ! empty( $audit['uncovered'] ) ) {
-			return new WP_Error(
-				'gswp_coverage_incomplete',
-				sprintf(
-					/* translators: %d: number of forms that would lose protection. */
-					_n(
-						'%d eligible form is not yet covered. Switching off the form plugin’s own reCAPTCHA now would leave it unprotected.',
-						'%d eligible forms are not yet covered. Switching off the form plugin’s own reCAPTCHA now would leave them unprotected.',
-						count( $audit['uncovered'] ),
-						'google-security-for-wordpress'
-					),
-					count( $audit['uncovered'] )
-				)
-			);
-		}
-
-		return true;
-	}
-
-	/**
-	 * Coverage audit for a provider.
-	 *
-	 * The guard against silent gaps. The host plugin's own reCAPTCHA covers
-	 * every one of its forms automatically; we cover only what we hook, so a
-	 * render path we miss means a form quietly loses protection once the host's
-	 * implementation is retired. This enumerates every form and reports, per
-	 * form, whether we would actually protect it.
+	 * Set a provider's on/off state.
 	 *
 	 * @param string $id Provider id.
-	 * @return array {
-	 *     @type bool   $available  Whether the provider could be inspected at all.
-	 *     @type string $mode       Current takeover stage.
-	 *     @type array  $forms      Per-form rows.
-	 *     @type array  $uncovered  Ids of eligible-but-uncovered forms.
-	 *     @type array  $ineligible Ids of forms we deliberately do not replace.
-	 * }
+	 * @param bool   $on Whether to enable it.
+	 */
+	public static function set( $id, $on ) {
+		update_option( self::option( $id ), $on ? '1' : '0' );
+	}
+
+	/**
+	 * Enable replacement on upgrade, once.
+	 *
+	 * 2.20.0 turns replacement on for any site where it can work: Gravity Forms
+	 * active and a reCAPTCHA site key configured. This is a deliberate
+	 * behaviour change on upgrade — the alternative is another release that
+	 * ships a switch and replaces nothing.
+	 *
+	 * It is defensible because it is reversible: one click restores the form
+	 * plugin's own reCAPTCHA, with nothing left behind in its settings. An
+	 * admin notice states what changed and links to both the coverage report
+	 * and the off switch.
+	 */
+	private static function maybe_migrate() {
+		if ( get_option( self::MIGRATED_OPTION, '0' ) === GSWP_VERSION ) {
+			return;
+		}
+
+		update_option( self::MIGRATED_OPTION, GSWP_VERSION, false );
+
+		if ( '' === GSWP_Recaptcha_Loader::site_key() ) {
+			return;
+		}
+
+		$activated = array();
+
+		foreach ( self::$providers as $id => $provider ) {
+			if ( ! $provider->is_active() ) {
+				continue;
+			}
+			if ( '1' === get_option( self::option( $id ), '0' ) ) {
+				continue;
+			}
+
+			self::set( $id, true );
+			$activated[] = $provider->label();
+		}
+
+		if ( ! empty( $activated ) ) {
+			update_option( 'gswp_form_providers_activated_notice', $activated, false );
+		}
+	}
+
+	/**
+	 * Coverage report for a provider.
+	 *
+	 * Reporting, not a gate. In 2.19.0 this blocked the final takeover stage;
+	 * with the staging gone it exists to tell the operator what is actually
+	 * happening — including, per form, whether a token field was observed being
+	 * injected on a real front-end render (see GSWP_Provider_Gravity_Forms).
+	 *
+	 * @param string $id Provider id.
+	 * @return array
 	 */
 	public static function audit( $id ) {
 		$provider = self::get( $id );
 
 		$result = array(
 			'available'  => false,
-			'mode'       => self::mode( $id ),
+			'on'         => self::is_on( $id ),
 			'forms'      => array(),
 			'uncovered'  => array(),
 			'ineligible' => array(),
@@ -242,24 +233,21 @@ class GSWP_Form_Provider_Registry {
 		foreach ( $forms as $form_id => $title ) {
 			$eligible = $provider->form_is_eligible( $form_id );
 			$payment  = $provider->form_has_payment( $form_id );
-			$native   = $provider->native_captcha_state( $form_id );
-
-			// We cover a form when it is eligible and the provider is running.
-			$covered = $eligible && 'off' !== $result['mode'];
 
 			$result['forms'][] = array(
 				'id'          => $form_id,
 				'title'       => (string) $title,
 				'eligible'    => $eligible,
-				'covered'     => $covered,
+				'covered'     => $eligible && $result['on'],
 				'payment'     => $payment,
-				'native'      => $native,
+				'native'      => $provider->native_captcha_state( $form_id ),
 				'enforcement' => $payment ? 'reject' : 'allow',
+				'injected'    => $provider->last_injection( $form_id ),
 			);
 
 			if ( ! $eligible ) {
 				$result['ineligible'][] = $form_id;
-			} elseif ( ! $covered ) {
+			} elseif ( ! $result['on'] ) {
 				$result['uncovered'][] = $form_id;
 			}
 		}
@@ -268,9 +256,9 @@ class GSWP_Form_Provider_Registry {
 	}
 
 	/**
-	 * Audit every registered, active provider.
+	 * Coverage report for every registered, active provider.
 	 *
-	 * @return array Map of provider id => audit result, plus label and state.
+	 * @return array
 	 */
 	public static function audit_all() {
 		$out = array(

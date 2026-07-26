@@ -1,6 +1,30 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 37 (form provider replacement — Gravity Forms)
+## Current Phase: Phase 38 (Gravity Forms reCAPTCHA replaced outright)
+
+### Phase 38 Modifications (v2.20.0)
+Implements `PLAN-gravity-forms-direct-replacement.md`. Supersedes the staged design in `PLAN-form-provider-replacement.md` §6 and the 2.19.0 release that shipped it.
+
+- **Why this release exists.** 2.19.0 delivered a four-stage ladder (`off` → `shadow` → `active` → `sole`) defaulted to `off`, gated on a coverage audit. That is a mechanism for *gradually approaching* replacement; the request was replacement, and on a live site nothing had changed. 2.20.0 does the thing: one switch, on by default, and this plugin switches GF's reCAPTCHA off itself instead of instructing the operator to.
+- **Staging removed.** `GSWP_Form_Provider_Registry::mode()` / `can_set_mode()` / `mode_option()` are gone, replaced by `is_on()` / `set()` / `option()`. All shadow branches deleted from the GF provider. The coverage audit survives as **reporting**, not a gate.
+- **We disable GF's reCAPTCHA ourselves (`disable_native()`).** Implemented by filtering GF's reCAPTCHA add-on settings **at read time** (`option_*` / `pre_option_*`) so the add-on sees itself as unconfigured and stands down both its script and its validation. Chosen over unhooking its internals because it degrades safely: a wrong option name means the filter never matches, GF keeps scoring alongside us, the loader owner deduplicates the shared script, and nothing breaks. The stored option is never written, so **turning the provider off restores GF's implementation on the next request** — no migration to undo, no forms to re-edit. That reversibility is the safety property that replaces the staged rollout.
+- **Built-in CAPTCHA fields are deliberately left alone.** A visible v2 challenge is not something a score-only implementation can replace, so those forms stay ineligible and keep GF's captcha. Partial replacement is a supported end state, not a failure.
+- **Coverage is now answered in code, not over weeks.** Removing the staging removed the discovery period that would have surfaced a missed render path, so two mechanisms carry that weight:
+  1. **Markup fallback** — `inject_into_markup()` on `gform_get_form_filter` injects the token field before the closing `</form>` whenever the primary `gform_submit_button` hook did not. Coverage no longer depends on having guessed GF's render paths correctly; if the form reached the browser as HTML, the field is in it. A form rendered with no closing tag is logged as a coverage gap rather than silently skipped.
+  2. **Coverage assertion** — every successful injection is recorded per form (`gswp_gf_injection_log`, at most one write per form per day). At validation, a missing token on a form we have injected into is enforced normally; a missing token on a form we have **never** injected into is our bug, so the submission is allowed through on *every* form type including payment forms, logged at error level, and fires the new `gswp_form_coverage_gap` action. A visitor is never blocked for a gap of ours.
+- **Coverage gaps reach the alert pipeline.** `GSWP_Alerts::on_form_coverage_gap()` plus a `coverage` event formatter, so an unscored form produces an operator email rather than a log line nobody reads — which matters more now that GF's own reCAPTCHA is off and nothing else is covering it.
+- **Enabled on upgrade** (`maybe_migrate()`) wherever replacement can work: GF active and a site key configured. A deliberate behaviour change, announced by a dismissible admin notice naming what was taken over and linking to both the coverage report and the off switch. Defensible only because of the reversibility above.
+- **UI and REST.** Stage radios replaced by a single per-provider toggle; new "Token seen" column showing which forms have actually been observed receiving a token rather than only which ones are expected to. REST accepts `provider_enabled` instead of `provider_modes`; the `form_coverage` diagnostic now warns on covered-but-never-injected forms instead of on the removed `sole` gate.
+
+#### Verification status
+- **The Gravity Forms bindings remain UNVERIFIED against the installed source** (injection hooks and their render-path coverage, validation ordering against payment feed processing, feed meta keys, the add-on option name, payment lifecycle actions). The markup fallback and the coverage assertion exist precisely so a wrong binding surfaces as a warning rather than an unprotected form.
+- **The one blocking discovery item is Stripe charge timing.** If the card is authorised client-side before submission in the configured mode, a server-side rejection stops the entry but not the authorisation, and a customer sees a hold on a payment we blocked. Scenario 6 of `tests/manual/10-form-provider-takeover.php` checks the Stripe dashboard for exactly this and must be run before high-risk blocking is relied on.
+- **Nothing has been exercised in a browser.** Scenario 8 (a form we never injected into must be *accepted*, logged and alerted) is the test that decides whether a missed render path is loud or silent; if it fails, nothing else in this release is trustworthy.
+- The 2.18.x loader scenarios are still outstanding, and this release depends on that bootstrap for its tokens.
+
+- `php -l` clean on all PHP; `npm run lint:js` at its pre-existing baseline of 35 errors in the untouched portion of `Diagnostics.jsx`. Webpack rebuilt. Version bumped to 2.20.0 across the header, `GSWP_VERSION`, `readme.txt`, `package.json` and `package-lock.json`.
+
+## Historical Phase: Phase 37 (form provider replacement — Gravity Forms)
 
 ### Phase 37 Modifications (v2.19.0)
 Implements stages 1–3 of `PLAN-form-provider-replacement.md` for Gravity Forms, shipped as one release. Absorbs S5a (`PLAN-gravity-forms-stripe-assessment.md`, superseded).
