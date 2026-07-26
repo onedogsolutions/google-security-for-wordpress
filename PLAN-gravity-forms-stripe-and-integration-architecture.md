@@ -4,7 +4,13 @@ Status: analysis and options.
 Scope reviewed: v2.16.0 (`ca2b1b6`, `c9b7560`, `0d89322`, `dabd588`).
 
 **Progress:** A1 shipped in **v2.17.0** (`31c611f`, merged to `main` at `86e47b7`).
-A2–A7 remain open. Ordering revised — see Part 5.
+A2–A7 are now specified for implementation in
+**`PLAN-recaptcha-loader-corrections.md`** — that document supersedes Part 3 and
+Part 5 of this one for sequencing and estimates. This document remains the record
+of *why*.
+
+**FluentCart is out of scope here** and tracked as a separate feature; §6.3 below
+is retained only as background for that work.
 
 **Site facts confirmed by the operator (2026-07-26), which A2 now assumes:**
 Gravity Forms and this plugin use **the same reCAPTCHA Enterprise site key**, in
@@ -355,8 +361,10 @@ of ours to attach to. Two options, pick at implementation time:
 Prefer the second. It also removes our dependency on `wp_add_inline_script()`
 succeeding, which is one of the failure modes behind S2.
 
-**A2.3 — Divergent-key guard (defensive only).**
-Not this site's case, but a settings change or a second environment can create it.
+**A2.3 — Divergent-key detection and warning (first-class requirement).**
+Not this site's configuration *today*, but GF's key can be changed in GF's own
+settings at any time, and other installs and environments will differ. A silent
+divergence must become a visible one — see §3.5 of the corrections plan.
 If a loader is detected whose `render=` key differs from ours, do not suppress it
 and do not silently drop ours. Raise a dismissible admin notice plus a
 Compatibility-tab warning naming both keys and the plugin that requested the other
