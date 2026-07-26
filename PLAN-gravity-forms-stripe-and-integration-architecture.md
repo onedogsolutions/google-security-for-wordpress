@@ -1,7 +1,17 @@
 # Gravity Forms / Stripe failure — root cause, security review, and integration architecture
 
-Status: analysis and options. No plugin code changed by this document.
+Status: analysis and options.
 Scope reviewed: v2.16.0 (`ca2b1b6`, `c9b7560`, `0d89322`, `dabd588`).
+
+**Progress:** A1 shipped in **v2.17.0** (`31c611f`, merged to `main` at `86e47b7`).
+A2–A7 remain open. Ordering revised — see Part 5.
+
+**Site facts confirmed by the operator (2026-07-26), which A2 now assumes:**
+Gravity Forms and this plugin use **the same reCAPTCHA Enterprise site key**, in
+**the same GCP project**, and **Gravity Forms performs its own server-side
+Enterprise API assessments**. Part 3 (A2) and Part 6.2 are written to those
+facts; the divergent-key handling is retained only as a guard against future
+misconfiguration.
 
 ---
 
@@ -25,14 +35,26 @@ from the output. GF's field initialisation depends on `grecaptcha` resolving;
 when it throws, GF's downstream field rendering — including the Stripe element —
 never runs.
 
-**(b) Two Enterprise loaders, two site keys.** Even with the guard off, GF loads
-`enterprise.js?render=<GF_KEY>` and we load `enterprise.js?render=<OUR_KEY>`.
-Google documents reCAPTCHA as one-load-per-page; two loaders with two different
-site keys is unsupported, and `grecaptcha.enterprise.execute(K)` for a key that
-was not the one rendered fails.
+**(b) Two Enterprise loaders for the same key.** Even with the guard off, GF emits
+`enterprise.js?render=K` and we emit `enterprise.js?render=K` — the operator has
+since confirmed both plugins use **the same** site key in the same project, so
+these are two tags with an identical `src` under different handles. The browser
+fetches once and executes twice. Google documents reCAPTCHA as one-load-per-page;
+re-executing the loader can re-initialise the invisible widget and disrupt
+`grecaptcha.ready()` callback delivery, which is what GF's field rendering waits
+on.
 
-Mechanism (b) is the real root cause, and it is the one the fix never addressed.
-(a) is a symptom of the same blind spot.
+**Revised attribution (after the shared-key confirmation).** The original draft of
+this document assumed the keys differed and named (b) as the root cause. They do
+not differ, which makes (b) a duplicate-execution problem rather than an
+unsatisfiable one — disruptive, but not a guaranteed break. **(a) is therefore the
+probable primary mechanism**: with conflict mode set to `active` and our script
+enqueued on that page, GF's loader tag was removed from the output outright, which
+is a certain and total failure of GF's initialisation.
+
+Both still need fixing, and they map to different remedies: A2.1 deduplicates the
+loader, A6 stops the suppression. Neither was addressed by the emergency fix,
+which instead disabled our own plugin around the symptom.
 
 ### 1.2 The six design defects that made this inevitable
 
@@ -46,11 +68,15 @@ shipped as the option labelled **"Recommended."**
 
 **D2 — No site-key arbitration anywhere in the codebase.**
 The only question that determines whether two reCAPTCHA consumers can coexist is
-*"are they using the same site key?"* — and the plugin never asks it. If GF's key
-and ours are the same key (the common case on a single-GCP-project site),
-coexistence is trivial: one loader, both callers. If they differ, no amount of
-suppression fixes it and the admin needs to be told. Neither branch is
-implemented.
+*"are they using the same site key?"* — and the plugin never asks it. On this site
+the answer is **yes**, which means coexistence was always trivially achievable:
+one loader, both callers, full protection on both sides. The plugin instead
+suppressed one and then disabled the other. Had the question been asked, neither
+the outage nor the emergency fix would have happened.
+
+(If two consumers *did* use different keys, no amount of suppression would fix it
+and the admin would need to be told. That branch is also not implemented — see
+A2.3.)
 
 **D3 — Script loading and field printing are on separate, ungated code paths.**
 `GSWP_Frontend::register_scripts()` decides whether the loader exists;
@@ -103,9 +129,10 @@ become the permanent design.
 
 ## Part 2 — Security review of what shipped
 
-Five findings. **S1 is live and exploitable in v2.16.0.**
+Six findings. **S1 was live and exploitable in v2.16.0; fixed in v2.17.0.**
+S2–S5a remain open.
 
-### S1 — Attacker-controlled bypass of all checkout verification (critical)
+### S1 — Attacker-controlled bypass of all checkout verification (critical) — FIXED v2.17.0
 
 ```php
 // includes/class-gswp-verifier.php:148-152
@@ -134,7 +161,9 @@ every site running v2.16.0, whether or not Gravity Forms is installed. For a
 plugin whose stated purpose is stopping carding attacks on checkout, this is a
 complete bypass of the control, reachable by adding one form field.
 
-This should be removed before anything else in this document is decided.
+Removed in v2.17.0 (`31c611f`). Retained here as the record of what shipped in
+2.16.0 and why. Note that its removal un-masks S2 on the checkout leg — see
+Part 5.
 
 ### S2 — Silent, site-wide disablement of our own protection (high)
 
@@ -239,37 +268,125 @@ isolation. It is not defensible as a page-wide opt-out of our entire stack, and
 it is not defensible for a payment flow where Transaction Defense is the whole
 point of the Enterprise key.
 
+### S5a — What the shared key and shared project actually mean
+
+The operator has confirmed both plugins use the same Enterprise site key in the
+same GCP project, and that Gravity Forms makes its own server-side assessment
+calls. That resolves several open questions and sharpens the finding:
+
+**What is *not* a problem.** Each `grecaptcha.enterprise.execute()` call returns a
+distinct token, and each token is assessable exactly once (reuse returns
+`DUPE`). GF assessing its token and us assessing ours do not interfere, share
+state, or invalidate each other. A shared key is not a correctness hazard — it is
+the condition that makes clean coexistence *possible*. `execute()` itself is a
+client-side call and is not billed; only assessments are.
+
+**What is a problem.** Because GF runs its own assessment against the same
+project, every Gravity Form submission already produces an Enterprise assessment
+— it is simply the wrong assessment:
+
+- It carries **no `transactionData` and no `fraudPrevention`**, so a GF + Stripe
+  payment produces a bare bot score. Transaction Defense is enabled on the
+  project and returns nothing for the site's real card payments.
+- It carries **no `userInfo`**, so Account Defender sees nothing for GF-originated
+  account events.
+- It is scored against **GF's threshold**, configured in GF's settings, invisible
+  to `gswp_threshold_*` and to the operator's mental model of "our" policy.
+- Its **assessment name is never exposed** by GF, so `GSWP_Transaction_Defense`
+  cannot annotate the outcome. The project therefore receives **no feedback** on
+  its highest-value events, and the fraud model never learns from them.
+
+So the current state is worse than "GF covers the form." The project is being
+charged for assessments on payment flows while receiving none of the signal those
+assessments exist to produce, and no outcome labels to train on. Deferral did not
+hand protection to GF — it left the site paying for a downgraded assessment.
+
+This is why the fix is **not** to defer more cleanly. With a shared key we can
+always mint our own token, so there is no scenario in which stepping aside is
+required. See A2.
+
 ---
 
 ## Part 3 — Option A: surgical correction
 
-Keep the current architecture. Fix the six things that are wrong. **~1–2 days.**
+Keep the current architecture. Fix the six things that are wrong.
+**~2–3 days** — see the revised estimate at the end of this section.
 
-**A1. Delete `is_form_submission()` and its call site.** (S1)
-A WooCommerce checkout submission is not a Gravity Forms submission. If a genuine
-need to skip a Woo hook for a GF request ever appears, it must be decided from
-server-authoritative state (GF's own request context), never a POST field. One
-line in, one line out; ship independently of everything else here.
+**A1. Delete `is_form_submission()` and its call site.** (S1) — **SHIPPED v2.17.0.**
+A WooCommerce checkout submission is not a Gravity Forms submission. Confirmed
+during implementation that the guard was also inert for its stated purpose:
+`woocommerce_after_checkout_validation` fires from `WC_Checkout::process_checkout()`,
+which a Gravity Forms submission never invokes, so the bypass could only ever have
+fired for a crafted WooCommerce checkout POST. Removal carried no functional risk.
 
-**A2. Replace deferral with site-key arbitration.** (D2, root cause)
-New method `GSWP_Gravity_Forms::site_key()` reads GF's configured key. Then:
+**A2. Delete deferral outright; arbitrate the loader, not the protection.**
+(D2, root cause)
 
-- **Keys match** (expected default): do **not** print a second `enterprise.js`
-  tag. Reuse the loader already on the page and keep our bootstrap running —
-  `grecaptcha.enterprise.execute(ourKey, …)` works because the key is rendered.
-  Both plugins get their tokens, one loader, no conflict, full GSWP coverage
-  retained. This is the case that broke, and it is fully solvable.
-- **Keys differ**: one page cannot render two Enterprise keys via `?render=`.
-  Load ours without `render=` and call `grecaptcha.enterprise.render()`
-  explicitly, or — simpler and safer as a first cut — keep ours and raise a
-  dismissible admin notice plus a Compatibility-tab warning naming both keys and
-  telling the admin to align them. Do not silently pick a winner.
+With a shared site key, deferral has no justification left. We can always mint our
+own token from the loader that is already on the page, so there is no scenario in
+which our protection must step aside. The only thing that must be arbitrated is
+**how many `<script>` tags load `enterprise.js`** — which was the real defect all
+along.
+
+**A2.1 — Single-loader reuse (the fix for the original failure).**
+`GSWP_Assets`/`GSWP_Frontend` stop unconditionally registering their own loader.
+Before registering, check whether a reCAPTCHA loader for our key is already
+present on the page (a registered/enqueued script whose src matches a Google
+reCAPTCHA loader and whose `render=` parameter equals `gswp_site_key`). If one
+is, **do not register a second tag** — mark the loader satisfied and let our
+bootstrap run against the global `grecaptcha`. Our bootstrap already only needs
+`grecaptcha.enterprise.execute(ourKey, {action})`, which resolves because the key
+is rendered.
+
+Result: one loader, both plugins get tokens, GF's Stripe element mounts, and
+**GSWP coverage is fully retained on GF pages** rather than surrendered. This is
+the difference between A2 as originally drafted and A2 now: the matched-key branch
+is no longer one of two paths, it is the design.
+
+**A2.2 — Bootstrap sequencing.**
+Our inline bootstrap is currently attached to our own handle via
+`wp_add_inline_script()`. When we reuse someone else's loader there is no handle
+of ours to attach to. Two options, pick at implementation time:
+- attach the inline script to the *detected* handle (simple, but couples us to
+  another plugin's handle lifecycle); or
+- print the bootstrap on `wp_print_footer_scripts` guarded on `typeof grecaptcha`,
+  with a short poll for late loaders (more robust, marginally more code).
+
+Prefer the second. It also removes our dependency on `wp_add_inline_script()`
+succeeding, which is one of the failure modes behind S2.
+
+**A2.3 — Divergent-key guard (defensive only).**
+Not this site's case, but a settings change or a second environment can create it.
+If a loader is detected whose `render=` key differs from ours, do not suppress it
+and do not silently drop ours. Raise a dismissible admin notice plus a
+Compatibility-tab warning naming both keys and the plugin that requested the other
+one. Two different Enterprise keys cannot both be pre-rendered via `?render=`;
+telling the operator is correct and cheap, guessing a winner is what produced this
+incident. The `grecaptcha.enterprise.render()` multi-key path is explicitly out of
+scope until someone actually needs it.
+
+**A2.4 — Verify against the installed Gravity Forms source before writing any of
+this.** (D5) The current detection code guesses. Confirm on staging:
+- Which option key GF's **Enterprise** integration stores its site key under.
+  `gravityformsaddon_recaptcha_settings` with `site_key`/`public_key` was inferred,
+  not verified, and GF's Enterprise integration may not share storage with the
+  classic reCAPTCHA add-on at all.
+- Where GF stores its own **project ID and API key** — needed to confirm the
+  shared-project assumption programmatically rather than trusting configuration.
+- The real script handle and `src` GF emits for the Enterprise loader, and at what
+  hook/priority. This determines whether A2.1's detection can run at
+  `wp_enqueue_scripts` priority 20 or must move to render time.
+
+Everything in A2 depends on these three answers. Budget the discovery separately
+from the implementation.
 
 **A3. Make detection mean what it says.** (S2)
-Drop `'registered'`. Drop the `post_content` string sniffing. Evaluate at render
-time (`script_loader_tag` / `wp_print_footer_scripts`), not at
-`wp_enqueue_scripts`. Verify the handle list and the option key against the
-installed Gravity Forms source before shipping (D5) — it is on the target site.
+Once A2 lands, `should_defer()` and `is_form_rendered()` have no callers and can
+be **deleted entirely** — there is nothing left that needs to know whether a GF
+form is on the page, only whether a loader for our key is. That removes the
+`'registered'` check, the `post_content` string sniffing, and the speculative
+handle list in one move. `GSWP_Gravity_Forms` shrinks to key detection plus
+whatever Part 6.2 needs.
 
 **A4. Single gate for "will our token be filled."** (D3, D4)
 Add `GSWP_Assets::will_load()`. `inject_recaptcha_field()` prints nothing when it
@@ -283,12 +400,16 @@ misconfiguration.
 If our field is on the page, we fill it. Page-level presence of a third-party
 form is never a reason to abandon our own fields.
 
-**A6. Restore the Conflict Guard to a defensible rule.** (S3)
-Delete the blanket `is_active()` escape. Suppress a third-party loader only when
-it would be a *second, different* site key **and** we are loading ours. Never
-suppress a loader whose key matches ours — reuse it (A2). Surface the actual
-runtime state in the Compatibility tab ("Suppression is currently inactive on
-this site because …") so the UI stops asserting protection that isn't running.
+**A6. Retire the Conflict Guard's suppression role.** (S3)
+Delete the blanket `is_active()` escape. With A2.1 in place, suppression is
+largely obsolete: a same-key loader is reused rather than stripped, and a
+different-key loader must be reported, not silently removed (A2.3). What remains
+useful is the *diagnostic* — what else on this page asked for a reCAPTCHA key,
+and which key. Keep `site` mode available for operators who genuinely want other
+plugins' reCAPTCHA gone, but stop shipping suppression as the "Recommended"
+default, and surface real runtime state in the Compatibility tab ("one loader
+detected, key ••••1234, shared with Gravity Forms") so the UI stops asserting
+protection that isn't running.
 
 **A7. Coverage.** (D6)
 Add `tests/manual/09-recaptcha-coexistence.php`: GF + Woo on one page, same key
@@ -300,9 +421,16 @@ assessment.
 close, and — importantly — GSWP protection is *retained* on GF pages instead of
 surrendered. GF's Stripe checkout keeps working *and* gets scored.
 
-**Limits:** still hard-coded to Gravity Forms by name. FluentCart, WPForms,
-Elementor Forms, Fluent Forms, EDD each need their own bespoke class. The next
-plugin that loads reCAPTCHA repeats this incident.
+**Revised estimate: ~2–3 days** (up from 1–2). A2 grew from a branch into the
+central change, A2.2 (bootstrap sequencing off our own handle) is new work, and
+A2.4 adds a discovery pass against the GF source. A3 shrank to a deletion, which
+offsets some of it.
+
+**Limits:** A2 gives GF pages *our* protection back, but it does **not** give the
+GF + Stripe payment `transactionData`. Closing S5a requires Part 6.2. Still
+hard-coded to Gravity Forms by name; FluentCart, WPForms, Elementor Forms, Fluent
+Forms, EDD each need their own bespoke class, and the next plugin that loads
+reCAPTCHA repeats this incident.
 
 ---
 
@@ -381,14 +509,30 @@ deliberately do not, and why. This replaces the current static note that says we
 
 ## Part 5 — Recommendation
 
-1. **Now, independently:** A1 (remove the `gform_submit` bypass). It is a live
-   checkout-verification bypass on every install of v2.16.0.
-2. **This cycle:** the rest of Option A, shipped as 2.16.1, with A2 (site-key
-   arbitration) as the actual bug fix and A3/A4 closing the outage class the
-   emergency fix introduced. Verify handles and option keys against the GF source
-   on the staging site first.
-3. **Next cycle:** Option B, driven by the FluentCart requirement — B1 and B3
-   are the load-bearing pieces; B2 is refactoring of code that already exists.
+Revised after A1 shipped and after the shared-key facts were confirmed.
+
+1. ~~A1 — remove the `gform_submit` bypass.~~ **Done, v2.17.0.**
+2. **Immediately next: A4, then A5.** A1's removal un-masked S2 on the checkout
+   leg (login and registration were already exposed in 2.16.0). A4 — the single
+   `will_load()` gate, so we never print a token field nothing will fill — kills
+   the entire fail-closed "token missing" class on its own, is self-contained, and
+   needs no Gravity Forms knowledge. A5 (delete the DOM kill switches) is minutes
+   and removes the injectable client-side disable. Ship these two as **2.17.1**
+   without waiting for the GF source review.
+3. **Then A2.4 (discovery), then A2 + A3 + A6 + A7 as 2.18.0.** A2 is now the
+   central change rather than one branch of it, and it is gated on reading the
+   installed GF Enterprise integration. A3 becomes a deletion once A2 lands.
+4. **Then Part 6.2 — the GF Stripe assessment.** This is what actually closes
+   S5a: A2 restores our coverage on GF *pages*, but the GF + Stripe *payment*
+   still produces a bare score with no `transactionData` and no annotation. On a
+   project that is already paying for Transaction Defense, this is the highest
+   security value remaining in this document.
+5. **Then Option B**, driven by FluentCart — B1 and B3 are the load-bearing
+   pieces; B2 is refactoring of code that already exists.
+
+The split at step 2 is deliberate: A4 and A5 are availability-critical and
+knowledge-free, while everything from step 3 on is blocked on facts we do not yet
+have about Gravity Forms. Do not let the second set hold up the first.
 
 Option A alone leaves the plugin correct but still one-off per integration.
 Option B is what makes FluentCart, and the plugin after FluentCart, a bounded
@@ -418,7 +562,46 @@ Per target, in dependency order:
 Roughly: a form surface with clean filters ≈ 0.5–1 day once B2 exists; a cart
 integration ≈ 3–5 days; an SPA/REST checkout ≈ 5–8 days.
 
-### 6.2 FluentCart
+### 6.2 Gravity Forms — the Stripe payment assessment
+
+A2 fixes the loader conflict and restores our coverage on GF pages. It does not
+fix S5a: GF's own assessment for a Stripe payment still carries no
+`transactionData`, no `fraudPrevention`, no `userInfo`, and exposes no assessment
+name to annotate. On a project already enabled for Transaction Defense, that is
+the remaining gap and it sits on the site's real card payments.
+
+Because the key and project are shared, the fix is available to us without any
+cooperation from GF: **mint our own token for the GF payment submission and create
+our own assessment carrying the transaction data.** We own that assessment's name,
+so `GSWP_Transaction_Defense` can annotate the outcome and the feedback loop
+closes. GF continues doing whatever it does; we stop being blind to the payment.
+
+Shape of the work:
+
+- Our bootstrap already fills every `.g-recaptcha-response` field on the page.
+  Inject one into the GF form (GF exposes form-render hooks for this) with
+  action `checkout`, and it is populated by the loader A2.1 already reuses.
+- Validate server-side at a GF hook that fires **after** GF's own validation and
+  **before** the Stripe charge is authorised. Identifying that hook — and
+  confirming it can abort with a customer-visible error — is the main unknown.
+  GF's Stripe add-on feed processing is the place to look.
+- Map the GF entry plus the Stripe feed onto `GSWP_Cart_Adapter` (B3) —
+  total, currency, billing address, payment method, customer — so the same
+  `transactionData` builder serves Woo, FluentCart, and GF.
+
+This is the `GF_Stripe` adapter referenced in B3, and the shared-project fact is
+what makes it straightforward: no second key, no second project, no separate
+credentials, and the assessments land alongside the Woo ones in the same console.
+
+**Cost:** one additional assessment per GF payment submission, on top of the one
+GF already creates. That is the honest trade — it is a real line item, and it buys
+transaction risk scoring plus outcome feedback on flows that currently produce
+neither. Worth confirming against current assessment volume before committing.
+
+**Estimate:** 3–5 days once B3 exists, most of it in locating and proving the
+pre-charge validation hook. Depends on A2 landing first.
+
+### 6.3 FluentCart
 
 FluentCart is the new target and the most involved, because it is not a
 classic-form checkout. Treat `GSWP_Blocks` (Store API) as the template, not
@@ -449,7 +632,7 @@ classic-form checkout. Treat `GSWP_Blocks` (Store API) as the template, not
 **5–8 days** after B1/B3 exist, or 8–12 as a standalone bespoke class without them
 — which is the concrete argument for doing B3 first.
 
-### 6.3 Suggested target order
+### 6.4 Suggested target order
 
 | Target | Type | Why | Notes |
 |---|---|---|---|
