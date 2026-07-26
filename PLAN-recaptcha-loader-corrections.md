@@ -138,18 +138,21 @@ static flag. This decouples us from any other plugin's handle lifecycle.
 
 ### 3.5 Key mismatch warning (A2.3 — now a first-class requirement)
 
-**Behaviour on mismatch is deliberately conservative:**
-
-| | Action |
-|---|---|
-| Their loader | Never suppressed. Suppression is what broke Stripe. |
-| Our loader | Still registered. Dropping it would silently disable our protection. |
-| Operator | Warned, prominently, through four surfaces. |
-
 Two Enterprise keys cannot both be pre-rendered via `?render=`, so on mismatch the
-page is in a state we cannot make fully correct without operator action. The
-correct response is to say so loudly, not to pick a winner — picking a winner
-silently is precisely what produced this incident.
+page is in a state we cannot make fully correct without operator action. Picking a
+winner *silently* is precisely what produced this incident; picking one *loudly* is
+the operator's chosen policy (§3.7). Our loader is always registered either way —
+dropping it would silently disable our own protection, which is the failure mode
+this whole plan exists to end.
+
+**Two severities**, because the two states carry very different risk:
+
+| State | Severity | Meaning |
+|---|---|---|
+| Divergent key detected, **not** being suppressed (mode `off`, or our loader absent from that page) | **Warning** | Both loaders present. One of them will likely fail to execute. Dismissible. |
+| Divergent key detected **and** being suppressed (`active` on our pages, or `site`) | **Critical** | We are actively removing another plugin's reCAPTCHA. Its forms — including payment forms — may fail. Not dismissible while the condition persists. |
+
+The Critical state is the one that broke Stripe. It must be impossible to miss.
 
 **Recording.** `foreign_loaders()` runs on the front end; the admin screen cannot
 see it directly. Persist observations to a transient:
@@ -162,21 +165,37 @@ TTL 7 days
 Write **only when the observed set differs** from what is stored (compare a hash),
 so the common case is one `get_transient()` per request and no write.
 
-**Surfaces:**
+**Surfaces (five):**
 
-1. **Admin notice** — dismissible per user via user meta
-   (`gswp_loader_conflict_dismissed`), storing the conflict hash so a *new* or
-   *changed* conflict re-arms the notice rather than staying dismissed forever.
-2. **Compatibility tab panel** — lists each detected loader: masked key, handle,
-   owning plugin where resolvable from the handle prefix, and whether it matches
-   ours. Replaces the current static "we automatically defer to Gravity Forms"
-   note, which will no longer be true.
-3. **Log** — one line via the existing `wc_get_logger()` path on detection change,
-   not per request.
-4. **REST diagnostic** — new `loader_conflicts` section in
+1. **Admin notice, site-wide** on any `manage_options` screen — not confined to our
+   settings pages. An operator who never opens our settings is exactly the one who
+   needs to see this.
+   - *Warning* severity: `notice-warning`, dismissible per user via user meta
+     (`gswp_loader_conflict_dismissed`) keyed by the **conflict hash**, so a new or
+     changed conflict re-arms rather than staying dismissed forever.
+   - *Critical* severity: `notice-error`, **not dismissible** while suppression is
+     actually occurring. Names the suppressed handle, the owning plugin where
+     resolvable, both masked keys, and the one-click path to the Compatibility tab.
+2. **Compatibility tab panel** — live state inline with the mode selector, styled
+   red in the Critical state, listing each detected loader: masked key, handle,
+   owning plugin, matches-ours, and suppressed-or-not. Replaces the current static
+   "we automatically defer to Gravity Forms" note, which will no longer be true.
+3. **Plugins-screen row notice** on our own plugin row in the Critical state — the
+   surface an operator hits during an incident when they are looking for what to
+   deactivate.
+4. **Log** — `error` level (not `warning`) in the Critical state via the existing
+   `wc_get_logger()` path, once per detection change, not per request.
+5. **REST diagnostic** — new `loader_conflicts` section in
    `POST /gswp/v1/diagnose`, reusing the Phase 32 structure in
    `class-gswp-rest-api.php:135`. Gives support a single call that reports what
-   else is loading reCAPTCHA.
+   else is loading reCAPTCHA and whether we are suppressing it.
+
+**Email alert (proposed).** `GSWP_Alerts` already turns `gswp_checkout_blocked` and
+`gswp_suspicious_registration` into throttled operator emails. Firing a
+`gswp_loader_conflict` action in the Critical state would reuse that pipeline
+end-to-end for perhaps 20 lines. Recommended: entering the Critical state means
+another plugin's payment forms may be failing right now, and nobody is watching a
+WooCommerce log. Flagged rather than assumed — see §8 Q4.
 
 **Explicitly out of scope:** the `grecaptcha.enterprise.render()` multi-key path
 that would make two distinct keys genuinely coexist. Documented as the escalation
@@ -192,19 +211,41 @@ if warnings prove insufficient; not built on speculation.
 - `GSWP_Conflict_Guard`'s blanket `is_active()` escape at
   `class-gswp-conflict-guard.php:97`.
 
-### 3.7 Conflict Guard reframing (A6)
+### 3.7 Conflict Guard (A6) — `active` stays Recommended
 
-With dedup in place, suppression is largely obsolete and actively harmful as a
-default. Changes:
+**Operator decision (2026-07-26): `active` remains the Recommended mode; the
+warning does the work instead of a default change.** This section is written to
+that decision and supersedes the earlier draft, which moved "Recommended" to `off`.
 
-- `active` mode no longer suppresses a loader whose key matches ours — it is
-  reused instead.
-- `site` mode retained for operators who genuinely want other plugins' reCAPTCHA
-  gone, but the "Recommended" label moves to `off`.
-- The panel reports live state rather than asserting policy.
+Dedup changes what each mode means, and it is worth being precise, because
+otherwise `active` would quietly become a synonym for `off`:
 
-Migration: sites currently on `active` stay on `active`; its behaviour simply
-becomes correct. No option rewrite, no migration routine.
+| Mode | Matching key | Divergent key |
+|---|---|---|
+| `off` | reused (dedup is unconditional) | both load, warn |
+| `active` *(Recommended)* | **reused, never suppressed** | suppressed on pages where our reCAPTCHA loads — **warn loudly** |
+| `site` | reused, never suppressed | suppressed on every front-end page — **warn loudly** |
+
+**Dedup is unconditional and mode-independent.** A loader carrying our key is
+always reused and never suppressed, in every mode. That single rule is what fixes
+the original failure, and it is why `active` is now safe to keep recommending: the
+configuration that broke Stripe (same key, `active` mode) becomes a no-op.
+
+**`active` retains a real, narrow job:** on a page where our reCAPTCHA is running
+and another plugin wants a *different* key, two Enterprise keys cannot both be
+pre-rendered. `active` resolves that in our favour — which is what the setting has
+always claimed to do — and the warning states the cost.
+
+**Residual risk, stated plainly.** In `active` or `site` mode with divergent keys,
+we will still suppress another plugin's loader and its forms may fail — including a
+Gravity Forms Stripe payment, exactly as in the original incident. Suppression is
+no longer *silent*, but it is still *destructive*. The warning is what makes this
+survivable, not the suppression logic. If that trade is unacceptable, the change is
+one line (never suppress, warn only) and can be made at implementation time — see
+§8 Q1.
+
+Migration: sites on `active` stay on `active`; its behaviour becomes correct for
+matching keys and loud for divergent ones. No option rewrite, no migration routine.
 
 ---
 
@@ -217,13 +258,16 @@ becomes correct. No option rewrite, no migration routine.
 | 3 | Bootstrap → footer printer with grecaptcha poll | `assets`, `frontend` | 0.5 d |
 | 4 | `will_load()` gate wired into field printing + enforcement | `frontend`, `login`, `powerpack`, `verifier` | 0.5 d |
 | 5 | Delete deferral + DOM kill switches | `gravity-forms`, `frontend`, `assets` | 0.25 d |
-| 6 | Mismatch recording, admin notice, log line | `recaptcha-loader`, `admin` | 0.5 d |
+| 6 | Mismatch recording; two-severity notices (site-wide + plugins row); log | `recaptcha-loader`, `admin` | 0.75 d |
 | 7 | Compatibility tab rebuild + REST diagnostic | `Compatibility.jsx`, `rest-api` | 0.5 d |
 | 8 | Manual test script + staging verification | `tests/manual/09-*` | 0.75 d |
+| 9 | *(optional, pending Q4)* `gswp_loader_conflict` → `GSWP_Alerts` email | `alerts`, `recaptcha-loader` | 0.25 d |
 
-**Total ≈ 4 days**, up from the 2–3 in the analysis doc. The increase is items 2,
-3 and 7 — the Blocks dependency alias, the bootstrap relocation, and the UI work
-were all folded into "A2" previously and are each real.
+**Total ≈ 4.25 days** (4.5 with the optional email alert), up from the 2–3 in the
+analysis doc. The increase is items 2, 3 and 7 — the Blocks dependency alias, the
+bootstrap relocation, and the UI work were all folded into "A2" previously and are
+each real — plus the extra warning surfaces item 6 gained from the `active`-stays-
+Recommended decision.
 
 Webpack rebuild required (item 7 touches `src/`).
 
@@ -239,7 +283,9 @@ real Gravity Forms + Stripe page.
 | 1 | GF + Woo checkout on one page, **same key** | exactly one `enterprise.js` tag; both tokens populated; GF Stripe element mounts; Woo checkout completes |
 | 2 | Same, conflict mode `active` | identical to 1 — no suppression of a matching key |
 | 3 | Same, conflict mode `site` | GF loader suppressed (operator's explicit choice), warning surfaced |
-| 4 | GF configured with a **different** key | both tags present, neither suppressed, admin notice + Compatibility panel + log line + diagnostic all report it |
+| 4a | Different key, mode `off` | both tags present, neither suppressed; **Warning** notice, dismissible; Compatibility panel + log + diagnostic all report it |
+| 4b | Different key, mode `active`, our reCAPTCHA on the page | theirs suppressed; **Critical** notice, **not dismissible**; plugins-row notice present; log at `error`; diagnostic reports suppression |
+| 4c | Dismiss the Warning notice, then change the foreign key | notice re-arms (dismissal is keyed to the conflict hash, not permanent) |
 | 5 | Woo login/registration on a page with a GF form | our tokens populated (regression test for S2/S4) |
 | 6 | Page with GF form, no Woo | one loader, GF unaffected, no notice |
 | 7 | WooCommerce **Blocks** checkout with a foreign loader present | block script still enqueues (alias resolves the dependency); Store API token present |
@@ -288,11 +334,19 @@ Est. 0.5 d after discovery. Discovery itself is 0.5–1 d on staging.
 
 ## 8. Open questions for the operator
 
-1. **Conflict mode default.** Moving "Recommended" from `active` to `off` changes
-   the guidance on every install. Agreed, or keep `active` recommended now that it
-   is non-destructive for matching keys?
-2. **Notice audience.** Should the mismatch admin notice show to all
-   `manage_options` users, or only on this plugin's settings screens? Site-wide is
-   more likely to be seen and more likely to annoy.
+1. ~~**Conflict mode default.**~~ **Answered 2026-07-26: `active` stays
+   Recommended, with loud warnings instead of a default change.** Implemented as
+   §3.7. One sub-decision remains open and is cheap to flip at implementation
+   time: in `active`/`site` mode with divergent keys, do we actually suppress
+   (honouring the setting, accepting that the other plugin's forms may break), or
+   warn only? §3.7 currently specifies **suppress + warn loudly**, on the reading
+   that a mode which never suppresses anything is indistinguishable from `off`.
+   Say so if the safer reading was intended.
+2. ~~**Notice audience.**~~ Resolved by the same decision — if warnings carry the
+   weight instead of the default, they must be **site-wide** on any
+   `manage_options` screen. Specified in §3.5.
 3. **Staging access for scenario 4** — a second Enterprise site key to point GF at
    temporarily, to prove the warning fires.
+4. **Email alert on Critical.** Reuse the existing `GSWP_Alerts` pipeline for a
+   throttled operator email when we enter the suppressing-a-divergent-key state?
+   Recommended (§3.5). ~20 lines, no new infrastructure.

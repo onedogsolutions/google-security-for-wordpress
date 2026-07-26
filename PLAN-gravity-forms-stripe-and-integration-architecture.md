@@ -408,16 +408,18 @@ misconfiguration.
 If our field is on the page, we fill it. Page-level presence of a third-party
 form is never a reason to abandon our own fields.
 
-**A6. Retire the Conflict Guard's suppression role.** (S3)
-Delete the blanket `is_active()` escape. With A2.1 in place, suppression is
-largely obsolete: a same-key loader is reused rather than stripped, and a
-different-key loader must be reported, not silently removed (A2.3). What remains
-useful is the *diagnostic* — what else on this page asked for a reCAPTCHA key,
-and which key. Keep `site` mode available for operators who genuinely want other
-plugins' reCAPTCHA gone, but stop shipping suppression as the "Recommended"
-default, and surface real runtime state in the Compatibility tab ("one loader
-detected, key ••••1234, shared with Gravity Forms") so the UI stops asserting
-protection that isn't running.
+**A6. Narrow the Conflict Guard to divergent keys; keep `active` Recommended.** (S3)
+Delete the blanket `is_active()` escape. Dedup becomes unconditional and
+mode-independent — a loader carrying **our** key is always reused, never stripped,
+in every mode — which is what makes the configuration that broke Stripe (same key,
+`active`) a no-op. `active` keeps a real but narrow job: suppressing a *different*
+key on pages where our reCAPTCHA runs.
+
+**Operator decision (2026-07-26): `active` remains the Recommended mode, with loud
+warnings rather than a default change.** This supersedes the earlier draft here,
+which moved "Recommended" to `off`. Suppression of a divergent key is still
+destructive to the other plugin's forms; it is now impossible to do silently. See
+§3.5 and §3.7 of `PLAN-recaptcha-loader-corrections.md`.
 
 **A7. Coverage.** (D6)
 Add `tests/manual/09-recaptcha-coexistence.php`: GF + Woo on one page, same key
