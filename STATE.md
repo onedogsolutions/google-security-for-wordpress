@@ -1,6 +1,25 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 40 (first staging results; test-script correction)
+## Current Phase: Phase 41 (non-WooCommerce gaps; root cause corrected)
+
+### Phase 41 Modifications (v2.20.2)
+Two defects reported from staging, both specific to **a site that takes payments through Gravity Forms with no WooCommerce installed** — the configuration the 2.19/2.20 work was built for, and the one least exercised until now.
+
+- **Transaction Defense was unreachable without WooCommerce.** `App.jsx` rendered the panel inside `{ !! initialData.woocommerceActive && ( … ) }`, so on a non-Woo site the operator could not enable `gswp_txn_defense` at all. That is why the staging run showed it off: not a choice, an inability. The gate is removed; the panel now appears whenever an Enterprise key is configured, and its copy no longer describes the feature as WooCommerce-only.
+- **Logging went nowhere without WooCommerce.** Every logging call went to `wc_get_logger()`, which does not exist without WooCommerce; several call sites had no fallback at all, and those that did only wrote to `error_log()` under `WP_DEBUG`. The worst casualty was the coverage-gap message — the one designed to be loud, reporting that a form is being submitted unscored. On the staging site it was silent.
+  - New `GSWP_Log` routes everything: WooCommerce's logger when present, the PHP error log **unconditionally** for warnings and errors, and a 50-entry rolling tail in `gswp_log_tail` so a site with no log viewer can still see recent events.
+  - All eight logging call sites now go through it (verifier, loader, transaction defense ×2, alerts, blocks, account defender, password defense, GF provider).
+  - Coverage gaps are raised from `warning` to `error`.
+
+**Root cause of the original incident corrected — second revision, and this one is final.**
+- The operator has established that **the site that broke still had a legacy classic v3 key configured in Gravity Forms**; it had not yet been migrated to the Enterprise key. The earlier "both plugins share one Enterprise key" report described the intended end state across the estate, not the state of the affected site.
+- So the keys **did** diverge at failure time, and across script families too: GF loaded `api.js` for a classic key while this plugin loaded `enterprise.js` for an Enterprise key. Both define the `grecaptcha` global and only one key can be pre-rendered per page, so the second loader overwrote the first's client and one plugin was left calling `execute()` for a key that was never rendered. That is a hard conflict, not the soft duplicate-execution case.
+- Attribution history, recorded plainly because it moved twice: the original draft named divergent keys; the shared-key report moved it to the Conflict Guard's suppression; this correction moves it back. **Mechanism (b), divergent keys, is the root cause; (a), suppression in `active` mode, compounded it.**
+- This makes the incident precisely the scenario the 2.18.1 divergent-key warning was built for. Had that warning existed it would have named both keys and the plugin holding the other one on the first admin page load. D2 in the analysis document is rewritten accordingly: the plugin's failure was not that it picked wrong, but that it could not tell the two situations apart.
+
+**Consequence for the outstanding staging work:** if Gravity Forms on that site still holds the legacy classic key *and* `disable_native()` is not working, there is a live divergent-key conflict on staging right now. Chunk 14 (`14-gf-classification.php`) reports both facts and has not yet been run — it is now the highest-value outstanding check.
+
+## Historical Phase: Phase 40 (first staging results; test-script correction)
 
 ### Phase 40 Modifications (v2.20.1, no version bump)
 First real verification run, on `staging.laseraesthetics.org` (5 Gravity Forms, Enterprise key, GF replacement ON) via the Novamira PHP-execution tool.

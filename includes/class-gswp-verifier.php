@@ -1131,12 +1131,6 @@ class GSWP_Verifier {
 	 * @param string $message Log message.
 	 */
 	private function log( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			// Without WooCommerce these warnings would otherwise vanish, hiding
-			// fail-open skips (bad API key, rejected requests) from diagnosis.
-			error_log( 'GSWP Verifier: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::warning( $message );
 	}
 }

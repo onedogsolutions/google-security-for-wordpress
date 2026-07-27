@@ -1029,10 +1029,6 @@ class GSWP_Account_Defender {
 	 * @param string $message Log message.
 	 */
 	private static function static_log( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'GSWP Account Defender: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::warning( $message );
 	}
 }

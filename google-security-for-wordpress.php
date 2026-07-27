@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.20.1
+ * Version: 2.20.2
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.20.1' );
+define( 'GSWP_VERSION', '2.20.2' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -58,6 +58,9 @@ define( 'GSWP_FILE', __FILE__ );
 // Owns the reCAPTCHA loader script: one tag per page, generic detection of
 // third-party loaders, and the shared token bootstrap. Must load before
 // GSWP_Assets, whose HANDLE constant aliases this class.
+// Logging. Loaded first: everything else routes through it, and without
+// WooCommerce there is no wc_get_logger() to fall back on.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-log.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-recaptcha-loader.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-gravity-forms.php';

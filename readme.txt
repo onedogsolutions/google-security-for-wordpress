@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.1
+Stable tag: 2.20.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.2 =
+* Fixed: the Transaction Defense settings panel was hidden unless WooCommerce was active, which made the setting unreachable on sites that take payments through Gravity Forms without WooCommerce — exactly the sites the Gravity Forms payment scoring was built for. The panel now always appears with an Enterprise key.
+* Fixed: log messages were written only to WooCommerce's logger, so on a site without WooCommerce they went nowhere at all. That silenced the coverage-gap warning, which exists to be loud: it reports that a form is being submitted with no bot protection. All logging now also reaches the PHP error log, and a rolling tail of recent events is kept in the database so sites with no log viewer can still see them.
+* Changed: coverage gaps are logged at error level rather than warning.
 
 = 2.20.1 =
 * Fixed: the Google Security settings screen rendered blank on 2.20.0. The new Form Protection panel referenced a variable that had been removed during development, which threw a JavaScript error and prevented the whole settings app from mounting. No data was affected and no protection was impaired — only the settings screen was unreachable.

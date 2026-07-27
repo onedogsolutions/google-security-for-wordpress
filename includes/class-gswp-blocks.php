@@ -224,8 +224,6 @@ class GSWP_Blocks {
 	 * @param string $message Log message.
 	 */
 	private function log( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		}
+		GSWP_Log::warning( $message );
 	}
 }

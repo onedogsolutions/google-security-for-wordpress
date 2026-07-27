@@ -508,7 +508,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		if ( false === $close ) {
 			// Rendered without a closing form tag: we cannot place the field,
 			// and pretending otherwise would leave the form silently unscored.
-			$this->log(
+			$this->log_error(
 				sprintf(
 					'COVERAGE GAP: Gravity Forms #%d rendered without a closing form tag, so no reCAPTCHA token field could be injected.',
 					(int) $form['id']
@@ -582,7 +582,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				// including payment forms, and make the gap loud.
 				$this->pending_unverified[ $form_id ] = true;
 
-				$this->log(
+				$this->log_error(
 					sprintf(
 						'COVERAGE GAP: Gravity Forms #%d was submitted with no reCAPTCHA token and this plugin has no record of ever injecting one into it. The submission was allowed through unscored. Check that the form renders our token field.',
 						$form_id
@@ -926,10 +926,19 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * @param string $message Log message.
 	 */
 	private function log( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'GSWP Gravity Forms: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::warning( $message );
+	}
+
+	/**
+	 * Log a coverage gap at error level.
+	 *
+	 * A form being submitted unscored is the loudest thing this class has to
+	 * say, and on a site without WooCommerce there is no log viewer to find it
+	 * in — so it goes to the PHP error log and the in-database tail as well.
+	 *
+	 * @param string $message Log message.
+	 */
+	private function log_error( $message ) {
+		GSWP_Log::error( $message );
 	}
 }

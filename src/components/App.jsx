@@ -252,12 +252,16 @@ export default function App() {
 						),
 						defense: (
 							<>
-								{ !! initialData.woocommerceActive && (
-									<TransactionDefense
-										settings={ settings }
-										onChange={ handleSettingChange }
-									/>
-								) }
+								{ /* Not gated on WooCommerce since 2.20.2:
+								     Gravity Forms payments use Transaction
+								     Defense too, and hiding the panel on a
+								     site without WooCommerce made the setting
+								     unreachable on exactly the sites that
+								     need it. */ }
+								<TransactionDefense
+									settings={ settings }
+									onChange={ handleSettingChange }
+								/>
 								<AccountDefender
 									settings={ settings }
 									onChange={ handleSettingChange }

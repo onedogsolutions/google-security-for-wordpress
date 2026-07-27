@@ -612,10 +612,6 @@ class GSWP_Password_Defense {
 		if ( ! self::verbose() && ! ( defined( 'WP_DEBUG' ) && WP_DEBUG ) ) {
 			return;
 		}
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->info( $message, array( 'source' => 'gswp-password-defense' ) );
-		} else {
-			error_log( 'GSWP Password Defense: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::info( 'Password defense: ' . $message );
 	}
 }

@@ -28,7 +28,8 @@ function Toggle( { label, enabled, onToggle } ) {
 }
 
 export default function TransactionDefense( { settings, onChange } ) {
-	// Transaction defense is an Enterprise-only, WooCommerce checkout feature.
+	// Transaction defense is Enterprise-only. It applies to WooCommerce
+	// checkouts and to Gravity Forms payment submissions.
 	const isEnterprise = settings.key_type === 'enterprise';
 	const defenseOn =
 		settings.txn_defense === '1' || settings.txn_defense === true;
@@ -46,7 +47,7 @@ export default function TransactionDefense( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'reCAPTCHA Enterprise Fraud Prevention scores WooCommerce checkouts against carding, stolen instruments, and account takeover. The plugin sends the order’s billing/shipping address, amount, line items, and payment method with each assessment, then annotates the order’s outcome so Google’s model keeps learning.',
+						'reCAPTCHA Enterprise Fraud Prevention scores payments against carding, stolen instruments, and account takeover. The plugin sends the billing address, amount, line items, and payment method with each assessment, then annotates the outcome so Google’s model keeps learning. Applies to WooCommerce checkouts and, when Form Protection is on, to Gravity Forms payment submissions — WooCommerce is not required.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -75,7 +76,7 @@ export default function TransactionDefense( { settings, onChange } ) {
 								</h3>
 								<p className="mt-1 text-sm text-gray-500">
 									{ __(
-										'Include payment transaction data in checkout assessments and annotate order outcomes. Requires the WooCommerce checkout protection above to be enabled.',
+										'Include payment transaction data in payment assessments and annotate the outcome. For WooCommerce this needs the checkout protection above enabled; for Gravity Forms it needs Form Protection on, and applies to forms with a payment feed.',
 										'google-security-for-wordpress'
 									) }
 								</p>

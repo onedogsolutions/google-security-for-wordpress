@@ -215,11 +215,7 @@ class GSWP_Transaction_Defense {
 	 * @param string $message Log message.
 	 */
 	private static function log_static( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'GSWP Transaction Defense: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::warning( $message );
 	}
 
 	/**
@@ -228,8 +224,6 @@ class GSWP_Transaction_Defense {
 	 * @param string $message Log message.
 	 */
 	private function log( $message ) {
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		}
+		GSWP_Log::warning( $message );
 	}
 }

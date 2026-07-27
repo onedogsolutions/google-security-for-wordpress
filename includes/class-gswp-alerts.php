@@ -1008,10 +1008,6 @@ class GSWP_Alerts {
 		if ( '1' !== get_option( 'gswp_verbose_logging', '0' ) ) {
 			return;
 		}
-		if ( function_exists( 'wc_get_logger' ) ) {
-			wc_get_logger()->warning( $message, array( 'source' => 'gswp' ) );
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'GSWP Alerts: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
+		GSWP_Log::warning( $message );
 	}
 }

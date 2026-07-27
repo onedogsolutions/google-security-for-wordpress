@@ -12,12 +12,24 @@ of *why*.
 **FluentCart is out of scope here** and tracked as a separate feature; §6.3 below
 is retained only as background for that work.
 
-**Site facts confirmed by the operator (2026-07-26), which A2 now assumes:**
-Gravity Forms and this plugin use **the same reCAPTCHA Enterprise site key**, in
-**the same GCP project**, and **Gravity Forms performs its own server-side
-Enterprise API assessments**. Part 3 (A2) and Part 6.2 are written to those
-facts; the divergent-key handling is retained only as a guard against future
-misconfiguration.
+**Site facts — corrected 2026-07-27. Read this before Part 1.**
+
+The operator initially reported that Gravity Forms and this plugin shared one
+Enterprise site key, and this document was revised to that. It has since been
+established that **at the time of the failure the affected site had a legacy
+classic v3 key configured in Gravity Forms** — it had not yet been migrated to
+the Enterprise key. The shared-key description applies to sites already
+migrated, not to the one that broke.
+
+So the keys **did** diverge when Stripe failed, and they diverged across script
+families as well: GF loaded `api.js` for a classic key while this plugin loaded
+`enterprise.js` for an Enterprise key. That is a harder conflict than two copies
+of the same loader — both scripts define the `grecaptcha` global, so they
+collide directly.
+
+This is the second time the attribution has moved. The original draft named
+divergent keys, the shared-key report moved it to duplicate execution, and this
+correction moves it back. See §1.1.
 
 ---
 
@@ -36,31 +48,38 @@ suppresses *any* script tag whose `src` contains `google.com/recaptcha`,
 `recaptcha.net/recaptcha`, or `gstatic.com/recaptcha`
 (`includes/class-gswp-conflict-guard.php:58-62`). The site's mode was `active`,
 which suppresses on pages where our own script is enqueued. On a page carrying
-both a GF form and any surface we protect, GF's `enterprise.js` tag was removed
-from the output. GF's field initialisation depends on `grecaptcha` resolving;
+both a GF form and any surface we protect, GF's loader tag (`api.js`, for its
+classic key) was removed from the output. GF's field initialisation depends on `grecaptcha` resolving;
 when it throws, GF's downstream field rendering — including the Stripe element —
 never runs.
 
-**(b) Two Enterprise loaders for the same key.** Even with the guard off, GF emits
-`enterprise.js?render=K` and we emit `enterprise.js?render=K` — the operator has
-since confirmed both plugins use **the same** site key in the same project, so
-these are two tags with an identical `src` under different handles. The browser
-fetches once and executes twice. Google documents reCAPTCHA as one-load-per-page;
-re-executing the loader can re-initialise the invisible widget and disrupt
-`grecaptcha.ready()` callback delivery, which is what GF's field rendering waits
-on.
+**(b) Two loaders, two different keys, two different script families.** The
+affected site had a **legacy classic v3 key** in Gravity Forms and an
+**Enterprise key** in this plugin. So GF emitted
+`api.js?render=<CLASSIC_KEY>` while this plugin emitted
+`enterprise.js?render=<ENTERPRISE_KEY>`.
 
-**Revised attribution (after the shared-key confirmation).** The original draft of
-this document assumed the keys differed and named (b) as the root cause. They do
-not differ, which makes (b) a duplicate-execution problem rather than an
-unsatisfiable one — disruptive, but not a guaranteed break. **(a) is therefore the
-probable primary mechanism**: with conflict mode set to `active` and our script
-enqueued on that page, GF's loader tag was removed from the output outright, which
-is a certain and total failure of GF's initialisation.
+That is not a duplicate. Both files define the `grecaptcha` global, and only one
+site key can be pre-rendered per page, so whichever loaded second overwrote the
+first's client and one of the two plugins was left calling `execute()` for a key
+that was never rendered. Google documents reCAPTCHA as one-load-per-page and this
+is precisely the case that breaks: GF's field initialisation waits on
+`grecaptcha.ready()`, and when that never resolves correctly the Stripe payment
+element never mounts.
 
-Both still need fixing, and they map to different remedies: A2.1 deduplicates the
-loader, A6 stops the suppression. Neither was addressed by the emergency fix,
-which instead disabled our own plugin around the symptom.
+**Attribution, corrected twice — final.** The original draft named (b), assuming
+divergent keys. A mid-investigation report that both plugins shared one Enterprise
+key moved the blame to (a), on the reasoning that same-key duplication is
+disruptive but not fatal. That report described the site's *intended* state; the
+site that actually broke was still on the legacy classic key. **(b) is the root
+cause**, and (a) — the Conflict Guard stripping GF's tag in `active` mode —
+compounded it.
+
+The practical consequence is that this incident is exactly the divergent-key
+scenario the 2.18.1 warning was built for. Had that warning existed, it would have
+named both keys and the plugin holding the other one, on the first admin page
+load. Both remedies still stand: A2.1 deduplicates same-key loaders, A6 stops the
+suppression, and the divergent-key case is reported rather than guessed at.
 
 ### 1.2 The six design defects that made this inevitable
 
@@ -74,15 +93,19 @@ shipped as the option labelled **"Recommended."**
 
 **D2 — No site-key arbitration anywhere in the codebase.**
 The only question that determines whether two reCAPTCHA consumers can coexist is
-*"are they using the same site key?"* — and the plugin never asks it. On this site
-the answer is **yes**, which means coexistence was always trivially achievable:
-one loader, both callers, full protection on both sides. The plugin instead
-suppressed one and then disabled the other. Had the question been asked, neither
-the outage nor the emergency fix would have happened.
+*"are they using the same site key?"* — and the plugin never asks it.
 
-(If two consumers *did* use different keys, no amount of suppression would fix it
-and the admin would need to be told. That branch is also not implemented — see
-A2.3.)
+On the site that broke the answer was **no**: a legacy classic key in Gravity
+Forms against an Enterprise key here. No amount of suppression fixes that, and
+the only correct response was to tell the operator — which nothing in the plugin
+was capable of doing. On sites already migrated to a single Enterprise key the
+answer is **yes**, and coexistence was always trivially achievable: one loader,
+both callers, full protection on both sides.
+
+The plugin could not distinguish those two situations, so it applied the same
+blunt response to both: suppress one, then disable itself. Asking the question is
+what separates "share the loader" from "warn the operator", and it is the whole
+of A2.
 
 **D3 — Script loading and field printing are on separate, ungated code paths.**
 `GSWP_Frontend::register_scripts()` decides whether the loader exists;

@@ -485,15 +485,10 @@ class GSWP_Recaptcha_Loader {
 				. implode( ', ', $handles )
 				. '. Two reCAPTCHA site keys cannot both be pre-rendered on one page; one of them will fail to execute.';
 
-		if ( function_exists( 'wc_get_logger' ) ) {
-			$logger = wc_get_logger();
-			if ( $record['suppressing'] ) {
-				$logger->error( $message, array( 'source' => 'gswp' ) );
-			} else {
-				$logger->warning( $message, array( 'source' => 'gswp' ) );
-			}
-		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'GSWP Loader: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		if ( $record['suppressing'] ) {
+			GSWP_Log::error( $message );
+		} else {
+			GSWP_Log::warning( $message );
 		}
 	}
 
