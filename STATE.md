@@ -1,6 +1,22 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 44 (GF bindings verified; cross-family dedup bug found)
+## Current Phase: Phase 45 (this plugin corrupted Gravity Forms' settings)
+
+### Phase 45 Modifications (v2.20.5)
+The 2.20.4 binding fix worked. That is precisely why it did damage: `disable_native()` had been filtering an option that did not exist, so it had no effect anywhere. Once the names were correct, the filter started applying **on admin screens too**, and Gravity Forms' own reCAPTCHA settings page reads that option to populate its fields and writes back what it read. The operator reported the page could no longer be saved; chunk 15 then confirmed the option had been reduced to `connection_type`, `nonce` and `action` — `site_key_v3`, `secret_key_v3`, `score_threshold_v3`, `disable_badge_v3`, `recaptcha_keys_status_v3`, `site_key_v2`, `secret_key_v2` and `type_v2` all gone.
+
+**This broke the guarantee the whole approach rests on.** The stated reason for filtering settings rather than unhooking GF's internals was that it is read-only and reversible — turn the provider off and GF's reCAPTCHA returns on the next request. A read filter that reaches a settings screen is not read-only in effect, because the screen round-trips what it reads. The mechanism was sound; the scope was not.
+
+**Three changes, in order of importance.**
+1. **Scope.** `disable_native()` now returns early on `is_admin()`. The single exception is a Gravity Forms form *submission* over admin-ajax (`is_gf_form_submission()`: `wp_doing_ajax()` plus `$_POST['gform_submit']` or an `action` beginning `gform_submit`) — GF must stay stood down there or it would validate a field it was prevented from rendering. Everything else admin-side, **including the add-on's own key-validation AJAX**, sees the real stored values. The first draft of this guard used `is_admin() && ! wp_doing_ajax()`, which would have left the validation call reading blanks and reporting the operator's freshly entered keys as invalid.
+2. **A write guard, so scope alone is not the only defence.** New `protect_native_settings()` on `pre_update_option_*`, registered only where the read filter is active. On those requests no legitimate save of GF's settings exists, so a write that empties a previously non-empty key is refused and logged at error level. It is one-directional: a write that *sets* a key always passes, so it can never block an operator configuring the add-on. Scope is the fix; this is the thing that would have made the bug visible instead of destructive.
+3. **Reporting no longer reads through our own filter.** `native_captcha_state()` used `get_option()`, so on the front end it read the blanked copy and concluded GF had nothing configured — which is a second, independent explanation for the perpetual `unknown` in the Form Protection table, and one that would have survived the Phase 44 name fix. It now reads the row directly with `$wpdb` (new `raw_option()`). Chunk 16 does the same and prints raw vs. filtered side by side, so the filter's effect is observed rather than inferred.
+
+**Recovery for the affected site.** The keys are not lost: the same site key is configured in this plugin and the pair survives in PowerPack's `bb_powerpack_recaptcha_v3_site_key` / `bb_powerpack_recaptcha_v3_secret_key`. Install 2.20.5 first — on 2.20.4 the settings page will simply eat the values again — then re-enter the pair with `score_threshold_v3 = 0.5` and `connection_type = classic`, and re-run chunk 16 to confirm they persisted. No automated restore was written: guessing which of three stored key pairs belongs in another plugin's configuration is the same class of mistake as guessing its option names, which has now failed twice.
+
+**Still unverified, and now unblocked:** `disable_native()` has never once been observed working. Phase 43 proved it did nothing, Phase 44 fixed the binding, Phase 45 fixed the damage that fix caused — but the actual behaviour, GF's reCAPTCHA absent from front-end markup while its stored settings remain intact, can only be tested after the settings are restored. Chunks 14 and 16 together are that test. Separately, **no test yet proves the token field is ever populated with a value**; every chunk so far proves only that the field is present.
+
+## Historical Phase: Phase 44 (GF bindings verified; cross-family dedup bug found)
 
 ### Phase 44 Modifications (v2.20.4)
 Chunk 15 discovery run on staging. It fixed the binding and, more importantly, exposed a latent token-generation failure that no earlier test could have caught.

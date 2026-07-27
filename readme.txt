@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.4
+Stable tag: 2.20.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.5 =
+* Fixed: Gravity Forms' own reCAPTCHA settings page could not be edited. To stand Gravity Forms' reCAPTCHA down, this plugin filters the setting it reads — but the filter was also applied inside wp-admin, so the settings page showed empty key fields and could not be saved correctly. It now applies only on the front end and to AJAX form submissions, never to an admin screen. Nothing was ever written to Gravity Forms' settings by this plugin, but if Gravity Forms itself saved the blank fields back while the page was affected, the keys will need re-entering once; run tests/manual/16-gf-settings-integrity.php to check.
+* Fixed: the Form Protection table always reported "unknown" for Gravity Forms' own reCAPTCHA, even when it was configured. Detection read the setting through this plugin's own blanking filter, so it could only ever conclude nothing was there. It now reads the stored value directly.
+* Added: a write guard so this can never happen again. On any request where this plugin serves Gravity Forms' reCAPTCHA settings blanked, a write that would empty a stored key is refused and logged. Writes that set a key are always allowed through, so configuring the add-on is unaffected.
 
 = 2.20.4 =
 * Fixed: this plugin could silently stop generating reCAPTCHA tokens when another plugin loaded reCAPTCHA with the same site key but the other integration type. Duplicate script tags were collapsed on the site key alone, but the classic loader (api.js) and the Enterprise loader (enterprise.js) are different APIs — keeping the wrong one left this plugin calling a namespace that was never loaded, so token fields stayed empty and submissions to payment or registration forms were rejected. Tags are now only treated as duplicates when the site key *and* the integration type match, and a site loading both is reported.
