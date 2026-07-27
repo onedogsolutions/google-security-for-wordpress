@@ -1147,11 +1147,29 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * @param string $reason  Error code, e.g. 'recaptcha_low_score'.
 	 */
 	private function record_rejection( $form_id, $reason ) {
+		$form_id = (int) $form_id;
+		$reason  = (string) $reason;
+
 		$log = get_option( self::REJECTION_OPTION, array() );
 		$log = is_array( $log ) ? $log : array();
 
-		$log[ (int) $form_id ] = array(
-			'reason' => (string) $reason,
+		// Throttled, like record_injection(). A payment form under a carding
+		// run rejects continuously, and one option write per rejected attempt
+		// would turn an attack into database load — the plugin amplifying the
+		// thing it exists to absorb. The timestamp is only ever read to show
+		// "why did this last reject", so a few minutes of staleness costs the
+		// operator nothing. A CHANGE of reason always writes immediately: that
+		// is new information.
+		if ( isset( $log[ $form_id ] )
+			&& isset( $log[ $form_id ]['reason'], $log[ $form_id ]['time'] )
+			&& $log[ $form_id ]['reason'] === $reason
+			&& ( time() - (int) $log[ $form_id ]['time'] ) < 5 * MINUTE_IN_SECONDS
+		) {
+			return;
+		}
+
+		$log[ $form_id ] = array(
+			'reason' => $reason,
 			'time'   => time(),
 		);
 

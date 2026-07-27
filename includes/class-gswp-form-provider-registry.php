@@ -183,7 +183,21 @@ class GSWP_Form_Provider_Registry {
 			if ( ! $provider->is_active() ) {
 				continue;
 			}
-			if ( '1' === get_option( self::option( $id ), '0' ) ) {
+
+			// Only ever enable a provider the operator has expressed no opinion
+			// about. This guard is the whole point of the method since 2.22.0.
+			//
+			// MIGRATED_OPTION holds the version that last ran this, so it fires
+			// again on EVERY upgrade — and the old skip condition was "already
+			// on", which meant an explicit '0' was treated as merely not-yet-on
+			// and switched back to '1'. An operator who turned form protection
+			// off, for any reason including a defect we told them to work around,
+			// silently had it turned back on by the next update. A stored '0' is
+			// a decision, and an upgrade is not a licence to overrule it.
+			//
+			// get_option() with a null default returns null only when the row
+			// does not exist, which is exactly "never chosen".
+			if ( null !== get_option( self::option( $id ), null ) ) {
 				continue;
 			}
 
