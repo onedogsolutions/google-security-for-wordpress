@@ -138,7 +138,6 @@ $out[] = '';
 $out[] = sprintf( 'Checked %d eligible form(s): %d mismatch(es).', $checked, $failures );
 $out[] = 'Injection log restored to its previous state.';
 
-// --- Feed inventory: confirms the UNVERIFIED feedType binding ---------------
 // --- Field inventory: confirms the password-field binding -------------------
 $out[] = '';
 $out[] = '=== FIELD INVENTORY (report this block verbatim) ===';
