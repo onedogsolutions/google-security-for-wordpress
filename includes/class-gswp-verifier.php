@@ -48,6 +48,27 @@ class GSWP_Verifier {
 	private $last_context = '';
 
 	/**
+	 * reCAPTCHA score from the most recent assessment, or null when none was
+	 * returned (no verification ran, or the token was rejected before scoring).
+	 *
+	 * Exposed so a caller that receives a non-score error — notably an action
+	 * mismatch — can still consult Google's actual judgement of the traffic
+	 * rather than treating a labelling problem as a verdict about the visitor.
+	 *
+	 * @var float|null
+	 */
+	private $last_score = null;
+
+	/**
+	 * The action reCAPTCHA reported the token was minted with, when the
+	 * assessment returned one. Empty for classic verification, which does not
+	 * report the action at all.
+	 *
+	 * @var string
+	 */
+	private $last_token_action = '';
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -171,10 +192,17 @@ class GSWP_Verifier {
 	 * Routes verification through the classic siteverify endpoint or the
 	 * reCAPTCHA Enterprise assessments API depending on the configured key type.
 	 *
-	 * @param string $context         Threshold context. The configured threshold
+	 * @param string       $context         Threshold context. The configured threshold
 	 *                                is read from "gswp_threshold_{$context}".
-	 * @param string $expected_action reCAPTCHA action name the frontend executed
+	 * @param string|array $expected_action reCAPTCHA action name the frontend executed
 	 *                                with, validated for Enterprise assessments.
+	 *                                May be a list, in which case the first entry
+	 *                                is sent to Google as expectedAction and the
+	 *                                token's own action is accepted if it matches
+	 *                                any entry. A list is only ever used to accept
+	 *                                a second action name WE mint ourselves (see
+	 *                                GSWP_Provider_Gravity_Forms::accepted_actions),
+	 *                                never to widen what a request may claim.
 	 * @param array  $event_extra     Extra fields merged into the Enterprise
 	 *                                assessment "event" (e.g. transactionData).
 	 *                                Ignored for classic verification.
@@ -194,6 +222,8 @@ class GSWP_Verifier {
 		$this->last_fraud_assessment  = null;
 		$this->last_account_assessment = null;
 		$this->last_context            = (string) $context;
+		$this->last_score              = null;
+		$this->last_token_action       = '';
 
 		// Attach Account Defender account identifiers on login/registration
 		// assessments so Google can build its site-specific behavioural model.
@@ -248,9 +278,19 @@ class GSWP_Verifier {
 
 		if ( true !== $result && ! is_wp_error( $result ) ) {
 			// Score returned: check it against the configured threshold.
-			$threshold = floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) );
+			$this->last_score = floatval( $result );
+			$threshold        = floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) );
 
-			if ( floatval( $result ) < $threshold ) {
+			if ( $this->last_score < $threshold ) {
+				// The only rejection in this class that is an honest statement
+				// about the visitor: Google scored the traffic and it came up
+				// short. Every other rejection path is about the token.
+				$this->log_rejection(
+					'score below threshold',
+					$expected_action,
+					sprintf( 'score %.2f < threshold %.2f', $this->last_score, $threshold )
+				);
+
 				return new WP_Error(
 					'recaptcha_low_score',
 					__( '<strong>Error:</strong> Verification score too low. Submission rejected as potential spam.', 'google-security-for-wordpress' )
@@ -261,6 +301,47 @@ class GSWP_Verifier {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Record why a submission was rejected.
+	 *
+	 * Until 2.21.2 every rejection returned a WP_Error and wrote nothing
+	 * anywhere — not the siteverify error codes, not the Enterprise
+	 * invalidReason, not the observed action. Five materially different causes
+	 * all surfaced to the operator as one sentence accusing the visitor of spam,
+	 * which is how a working customer came to be reported as a suspected
+	 * spammer. A rejection nobody can explain is a defect in its own right.
+	 *
+	 * @param string       $reason   Short cause, e.g. 'action mismatch'.
+	 * @param string|array $expected Expected action, or list of accepted actions.
+	 * @param string       $detail   Extra detail for the operator.
+	 * @param bool         $is_error Whether this is a site misconfiguration
+	 *                               rather than a routine rejection.
+	 */
+	private function log_rejection( $reason, $expected, $detail = '', $is_error = false ) {
+		$parts = array(
+			'reCAPTCHA rejected a submission: ' . $reason . '.',
+			'context=' . $this->last_context,
+			'expected_action=' . implode( '|', array_filter( (array) $expected ) ),
+		);
+
+		if ( '' !== $this->last_token_action ) {
+			$parts[] = 'token_action=' . $this->last_token_action;
+		}
+		if ( '' !== $detail ) {
+			$parts[] = $detail;
+		}
+
+		$parts[] = 'site_key=' . GSWP_Recaptcha_Loader::mask_key( get_option( 'gswp_site_key', '' ) );
+
+		$message = implode( ' ', $parts );
+
+		if ( $is_error ) {
+			GSWP_Log::error( $message );
+		} else {
+			$this->log( $message );
+		}
 	}
 
 	/**
@@ -303,19 +384,50 @@ class GSWP_Verifier {
 
 		if ( ! $data['success'] ) {
 			$error_codes = isset( $data['error-codes'] ) && is_array( $data['error-codes'] ) ? $data['error-codes'] : array();
+			$codes       = implode( ', ', $error_codes );
 
 			// Credential misconfiguration is a site problem, not a visitor
 			// problem: log it and let the submission through rather than
-			// blocking every customer.
+			// blocking every customer. Safe to fail open because our stored
+			// secret is not something a visitor can influence.
 			$config_errors = array_intersect( $error_codes, array( 'invalid-input-secret', 'missing-input-secret', 'invalid-keys' ) );
 			if ( ! empty( $config_errors ) ) {
 				$this->log( 'siteverify rejected the configured secret key (' . implode( ', ', $config_errors ) . '). Check the secret key in WooCommerce > reCAPTCHA v3. Verification was skipped.' );
 				return true;
 			}
 
+			// A stale or already-spent token. The Enterprise path has always
+			// treated this as "fetch a fresh one and retry"; the classic path
+			// had no equivalent, so the single most common siteverify failure
+			// fell through to an accusation of spam. v3 tokens last 120 seconds
+			// and are single use, so this is routine — a visitor who fills a
+			// long form on a phone, backgrounds the tab, and comes back will
+			// hit it without doing anything wrong.
+			if ( in_array( 'timeout-or-duplicate', $error_codes, true ) ) {
+				$this->log_rejection( 'token expired or already used', '', 'error-codes: ' . $codes );
+
+				return new WP_Error(
+					'recaptcha_expired',
+					__( '<strong>Error:</strong> Anti-spam verification expired. Please try again.', 'google-security-for-wordpress' )
+				);
+			}
+
+			// The visitor's browser could not produce a usable token. Also not a
+			// judgement about them.
+			if ( in_array( 'browser-error', $error_codes, true ) ) {
+				$this->log_rejection( 'browser could not produce a token', '', 'error-codes: ' . $codes );
+
+				return new WP_Error(
+					'recaptcha_expired',
+					__( '<strong>Error:</strong> Anti-spam verification could not be completed. Please refresh the page and try again.', 'google-security-for-wordpress' )
+				);
+			}
+
+			$this->log_rejection( 'siteverify returned success=false', '', 'error-codes: ' . ( '' !== $codes ? $codes : 'none reported' ) );
+
 			return new WP_Error(
 				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
+				__( '<strong>Error:</strong> We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' )
 			);
 		}
 
@@ -342,11 +454,16 @@ class GSWP_Verifier {
 			rawurlencode( $api_key )
 		);
 
+		// An action list validates against every entry but reports the first to
+		// Google, which accepts a single expectedAction.
+		$accepted_actions = array_values( array_filter( (array) $expected_action ) );
+		$primary_action   = ! empty( $accepted_actions ) ? $accepted_actions[0] : '';
+
 		$event = array_merge(
 			array(
 				'token'          => $token,
 				'siteKey'        => $site_key,
-				'expectedAction' => $expected_action,
+				'expectedAction' => $primary_action,
 				'userIpAddress'  => $this->get_remote_ip(),
 			),
 			is_array( $event_extra ) ? $event_extra : array()
@@ -394,31 +511,97 @@ class GSWP_Verifier {
 
 		$token_properties = isset( $data['tokenProperties'] ) && is_array( $data['tokenProperties'] ) ? $data['tokenProperties'] : array();
 
+		if ( isset( $token_properties['action'] ) ) {
+			$this->last_token_action = (string) $token_properties['action'];
+		}
+
+		$score = isset( $data['riskAnalysis']['score'] ) ? floatval( $data['riskAnalysis']['score'] ) : 0.0;
+
 		if ( empty( $token_properties['valid'] ) ) {
 			$reason = isset( $token_properties['invalidReason'] ) ? $token_properties['invalidReason'] : 'UNKNOWN';
 
-			// Expired or already-used tokens just need a fresh attempt.
-			if ( in_array( $reason, array( 'EXPIRED', 'DUPE' ), true ) ) {
+			// Expired or already-used tokens just need a fresh attempt. So does
+			// a browser that failed to produce one — none of these say anything
+			// about the visitor.
+			if ( in_array( $reason, array( 'EXPIRED', 'DUPE', 'BROWSER_ERROR' ), true ) ) {
+				$this->log_rejection( 'token not usable', $expected_action, 'invalidReason: ' . $reason );
+
 				return new WP_Error(
 					'recaptcha_expired',
 					__( '<strong>Error:</strong> Anti-spam verification expired. Please try again.', 'google-security-for-wordpress' )
 				);
 			}
 
+			// The token was minted against a different site key. That is a
+			// configuration fault worth shouting about, but — unlike a bad
+			// secret — it must NOT fail open: the token comes from the request,
+			// so anyone with a reCAPTCHA account of their own could mint one and
+			// walk straight past verification. Log loudly, keep blocking.
+			if ( 'SITE_MISMATCH' === $reason ) {
+				$this->log_rejection(
+					'token was minted for a DIFFERENT site key',
+					$expected_action,
+					'invalidReason: SITE_MISMATCH. Check that every plugin loading reCAPTCHA on this page uses the site key configured here.',
+					true
+				);
+
+				return new WP_Error(
+					'recaptcha_failed',
+					__( '<strong>Error:</strong> We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' )
+				);
+			}
+
+			$this->log_rejection( 'token rejected by Google', $expected_action, 'invalidReason: ' . $reason );
+
 			return new WP_Error(
 				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
+				__( '<strong>Error:</strong> We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' )
 			);
 		}
 
-		if ( isset( $token_properties['action'] ) && $token_properties['action'] !== $expected_action ) {
+		// The token is valid for this site key; only its label disagrees. That
+		// is almost always OUR bug — two places deciding the action name and
+		// drifting apart, which is exactly what rejected every Gravity Forms
+		// account form — or a page cached before an action name changed. It is
+		// not evidence about the visitor, so it gets its own error code and the
+		// score is kept, letting the caller apply a policy proportionate to the
+		// form rather than blocking a customer over a string mismatch.
+		if ( '' !== $this->last_token_action && ! empty( $accepted_actions ) && ! in_array( $this->last_token_action, $accepted_actions, true ) ) {
+			$this->last_score = $score;
+
+			$this->log_rejection(
+				'token action does not match',
+				$expected_action,
+				'The token is valid for this site key but carries a different action name. This is usually a plugin bug or a page cached before the action changed, not a spam signal.',
+				true
+			);
+
 			return new WP_Error(
-				'recaptcha_failed',
-				__( '<strong>Error:</strong> Verification failed. You have been flagged as potential spam. Please try again.', 'google-security-for-wordpress' )
+				'recaptcha_action_mismatch',
+				__( '<strong>Error:</strong> We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' )
 			);
 		}
 
-		return isset( $data['riskAnalysis']['score'] ) ? floatval( $data['riskAnalysis']['score'] ) : 0.0;
+		return $score;
+	}
+
+	/**
+	 * reCAPTCHA score from the most recent assessment.
+	 *
+	 * @return float|null Score (0..1, higher is more likely human), or null when
+	 *                    no assessment produced one.
+	 */
+	public function get_last_score() {
+		return $this->last_score;
+	}
+
+	/**
+	 * The action the most recent token was actually minted with.
+	 *
+	 * @return string Action name, or '' when none was reported.
+	 */
+	public function get_last_token_action() {
+		return $this->last_token_action;
 	}
 
 	/**

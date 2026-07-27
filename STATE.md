@@ -1,6 +1,41 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 47 (config mistaken for behaviour)
+## Current Phase: Phase 48 (a real customer accused of being spam)
+
+### Phase 48 Modifications (v2.22.0)
+A named, known-good customer was blocked from the account dashboard's "User Profile" Gravity Form and told: *"Verification failed. You have been flagged as potential spam."* The client had spoken to her. She was not spam, and the plugin was not saying she was — it was showing a spam accusation for a condition that had nothing to do with her.
+
+**The message was a lie the code told about itself.** A genuine low score produces a *different* string ("Verification score too low"). The one she saw is reachable only when the token is rejected or its action label mismatches. Google never judged her traffic at all.
+
+**Root cause: the action was decided twice.** `token_field()` labelled the token `form_has_payment() ? 'checkout' : 'submit'`. `validate_submission()` expected `$payment ? 'checkout' : ( form_creates_account() ? 'register' : 'submit' )`. For a non-payment form with a User Registration feed those disagree — rendered `submit`, expected `register` — and Enterprise assessments reject on `expectedAction` mismatch before scoring. **Every submission of every account form failed, for every visitor, deterministically.** She was simply the one who reported it.
+
+This is a new instance of an old failure mode in this file: not an inferred *binding* (Phases 43–45, 47) but an inferred *invariant* — that two independently written expressions would stay in agreement. Every other integration here (`class-gswp-login.php`, `class-gswp-powerpack.php`, `class-gswp-xootix.php`) pairs render and validation correctly; the GF provider is the only one where the two were written separately, and the only one that drifted.
+
+**Delivery vector:** `maybe_migrate()` turns the GF provider on automatically at upgrade for any site with GF active and a site key. A site that never opted into form replacement acquired this defect silently at 2.20.0.
+
+**Fix — one resolver, two callers.** `action_for()` is now the single source for both the rendered `data-recaptcha-action` and the expected action. The two ternaries are gone. Correcting one of them would have left the invariant intact and unenforced; removing the duplication is the fix. `accepted_actions()` additionally tolerates `submit` on non-payment forms so pages cached under 2.21.1 do not keep rejecting customers until every cache expires — not a bypass, since both names are ours, the token must still be valid for our own site key, and the score still applies. **Remove in 2.23.0.**
+
+**Fix — rejections stopped accusing visitors.** `recaptcha_failed` now covers only genuinely unexplained failures. Expired/reused tokens, `BROWSER_ERROR`, and `SITE_MISMATCH` each say what actually happened. The classic path gained the `timeout-or-duplicate` branch it never had — the single most common siteverify failure was reported as spam, which on a phone (where the report came from) is routine and blameless. The only surviving spam accusation is the low-score one, which is honest.
+
+**`SITE_MISMATCH` deliberately does NOT fail open**, unlike the bad-secret path directly above it. The precedent does not transfer: our stored secret is not attacker-controllable, but a token is — anyone with their own reCAPTCHA account could mint one against their own key and walk past verification. Logged loudly, still blocked.
+
+**Fix — rejections are now logged at all.** Every rejection path wrote nothing anywhere: no error codes, no `invalidReason`, no observed action. Five materially different causes were indistinguishable, which is precisely why this arrived as "is this person a spammer?" instead of "form #N rejects on action mismatch". `log_rejection()` records context, expected vs actual action, Google's reason, and score vs threshold. **A rejection nobody can explain is a defect in its own right.**
+
+**Changed — a profile edit is not a signup.** `account_feed_type()` splits User Registration feeds into `create` and `update`. Update feeds are scored but non-strict: WordPress has already authenticated the person editing her own profile, and locking her out of her own account details is worse than admitting one unscored edit. Create feeds are unchanged and still fail closed. *UNVERIFIED binding:* `meta['feedType']`. Guarded — an unreadable feed type is treated as `create`, identical to pre-2.22.0 behaviour — and chunk 19 prints the raw value per form to settle it.
+
+**Changed — GF forms stopped borrowing the WP registration threshold.** Every non-payment GF form was scored against `gswp_threshold_wp_register`. A site that raised that to fight fake signups was silently applying signup strictness to its contact forms. New contexts: `gf_submit`, `gf_register`, `gf_account_update`, all defaulting to 0.5.
+
+**Added — per-form diagnostics** (`form_policy()`, `last_rejection()`) surfaced in the coverage table via `method_exists()` guards rather than widening the provider interface, so a second provider is not forced to implement diagnostics it has no equivalent for.
+
+**Added — chunk 19 (`19-gf-action-pairing.php`)**, the regression guard: renders the real field, parses the attribute, compares it against the resolved action. Offline, no submissions, no entries — it would have caught this on any install on day one. Chunk 13 gained create-vs-update enforcement cases.
+
+**Verified before shipping** against stub harnesses covering both files: five form classes (contact / create / update / payment / feedType-absent) all pair correctly, and eight verifier scenarios route to the right error code — including a reproduction of the original mismatch and a check that `SITE_MISMATCH` does not fail open.
+
+**Plan:** `PLAN-gf-account-form-false-rejection.md`. It sequenced this as 2.21.2 (unblock) then 2.22.0 (classification), and that split was **not** kept: `action_for()` resolves through `form_updates_account()`, so the account-feed split is a dependency of the fix rather than a follow-on, and separating them would have meant an artificially broken intermediate. Shipped as one 2.22.0. The consequence is that staging to production is coarser than planned — the classification change cannot be held back while only the unblock goes out. If that matters, turning the GF provider off remains the zero-risk mitigation.
+
+**Still open:** the mobile submit race — returning to a backgrounded tab and submitting before the async token refresh lands — is now *reported honestly* rather than as spam, but not eliminated. The bootstrap's submit interceptor covers only `form.login, form.register`. Extending it to GF has its own render-path risk and should wait until the new logging shows how often this actually fires.
+
+## Historical Phase: Phase 47 (config mistaken for behaviour)
 
 ### Phase 47 Modifications (v2.21.1)
 First real use of the 2.21.0 reporting found it wrong, in the same way three earlier defects were wrong.

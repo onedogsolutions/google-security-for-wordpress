@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.21.1
+Stable tag: 2.22.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,15 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.22.0 =
+* Fixed: Gravity Forms forms that create or update a WordPress account rejected every submission, from every visitor, with "Verification failed. You have been flagged as potential spam." Nobody was flagged as spam. This plugin decided the reCAPTCHA action twice — once when placing the hidden token field in the form, once when checking the submission — and the two disagreed for account forms, so reCAPTCHA Enterprise rejected the token on a name mismatch before it ever looked at the score. The two decisions now come from one place and cannot drift apart again. If you use Gravity Forms with the User Registration add-on and Enterprise keys, this affected every submission of those forms.
+* Fixed: a rejected submission no longer accuses the visitor of being spam when the cause has nothing to do with them. An expired or already-used token, a browser that could not produce one, and a token minted against a different site key are all site or client problems, and each now says so. The only message that still mentions spam is the one for a genuinely low reCAPTCHA score.
+* Fixed: on classic (non-Enterprise) keys, an expired or reused token was reported as spam. reCAPTCHA tokens last two minutes and can only be used once, so a visitor filling a long form on a phone hit this without doing anything wrong. It now asks them to try again, matching how Enterprise keys have always behaved.
+* Added: every rejection is now logged with its cause — the expected and actual action, Google's own reason code, and the score against the threshold. Previously a rejection wrote nothing anywhere, so five very different causes were indistinguishable from a support ticket.
+* Changed: a signed-in user editing their own profile through a Gravity Form is no longer treated as a stranger creating an account. Forms whose User Registration feed updates an existing account are scored but not blocked for a missing token; forms that create accounts are unchanged and still fail closed.
+* Changed: Gravity Forms submissions are no longer scored against the WordPress registration threshold. Each class of form has its own setting — ordinary submissions, account creation, and account updates — all defaulting to 0.5. If you had raised the registration threshold to keep fake signups out, that strictness was silently being applied to your contact forms too.
+* Added: the Form Protection table now shows, per form, the reCAPTCHA action and threshold it resolves to and why its last submission was rejected.
 
 = 2.21.1 =
 * Fixed: the Form Protection table reported a form plugin's own reCAPTCHA as active after its add-on had been deactivated. Deactivating a plugin does not delete its settings, and this plugin was reading those stored settings rather than checking whether the add-on was running — so it reported a reCAPTCHA that could not execute, and told you to switch off something already off. It now asks Gravity Forms which add-ons are registered, and reports "off" when the reCAPTCHA add-on is not among them.

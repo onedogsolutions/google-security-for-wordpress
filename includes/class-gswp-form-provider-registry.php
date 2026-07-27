@@ -234,7 +234,7 @@ class GSWP_Form_Provider_Registry {
 			$payment  = $provider->form_has_payment( $form_id );
 			$strict   = $provider->form_is_strict( $form_id );
 
-			$result['forms'][] = array(
+			$row = array(
 				'id'          => $form_id,
 				'title'       => (string) $title,
 				'eligible'    => $eligible,
@@ -245,6 +245,25 @@ class GSWP_Form_Provider_Registry {
 				'enforcement' => $strict ? 'reject' : 'allow',
 				'injected'    => $provider->last_injection( $form_id ),
 			);
+
+			// Optional reporting, not part of the provider contract: the action
+			// and threshold a form actually resolves to, and why it last
+			// rejected someone. A provider that does not offer these simply
+			// reports less. Guarded rather than added to the interface so a
+			// second provider is not forced to implement diagnostics it has no
+			// equivalent for.
+			if ( method_exists( $provider, 'form_policy' ) ) {
+				$policy               = $provider->form_policy( $form_id );
+				$row['action']        = isset( $policy['action'] ) ? $policy['action'] : '';
+				$row['context']       = isset( $policy['context'] ) ? $policy['context'] : '';
+				$row['account_feed']  = isset( $policy['account'] ) ? $policy['account'] : '';
+			}
+
+			if ( method_exists( $provider, 'last_rejection' ) ) {
+				$row['last_rejection'] = $provider->last_rejection( $form_id );
+			}
+
+			$result['forms'][] = $row;
 
 			if ( ! $eligible ) {
 				$result['ineligible'][] = $form_id;

@@ -120,6 +120,11 @@ class GSWP_Admin {
 			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			// Gravity Forms, per class of form. Before 2.22.0 every non-payment
+			// GF form was scored against threshold_wp_register.
+			'threshold_gf_submit'    => get_option( 'gswp_threshold_gf_submit', '0.5' ),
+			'threshold_gf_register'  => get_option( 'gswp_threshold_gf_register', '0.5' ),
+			'threshold_gf_account_update' => get_option( 'gswp_threshold_gf_account_update', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),

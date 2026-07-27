@@ -100,6 +100,11 @@ class GSWP_Rest_Api {
 			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			// Gravity Forms, per class of form. Before 2.22.0 every non-payment
+			// GF form was scored against threshold_wp_register.
+			'threshold_gf_submit'    => get_option( 'gswp_threshold_gf_submit', '0.5' ),
+			'threshold_gf_register'  => get_option( 'gswp_threshold_gf_register', '0.5' ),
+			'threshold_gf_account_update' => get_option( 'gswp_threshold_gf_account_update', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
 			'form_providers'         => GSWP_Form_Provider_Registry::audit_all(),
@@ -835,6 +840,9 @@ class GSWP_Rest_Api {
 			'threshold_wp_login',
 			'threshold_wp_register',
 			'threshold_wp_lostpassword',
+			'threshold_gf_submit',
+			'threshold_gf_register',
+			'threshold_gf_account_update',
 		);
 		foreach ( $thresholds as $threshold ) {
 			if ( isset( $params[ $threshold ] ) ) {

@@ -153,6 +153,68 @@ if ( $never_target ) {
 	$out[] = '       should now appear in the WooCommerce log, source "gswp")';
 }
 
+// --- 4 & 5: account forms, split by what the feed actually does -------------
+// A form that CREATES an account is a security surface and fails closed. A form
+// that UPDATES one is a profile edit by somebody WordPress has already
+// authenticated: locking her out of her own account details is worse than
+// admitting one unscored edit. Before 2.22.0 both were treated as signups.
+$create_form = 0;
+$update_form = 0;
+
+if ( method_exists( $provider, 'form_updates_account' ) ) {
+	foreach ( array_keys( $forms ) as $form_id ) {
+		if ( ! $provider->form_is_eligible( $form_id ) || $provider->form_has_payment( $form_id ) ) {
+			continue;
+		}
+		if ( ! $create_form && $provider->form_creates_account( $form_id ) ) {
+			$create_form = $form_id;
+		}
+		if ( ! $update_form && $provider->form_updates_account( $form_id ) ) {
+			$update_form = $form_id;
+		}
+	}
+
+	$out[] = '';
+	$out[] = 'Account-create form under test: ' . ( $create_form ? '#' . $create_form : 'none found' );
+	$out[] = 'Account-update form under test: ' . ( $update_form ? '#' . $update_form : 'none found' );
+
+	$log = is_array( $saved_log ) ? $saved_log : array();
+
+	if ( $create_form ) {
+		$log[ (int) $create_form ] = time();
+		update_option( $log_option, $log, false );
+
+		unset( $_POST[ GSWP_Provider_Gravity_Forms::TOKEN_FIELD ] );
+		$allowed = $validate( $create_form );
+
+		$mark(
+			'Account-CREATE form with no token is REJECTED',
+			! $allowed,
+			'spam registrations can be submitted with no verification'
+		);
+	}
+
+	if ( $update_form ) {
+		$log[ (int) $update_form ] = time();
+		update_option( $log_option, $log, false );
+
+		unset( $_POST[ GSWP_Provider_Gravity_Forms::TOKEN_FIELD ] );
+		$allowed = $validate( $update_form );
+
+		$mark(
+			'Account-UPDATE form with no token is ALLOWED',
+			$allowed,
+			'a signed-in user cannot edit her own profile'
+		);
+	}
+
+	if ( ! $update_form ) {
+		$out[] = '      (no update feed found. If this site HAS a profile-edit form,';
+		$out[] = '       the feedType binding is wrong — run chunk 19 and report its';
+		$out[] = '       FEED INVENTORY block.)';
+	}
+}
+
 // --- restore ---------------------------------------------------------------
 $_POST = $original_post;
 update_option( $log_option, is_array( $saved_log ) ? $saved_log : array(), false );

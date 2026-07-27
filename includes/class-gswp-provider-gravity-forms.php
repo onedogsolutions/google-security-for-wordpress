@@ -90,6 +90,16 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	const INJECTION_OPTION = 'gswp_gf_injection_log';
 
 	/**
+	 * Option recording, per form, why the last submission was rejected.
+	 *
+	 * "Why is form #12 rejecting?" was unanswerable from wp-admin, and
+	 * unanswerable from the logs too, because nothing was written there. The
+	 * coverage report is where an operator already goes to ask what this plugin
+	 * is doing to a form, so the answer belongs there.
+	 */
+	const REJECTION_OPTION = 'gswp_gf_last_rejection';
+
+	/**
 	 * Add-on slugs whose presence marks a form as taking payment.
 	 *
 	 * UNVERIFIED against installed source. Incompleteness is safe: an
@@ -118,6 +128,11 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * of chasing (see the Account Defender and content-heuristic work). It gets
 	 * the same fail-closed treatment as a payment.
 	 *
+	 * The slug is the same for feeds that CREATE an account and feeds that
+	 * UPDATE one, which is why account_feed_type() has to look at the feed's own
+	 * type. Treating both alike meant a signed-in customer editing her own
+	 * profile was judged as if she were a stranger signing up.
+	 *
 	 * UNVERIFIED against installed source.
 	 *
 	 * @var string[]
@@ -125,6 +140,18 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	private static $account_addons = array(
 		'gravityformsuserregistration',
 	);
+
+	/**
+	 * Per-request cache of derived form classification, keyed bucket => form id.
+	 *
+	 * Classification now runs on the render path as well as the validation path
+	 * (the action a form's token is minted with depends on it), and each answer
+	 * costs a GFAPI::get_feeds() query. A page with several forms would repeat
+	 * those queries per render hook without this.
+	 *
+	 * @var array<string,array<int,mixed>>
+	 */
+	private $memo = array();
 
 	/**
 	 * Setting names inside GF's reCAPTCHA option that hold a site key.
@@ -244,6 +271,21 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * doubt, choose the inconvenience.
 	 */
 	public function form_has_payment( $form_id ) {
+		$cached = $this->memo_get( 'payment', $form_id );
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
+		return $this->memo_set( 'payment', $form_id, $this->compute_has_payment( $form_id ) );
+	}
+
+	/**
+	 * Uncached body of form_has_payment().
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	private function compute_has_payment( $form_id ) {
 		$form = $this->form( $form_id );
 		if ( null === $form ) {
 			return true;
@@ -280,32 +322,85 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	}
 
 	/**
-	 * Whether a form's feeds create or modify a WordPress account.
+	 * Whether a form's active feeds create a new WordPress account.
 	 *
 	 * @param int|string $form_id Form identifier.
 	 * @return bool
 	 */
 	public function form_creates_account( $form_id ) {
+		return 'create' === $this->account_feed_type( $form_id );
+	}
+
+	/**
+	 * Whether a form's active feeds update an existing WordPress account.
+	 *
+	 * A profile-edit form. WordPress has already authenticated whoever is
+	 * submitting it, so reCAPTCHA here is defence in depth, not the gate —
+	 * see form_is_strict().
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	public function form_updates_account( $form_id ) {
+		return 'update' === $this->account_feed_type( $form_id );
+	}
+
+	/**
+	 * What a form's User Registration feeds do to an account.
+	 *
+	 * UNVERIFIED against installed source: the feed's type is expected at
+	 * `meta['feedType']` with the values 'create' and 'update'. Chunk 19 of the
+	 * manual verification suite prints the raw value per form so this can be
+	 * confirmed on a live install.
+	 *
+	 * Fails to the strict answer, per this class's standing rule: a User
+	 * Registration feed whose type cannot be read is treated as 'create', which
+	 * is exactly how every such feed was treated before 2.22.0. A form carrying
+	 * both kinds of feed is 'create' — the stricter of the two.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return string 'create', 'update', or '' when the form touches no account.
+	 */
+	private function account_feed_type( $form_id ) {
+		$cached = $this->memo_get( 'account_feed_type', $form_id );
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
 		if ( ! method_exists( 'GFAPI', 'get_feeds' ) ) {
-			return false;
+			return $this->memo_set( 'account_feed_type', $form_id, '' );
 		}
 
 		$feeds = GFAPI::get_feeds( null, (int) $form_id );
 		if ( ! is_array( $feeds ) ) {
-			return false;
+			return $this->memo_set( 'account_feed_type', $form_id, '' );
 		}
+
+		$type = '';
 
 		foreach ( $feeds as $feed ) {
 			if ( empty( $feed['is_active'] ) ) {
 				continue;
 			}
 			$slug = isset( $feed['addon_slug'] ) ? (string) $feed['addon_slug'] : '';
-			if ( in_array( $slug, self::$account_addons, true ) ) {
-				return true;
+			if ( ! in_array( $slug, self::$account_addons, true ) ) {
+				continue;
 			}
+
+			$meta     = isset( $feed['meta'] ) && is_array( $feed['meta'] ) ? $feed['meta'] : array();
+			$declared = isset( $meta['feedType'] ) ? strtolower( trim( (string) $meta['feedType'] ) ) : '';
+
+			if ( 'update' === $declared ) {
+				// Only downgrade to 'update' if nothing has claimed 'create'.
+				$type = ( 'create' === $type ) ? 'create' : 'update';
+				continue;
+			}
+
+			// 'create', or a value we do not recognise, or no value at all.
+			return $this->memo_set( 'account_feed_type', $form_id, 'create' );
 		}
 
-		return false;
+		return $this->memo_set( 'account_feed_type', $form_id, $type );
 	}
 
 	/**
@@ -313,10 +408,122 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 *
 	 * Fail closed on anything that moves money or creates an account. Both are
 	 * outcomes worth refusing rather than admitting unverified; a contact form
-	 * entry is not.
+	 * entry is not, and neither is a signed-in user editing her own profile —
+	 * WordPress has already authenticated her, and locking her out of her own
+	 * account details is a worse outcome than admitting one unscored edit.
 	 */
 	public function form_is_strict( $form_id ) {
 		return $this->form_has_payment( $form_id ) || $this->form_creates_account( $form_id );
+	}
+
+	/**
+	 * The reCAPTCHA action a form's token is minted with and checked against.
+	 *
+	 * ONE resolver, called from both token_field() (which labels the token in
+	 * the browser) and validate_submission() (which tells Google what to expect).
+	 *
+	 * Before 2.21.2 those two decisions were two separate ternaries, and they
+	 * disagreed: a non-payment form with a User Registration feed rendered
+	 * 'submit' but was validated as 'register'. Enterprise assessments reject on
+	 * expectedAction mismatch, so every submission of every account form failed,
+	 * for every visitor, with a message accusing them of being spam. The fix is
+	 * not to correct one of the two expressions — it is to have only one.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return string reCAPTCHA action name.
+	 */
+	private function action_for( $form_id ) {
+		if ( $this->form_has_payment( $form_id ) ) {
+			return 'checkout';
+		}
+		if ( $this->form_creates_account( $form_id ) ) {
+			return 'register';
+		}
+		if ( $this->form_updates_account( $form_id ) ) {
+			return 'account_update';
+		}
+
+		return 'submit';
+	}
+
+	/**
+	 * Action names accepted for a form's token.
+	 *
+	 * Every non-payment form additionally accepts 'submit', because that is what
+	 * this plugin rendered for ALL non-payment forms before 2.21.2 and a page
+	 * cached before the upgrade still carries it. Without the allowance the fix
+	 * would keep rejecting real customers until every cache expired.
+	 *
+	 * This is not a bypass. Both names are strings we mint ourselves; the token
+	 * must still be valid for our own site key, and must still clear the score
+	 * threshold. An attacker gains nothing by preferring one of our labels over
+	 * another. Payment forms get no latitude at all.
+	 *
+	 * REMOVE IN 2.23.0, by which point no page cached under 2.21.1 can survive.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return string[] Accepted actions, the canonical one first.
+	 */
+	private function accepted_actions( $form_id ) {
+		$action = $this->action_for( $form_id );
+
+		if ( 'checkout' === $action || 'submit' === $action ) {
+			return array( $action );
+		}
+
+		return array( $action, 'submit' );
+	}
+
+	/**
+	 * The threshold context for a form.
+	 *
+	 * Until 2.22.0 every non-payment Gravity Form was scored against
+	 * `gswp_threshold_wp_register` — the WordPress signup threshold. A site that
+	 * raised that to keep fake accounts out was silently applying signup-grade
+	 * strictness to its contact forms, and judging an already-authenticated user
+	 * editing her profile by the standard set for anonymous strangers creating
+	 * accounts. Each class of form now has its own dial.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return string Context, resolving to option "gswp_threshold_{context}".
+	 */
+	private function context_for( $form_id ) {
+		if ( $this->form_has_payment( $form_id ) ) {
+			return 'checkout';
+		}
+		if ( $this->form_creates_account( $form_id ) ) {
+			return 'gf_register';
+		}
+		if ( $this->form_updates_account( $form_id ) ) {
+			return 'gf_account_update';
+		}
+
+		return 'gf_submit';
+	}
+
+	/**
+	 * Read a memoized classification for a form.
+	 *
+	 * @param string     $bucket  Cache bucket.
+	 * @param int|string $form_id Form identifier.
+	 * @return mixed Cached value, or null on a miss.
+	 */
+	private function memo_get( $bucket, $form_id ) {
+		return isset( $this->memo[ $bucket ][ (int) $form_id ] ) ? $this->memo[ $bucket ][ (int) $form_id ] : null;
+	}
+
+	/**
+	 * Store a memoized classification for a form.
+	 *
+	 * @param string     $bucket  Cache bucket.
+	 * @param int|string $form_id Form identifier.
+	 * @param mixed      $value   Value to cache and return.
+	 * @return mixed The value, so callers can `return $this->memo_set( ... )`.
+	 */
+	private function memo_set( $bucket, $form_id, $value ) {
+		$this->memo[ $bucket ][ (int) $form_id ] = $value;
+
+		return $value;
 	}
 
 	/**
@@ -654,7 +861,8 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		return sprintf(
 			'<input type="hidden" name="%s" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
 			esc_attr( self::TOKEN_FIELD ),
-			esc_attr( $this->form_has_payment( $form_id ) ? 'checkout' : 'submit' )
+			// Same resolver validate_submission() uses. See action_for().
+			esc_attr( $this->action_for( $form_id ) )
 		);
 	}
 
@@ -723,6 +931,8 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			// request — a request-derived predicate would let a caller opt out
 			// by omitting the field, the bypass class removed in 2.17.0.
 			if ( $strict ) {
+				$this->record_rejection( $form_id, 'missing token' );
+
 				return $this->reject(
 					$validation_result,
 					__( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' ),
@@ -741,11 +951,11 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return $validation_result;
 		}
 
-		$context     = $payment ? 'checkout' : 'wp_register';
-		$action      = $payment ? 'checkout' : ( $this->form_creates_account( $form_id ) ? 'register' : 'submit' );
+		$context     = $this->context_for( $form_id );
+		$actions     = $this->accepted_actions( $form_id );
 		$event_extra = $payment ? $this->payment_context( $form, $form_id ) : array();
 
-		$result = $this->verifier->verify_token( $context, $action, $event_extra, null, $token );
+		$result = $this->verifier->verify_token( $context, $actions, $event_extra, null, $token );
 
 		$name = $this->verifier->get_last_assessment_name();
 		if ( '' !== $name ) {
@@ -753,6 +963,41 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		if ( is_wp_error( $result ) ) {
+			// An action mismatch means the token was valid for this site key but
+			// carried a different action name. That is a fault in this plugin or
+			// a stale cached page — never evidence about the visitor — so it does
+			// not get to block one on a form where the stakes do not justify it.
+			// Google's actual score is still available and is still applied.
+			if ( 'recaptcha_action_mismatch' === $result->get_error_code() && ! $strict ) {
+				$score     = $this->verifier->get_last_score();
+				$threshold = floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) );
+
+				if ( null !== $score && $score < $threshold ) {
+					$this->record_rejection( $form_id, 'low score' );
+
+					return $this->reject(
+						$validation_result,
+						__( 'Verification score too low. Submission rejected as potential spam.', 'google-security-for-wordpress' ),
+						$form_id
+					);
+				}
+
+				$this->pending_unverified[ $form_id ] = true;
+
+				$this->log_error(
+					sprintf(
+						'Gravity Forms #%d submitted a token whose action was "%s" but this form expects "%s". Admitted (takes no payment and creates no account) and flagged unverified. This is a plugin or caching fault, not a spam signal — if it persists, the form is rendering a stale action.',
+						$form_id,
+						$this->verifier->get_last_token_action(),
+						implode( '" or "', $actions )
+					)
+				);
+
+				return $validation_result;
+			}
+
+			$this->record_rejection( $form_id, $result->get_error_code() );
+
 			return $this->reject( $validation_result, wp_strip_all_tags( $result->get_error_message() ), $form_id );
 		}
 
@@ -780,6 +1025,8 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 							)
 						);
 
+						$this->record_rejection( $form_id, 'transaction risk' );
+
 						return $this->reject(
 							$validation_result,
 							__( 'This transaction was flagged as high risk and cannot be completed. Please contact us if you believe this is a mistake.', 'google-security-for-wordpress' ),
@@ -806,6 +1053,66 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		$this->errors[ $form_id ]      = $message;
 
 		return $validation_result;
+	}
+
+	/**
+	 * Record why a form's last submission was rejected.
+	 *
+	 * Surfaced per form in the coverage report so "why is this form rejecting?"
+	 * has an answer in wp-admin. Only the cause and the time are kept — nothing
+	 * about the person who submitted it.
+	 *
+	 * @param int    $form_id Form id.
+	 * @param string $reason  Error code, e.g. 'recaptcha_low_score'.
+	 */
+	private function record_rejection( $form_id, $reason ) {
+		$log = get_option( self::REJECTION_OPTION, array() );
+		$log = is_array( $log ) ? $log : array();
+
+		$log[ (int) $form_id ] = array(
+			'reason' => (string) $reason,
+			'time'   => time(),
+		);
+
+		update_option( self::REJECTION_OPTION, $log, false );
+	}
+
+	/**
+	 * Why a form's last submission was rejected, for the coverage report.
+	 *
+	 * @param int|string $form_id Form id.
+	 * @return array{reason:string,time:int}|null Null when none recorded.
+	 */
+	public function last_rejection( $form_id ) {
+		$log = get_option( self::REJECTION_OPTION, array() );
+
+		if ( ! is_array( $log ) || ! isset( $log[ (int) $form_id ] ) ) {
+			return null;
+		}
+
+		$entry = $log[ (int) $form_id ];
+
+		return array(
+			'reason' => isset( $entry['reason'] ) ? (string) $entry['reason'] : '',
+			'time'   => isset( $entry['time'] ) ? (int) $entry['time'] : 0,
+		);
+	}
+
+	/**
+	 * The reCAPTCHA action and threshold context resolved for a form.
+	 *
+	 * Reporting surface for the coverage table. Not on the provider interface —
+	 * callers must guard with method_exists().
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return array{action:string,context:string,account:string}
+	 */
+	public function form_policy( $form_id ) {
+		return array(
+			'action'  => $this->action_for( $form_id ),
+			'context' => $this->context_for( $form_id ),
+			'account' => $this->account_feed_type( $form_id ),
+		);
 	}
 
 	/**
