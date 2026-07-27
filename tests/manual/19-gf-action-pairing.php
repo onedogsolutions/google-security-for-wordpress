@@ -139,6 +139,36 @@ $out[] = sprintf( 'Checked %d eligible form(s): %d mismatch(es).', $checked, $fa
 $out[] = 'Injection log restored to its previous state.';
 
 // --- Feed inventory: confirms the UNVERIFIED feedType binding ---------------
+// --- Field inventory: confirms the password-field binding -------------------
+$out[] = '';
+$out[] = '=== FIELD INVENTORY (report this block verbatim) ===';
+$out[] = 'Password-changing forms are classified from a field of type "password".';
+$out[] = 'If a form below sets or changes a password but shows password=no, that';
+$out[] = 'binding is wrong and the form is being scored under the wrong threshold.';
+$out[] = '';
+
+foreach ( $forms as $form_id => $title ) {
+	$form = GFAPI::get_form( (int) $form_id );
+	if ( ! is_array( $form ) || empty( $form['fields'] ) || ! is_array( $form['fields'] ) ) {
+		continue;
+	}
+
+	$types = array();
+	foreach ( $form['fields'] as $field ) {
+		if ( is_object( $field ) && isset( $field->type ) ) {
+			$types[] = (string) $field->type;
+		}
+	}
+
+	$out[] = sprintf(
+		'  #%d %s  password=%s',
+		$form_id,
+		$title,
+		method_exists( $provider, 'form_changes_password' ) && $provider->form_changes_password( $form_id ) ? 'yes' : 'no'
+	);
+	$out[] = '      field types: ' . ( $types ? implode( ', ', array_unique( $types ) ) : '(none)' );
+}
+
 $out[] = '';
 $out[] = '=== FEED INVENTORY (report this block verbatim) ===';
 $out[] = 'Confirms whether User Registration feeds really declare meta[feedType],';
