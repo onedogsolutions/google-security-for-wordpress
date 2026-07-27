@@ -1,6 +1,22 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 39 (settings screen white-screen fix)
+## Current Phase: Phase 40 (first staging results; test-script correction)
+
+### Phase 40 Modifications (v2.20.1, no version bump)
+First real verification run, on `staging.laseraesthetics.org` (5 Gravity Forms, Enterprise key, GF replacement ON) via the Novamira PHP-execution tool.
+
+**Results — the two riskiest unknowns are now evidenced rather than assumed:**
+- **Chunk 12 (render coverage): 10/10 renders carried the token field**, on both the standard and AJAX paths, across all 5 forms. The UNVERIFIED injection bindings work on this site, and `inject_into_markup()`'s belt-and-braces role is confirmed as sufficient.
+- **Chunk 13 (enforcement): all three checks passed**, including the one that matters most — a form we have never injected into is allowed through even when it takes payment.
+
+**Defect found in my own test, not in the plugin.** Chunk 12's "GF CAPTCHA" column was worthless. Our token field carries `class="g-recaptcha-response"`, which contains the `g-recaptcha` needle, so the check self-matched; the `&& ! $has_token` guard added to avoid that disabled the check in precisely the passing case. Every `none` it printed was a false negative, so the run did **not** demonstrate that `disable_native()` works. Fixed by stripping our own input from the markup before searching, and widened to `grecaptcha`, `data-sitekey`, `gfield_captcha`, `recaptcha/api`, `recaptcha/enterprise`.
+
+**Two open questions the run surfaced:**
+1. **Transaction Defense is OFF** (`gswp_txn_defense = 0`) on that site, so the GF payment path is producing a plain bot score only — no `transactionData`, no fraud verdict, no annotation. The S5a work is inert until that option is enabled. Not a bug; a configuration fact worth stating because it makes the payment integration look like it is doing more than it is.
+2. **Form #2 "Registration" is classified as a payment form** and the other four are not, including "#5 Certificate" and "#8 Professional Certification E…". Chunk 13 only proves the policy is applied *consistently with* the classification, never that the classification is right — and a payment form wrongly classified as non-payment fails **open** on a missing token, which is the one direction that matters.
+- Added `14-gf-classification.php`: prints, per form, the feeds found and whether each is active, the pricing field types present, which of those drove the payment verdict, GF's own captcha state, and whether GF captcha markup survives rendering with our field stripped out first. Read-only.
+
+## Historical Phase: Phase 39 (settings screen white-screen fix)
 
 ### Phase 39 Modifications (v2.20.1)
 - **Bug shipped in 2.20.0: the entire settings app failed to mount.** `FormProtection.jsx` referenced `uncovered` in a JSX conditional after the `const uncovered = …` declaration had been removed, throwing `ReferenceError: uncovered is not defined` inside React's render and blanking `options-general.php?page=gswp-admin`. Reported from staging with the console trace.

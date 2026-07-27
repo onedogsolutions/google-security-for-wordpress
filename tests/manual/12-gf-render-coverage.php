@@ -90,11 +90,19 @@ foreach ( $forms as $form_id => $title ) {
 		$has_token = false !== strpos( $markup, 'name="' . $token_field . '"' );
 
 		// Is Gravity Forms' own reCAPTCHA still being emitted for this form?
+		//
+		// Our own field carries class="g-recaptcha-response", so the markup must
+		// have it removed before searching or every check self-matches. An
+		// earlier version guarded that with "&& ! $has_token", which silently
+		// disabled the check in exactly the case that passes — every "none" it
+		// printed was a false negative.
+		$stripped  = preg_replace( '/<input[^>]*name="' . preg_quote( $token_field, '/' ) . '"[^>]*>/i', '', $markup );
 		$gf_captcha = 'none';
-		if ( false !== stripos( $markup, 'g-recaptcha' ) && ! $has_token ) {
-			$gf_captcha = 'PRESENT';
-		} elseif ( preg_match( '/class="[^"]*gfield[^"]*captcha/i', $markup ) ) {
-			$gf_captcha = 'PRESENT';
+		foreach ( array( 'g-recaptcha', 'grecaptcha', 'data-sitekey', 'gfield_captcha', 'recaptcha/api', 'recaptcha/enterprise' ) as $needle ) {
+			if ( false !== stripos( (string) $stripped, $needle ) ) {
+				$gf_captcha = 'PRESENT';
+				break;
+			}
 		}
 
 		if ( $has_token ) {
