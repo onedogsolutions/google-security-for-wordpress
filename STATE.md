@@ -2,11 +2,9 @@
 
 ## Release state
 
-**`main` is at v2.22.0** as of Phase 48, fast-forwarded from the Phase 48 branch.
+**`main` is at v2.22.0** as of Phase 48, fast-forwarded from the Phase 48 branch. It was at v2.21.1 immediately before, so the merge added exactly Phase 48: seven commits, one release, no backlog.
 
-That merge was larger than it looked. `main` had been sitting at **v2.16.0** while thirteen releases accumulated on the working branch — every phase from 34 to 48. It therefore did not contain, among much else, the **2.17.0 checkout verification bypass removal**, a security fix that had been written, reviewed and left unmerged for eight releases. Nothing was wrong with the code; the branch simply never landed.
-
-The lesson is not about any one defect. Work that is finished but unmerged provides no protection to anybody, and a `main` that lags this far stops being a meaningful record of what the plugin is. Phase 48's own defect reached a live site through an auto-enable on upgrade, so the gap between "fixed on a branch" and "running on a site" is exactly the distance this project keeps under-measuring. **Merge on completion of a phase, not on accumulation.**
+*(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
 ## Current Phase: Phase 48 (a real customer accused of being spam)
 
