@@ -1,5 +1,13 @@
 # State Tracker - Google Security for WordPress
 
+## Release state
+
+**`main` is at v2.22.0** as of Phase 48, fast-forwarded from the Phase 48 branch.
+
+That merge was larger than it looked. `main` had been sitting at **v2.16.0** while thirteen releases accumulated on the working branch — every phase from 34 to 48. It therefore did not contain, among much else, the **2.17.0 checkout verification bypass removal**, a security fix that had been written, reviewed and left unmerged for eight releases. Nothing was wrong with the code; the branch simply never landed.
+
+The lesson is not about any one defect. Work that is finished but unmerged provides no protection to anybody, and a `main` that lags this far stops being a meaningful record of what the plugin is. Phase 48's own defect reached a live site through an auto-enable on upgrade, so the gap between "fixed on a branch" and "running on a site" is exactly the distance this project keeps under-measuring. **Merge on completion of a phase, not on accumulation.**
+
 ## Current Phase: Phase 48 (a real customer accused of being spam)
 
 ### Phase 48 Modifications (v2.22.0)
