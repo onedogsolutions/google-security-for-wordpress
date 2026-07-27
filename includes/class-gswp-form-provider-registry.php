@@ -68,10 +68,9 @@ class GSWP_Form_Provider_Registry {
 				continue;
 			}
 
-			// Order matters: stand down the host plugin's own reCAPTCHA first,
-			// then take over. Both are runtime-only and leave its stored
-			// settings untouched.
-			$provider->disable_native();
+			// The host plugin's own reCAPTCHA is left alone. Retiring it is the
+			// operator's call, prompted by GSWP_Foreign_Recaptcha; this plugin
+			// touches nothing outside its own options.
 			$provider->register_hooks( $verifier );
 		}
 	}

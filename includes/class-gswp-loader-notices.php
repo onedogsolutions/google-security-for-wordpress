@@ -109,12 +109,12 @@ class GSWP_Loader_Notices {
 	}
 
 	/**
-	 * Announce that this plugin has taken over a form plugin's reCAPTCHA.
+	 * Announce that this plugin is now scoring a form plugin's submissions.
 	 *
-	 * 2.20.0 enables replacement on upgrade wherever it can work. That is a
-	 * deliberate behaviour change, so it is stated plainly rather than left for
-	 * someone to discover — including where to turn it off, which restores the
-	 * form plugin's own reCAPTCHA on the next request.
+	 * 2.20.0 enables this on upgrade wherever it can work. That is a deliberate
+	 * behaviour change, so it is stated plainly rather than left for someone to
+	 * discover. Since 2.21.0 it also states what the plugin does NOT do: the
+	 * form plugin's own reCAPTCHA keeps running until the operator retires it.
 	 */
 	public function render_takeover_notice() {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -140,12 +140,12 @@ class GSWP_Loader_Notices {
 		echo '<p>' . esc_html(
 			sprintf(
 				/* translators: %s: comma-separated list of form plugin names. */
-				__( 'This plugin now scores submissions for %s, and that plugin’s own reCAPTCHA has been switched off so only one implementation runs. Nothing in its settings was changed — turning this off restores it immediately.', 'google-security-for-wordpress' ),
+				__( 'This plugin now scores submissions for %s. That plugin’s own reCAPTCHA has been left exactly as it was — this plugin never changes another plugin’s settings — so if it is still switched on, both are running and every submission is assessed twice.', 'google-security-for-wordpress' ),
 				implode( ', ', array_map( 'strval', $activated ) )
 			)
 		) . '</p>';
 
-		echo '<p>' . esc_html__( 'Check the Form Protection panel to confirm every form is receiving a token, especially multi-page and AJAX forms.', 'google-security-for-wordpress' ) . '</p>';
+		echo '<p>' . esc_html__( 'Check the Form Protection panel to confirm every form is receiving a token, especially multi-page and AJAX forms. Once you are satisfied, turn reCAPTCHA off in the form plugin so only one implementation runs.', 'google-security-for-wordpress' ) . '</p>';
 
 		echo '<p><a class="button button-primary" href="' . esc_url( $settings ) . '">'
 			. esc_html__( 'Review Form Protection', 'google-security-for-wordpress' )

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.20.5
+ * Version: 2.21.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.20.5' );
+define( 'GSWP_VERSION', '2.21.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -66,6 +66,9 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-assets.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-gravity-forms.php';
 // Admin warnings for divergent-site-key loader conflicts.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-loader-notices.php';
+// Discovery of reCAPTCHA configured in other plugins, surfaced as a notice.
+// Replaces the settings-takeover mechanism removed in 2.21.0.
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-foreign-recaptcha.php';
 // Form providers: make this plugin the reCAPTCHA implementation for third-party
 // form plugins so their own reCAPTCHA can be retired. Staged takeover, default
 // off, with a coverage audit and a kill switch.
@@ -495,6 +498,9 @@ function gswp_init() {
 		// Warn about divergent-site-key reCAPTCHA loaders observed on the
 		// front end. Inert until one is actually detected.
 		new GSWP_Loader_Notices();
+		// Warn when reCAPTCHA is configured in another plugin. This is what
+		// replaced switching it off automatically.
+		new GSWP_Foreign_Recaptcha();
 	} else {
 		new GSWP_Frontend();
 	}

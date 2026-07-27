@@ -66,6 +66,21 @@ export default function SettingsPanel( { settings, onChange } ) {
 					.
 				</p>
 
+				<div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+					<p className="text-xs leading-5 text-gray-600">
+						{ __(
+							'Configure reCAPTCHA here and nowhere else. If another plugin — a form builder, a page builder, a login plugin — also has reCAPTCHA keys entered, switch it off there. Only one site key can be pre-rendered per page, so two keys on one page means one of them fails to execute, and a payment form whose token never arrives will reject the submission.',
+							'google-security-for-wordpress'
+						) }
+					</p>
+					<p className="mt-2 text-xs leading-5 text-gray-600">
+						{ __(
+							'This plugin will tell you when it finds reCAPTCHA configured elsewhere, but it will not switch it off for you: changing another plugin’s settings can destroy its stored keys.',
+							'google-security-for-wordpress'
+						) }
+					</p>
+				</div>
+
 				{ /* Key type selector */ }
 				<fieldset className="mt-6">
 					<legend className="block text-sm font-medium leading-6 text-gray-900">

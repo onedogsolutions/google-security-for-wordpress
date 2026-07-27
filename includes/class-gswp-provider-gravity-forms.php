@@ -2,9 +2,16 @@
 /**
  * Gravity Forms Provider
  *
- * Makes this plugin the reCAPTCHA implementation for Gravity Forms. When the
- * provider is on, GF's own reCAPTCHA is stood down (disable_native()) and every
- * eligible form is scored here instead.
+ * Makes this plugin the reCAPTCHA implementation for Gravity Forms: when the
+ * provider is on, every eligible form is scored here.
+ *
+ * It does NOT switch Gravity Forms' own reCAPTCHA off. Until 2.21.0 it did, by
+ * filtering the add-on's stored settings so they read as unconfigured. The
+ * add-on's settings screen reads that option to populate its fields and saves
+ * back what it read, so it wrote the filtered blanks to disk and destroyed the
+ * stored keys on a live site. Detection of GF's reCAPTCHA remains — it drives
+ * the coverage report and the operator notice — but retiring it is the
+ * operator's action, not ours.
  *
  * ---------------------------------------------------------------------------
  * VERIFICATION STATUS
@@ -31,10 +38,9 @@
  *   - validate_submission() refuses to penalise a submission for a form we have
  *     no record of injecting into, and reports it as a coverage gap instead.
  *
- * disable_native() is likewise built to fail safe: it filters GF's settings
- * read rather than unhooking its internals, so a wrong option name means GF
- * keeps scoring alongside us (deduplicated by the loader owner) rather than
- * anything breaking.
+ * Reads of Gravity Forms' own settings are for reporting only, and go straight
+ * to the database rather than through get_option(), so nothing this plugin does
+ * can colour what it reports about another plugin.
  * ---------------------------------------------------------------------------
  *
  * @package Google_Security_For_WordPress
@@ -355,13 +361,13 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		// the option is `gravityformsaddon_gravityformsrecaptcha_settings` and
 		// the keys are `site_key_v3` / `secret_key_v3` / `site_key_v2` /
 		// `secret_key_v2` / `type_v2`. Earlier versions of this class looked for
-		// `site_key` and `public_key`, which exist in neither — so detection
-		// reported 'unknown' and disable_native() blanked keys that were not
-		// there. The unsuffixed names are retained only as a fallback for other
-		// add-on versions.
+		// `site_key` and `public_key`, which exist in neither, so detection
+		// reported 'unknown' for an add-on that was configured all along. The
+		// unsuffixed names are retained only as a fallback for other add-on
+		// versions.
 		foreach ( $this->native_v3_option_candidates() as $option ) {
-			// Raw read: get_option() would come back through our own blanking
-			// filter and report 'unknown' forever.
+			// Read the row directly. Reporting on another plugin's settings must
+			// not pass through any filter, ours or anyone else's.
 			$settings = $this->raw_option( $option );
 			if ( ! is_array( $settings ) ) {
 				continue;
@@ -423,78 +429,6 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	}
 
 	/**
-	 * {@inheritDoc}
-	 *
-	 * Gravity Forms' reCAPTCHA add-on decides whether to load its script and
-	 * whether to validate by reading its own settings option. Filtering that
-	 * read to look unconfigured stands the whole add-on down — front end and
-	 * server side — without unhooking anything, without knowing its class name,
-	 * and without touching the database.
-	 *
-	 * Chosen over removing its hooks at runtime because it degrades safely: if
-	 * the option name is wrong the filter simply never matches, GF keeps
-	 * scoring alongside us, and the loader owner deduplicates the shared script.
-	 * A wrong guess costs us the retirement of GF's implementation, never the
-	 * protection of a form.
-	 *
-	 * Built-in CAPTCHA fields are deliberately left alone: a visible challenge
-	 * is not something we can replace (see form_is_eligible()), and those forms
-	 * are excluded from takeover rather than silently downgraded.
-	 */
-	public function disable_native() {
-		// NEVER filter on an admin screen. Gravity Forms' own reCAPTCHA settings
-		// page reads this option to populate its form and writes back what it
-		// read — so filtering it there showed the operator empty fields, made
-		// the settings unsaveable, and risked GF persisting our blanks over the
-		// real keys. That would have broken the one guarantee this mechanism is
-		// built on, that nothing is ever written to the host plugin's config.
-		//
-		// The one admin-side exception is a Gravity Forms form SUBMISSION over
-		// admin-ajax: GF's reCAPTCHA must stay stood down for those, or it would
-		// validate a field we prevented it from rendering and reject the
-		// submission. Every other admin request — including the add-on's own
-		// key-validation AJAX — must see the real stored values.
-		if ( is_admin() && ! self::is_gf_form_submission() ) {
-			return;
-		}
-
-		foreach ( $this->native_v3_option_candidates() as $option ) {
-			add_filter( 'option_' . $option, array( $this, 'blank_native_settings' ), 999 );
-			add_filter( 'pre_option_' . $option, array( $this, 'blank_native_settings' ), 999 );
-			// Belt and braces: while this request is serving blanked values, no
-			// write of those blanks back to the database is legitimate. Refuse
-			// them rather than trust that no code path saves the option here.
-			add_filter( 'pre_update_option_' . $option, array( $this, 'protect_native_settings' ), 999, 2 );
-		}
-	}
-
-	/**
-	 * Whether this request is a Gravity Forms form submission.
-	 *
-	 * Used only to decide whether the stand-down filter applies on an admin-side
-	 * request. Deliberately narrow: an over-broad match here would blank the
-	 * settings the add-on's own screens read, which is how 2.20.0–2.20.4
-	 * corrupted them.
-	 *
-	 * @return bool
-	 */
-	private static function is_gf_form_submission() {
-		if ( ! wp_doing_ajax() ) {
-			return false;
-		}
-
-		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- reading only to classify the request; Gravity Forms verifies its own nonce.
-		if ( isset( $_POST['gform_submit'] ) ) {
-			return true;
-		}
-
-		$action = isset( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
-		// phpcs:enable WordPress.Security.NonceVerification.Recommended
-
-		return '' !== $action && 0 === strpos( $action, 'gform_submit' );
-	}
-
-	/**
 	 * Read one of GF's settings options straight from the database.
 	 *
 	 * Bypasses get_option(), and therefore bypasses our own blanking filter.
@@ -521,79 +455,6 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		$value = maybe_unserialize( $value );
 
 		return is_array( $value ) ? $value : null;
-	}
-
-	/**
-	 * Present GF's reCAPTCHA add-on settings as unconfigured.
-	 *
-	 * Read-time only. The stored option is never modified, so disabling this
-	 * provider restores GF's own reCAPTCHA on the next request.
-	 *
-	 * @param mixed $value Stored settings.
-	 * @return array Settings with the keys blanked.
-	 */
-	public function blank_native_settings( $value ) {
-		if ( ! is_array( $value ) ) {
-			// pre_option_* passes false when no short-circuit is in play; leave
-			// that alone so the real option is still read (and then filtered by
-			// option_* above).
-			return $value;
-		}
-
-		foreach ( array_merge( self::$native_site_key_names, self::$native_secret_key_names ) as $key ) {
-			if ( isset( $value[ $key ] ) ) {
-				$value[ $key ] = '';
-			}
-		}
-
-		// The add-on also caches a "keys are valid" flag; leaving it set while
-		// the keys read as empty makes it believe it is still configured.
-		foreach ( array( 'recaptcha_keys_status_v3', 'recaptcha_keys_status_v2' ) as $flag ) {
-			if ( isset( $value[ $flag ] ) ) {
-				$value[ $flag ] = 0;
-			}
-		}
-
-		return $value;
-	}
-
-	/**
-	 * Refuse to let blanked settings be written back to the database.
-	 *
-	 * Registered only on requests where the read filter above is active — the
-	 * front end and Gravity Forms form submissions. Neither of those ever saves
-	 * the add-on's settings legitimately, so a write that empties a key here can
-	 * only be our own filtered value making a round trip. In 2.20.0–2.20.4 that
-	 * round trip happened on the settings screen and destroyed the stored keys.
-	 *
-	 * The guard is one-directional: a write that *sets* a key is passed through
-	 * untouched, so this can never prevent an operator configuring the add-on.
-	 *
-	 * @param mixed $new Incoming value.
-	 * @param mixed $old Currently stored value.
-	 * @return mixed The value to store.
-	 */
-	public function protect_native_settings( $new, $old ) {
-		if ( ! is_array( $new ) || ! is_array( $old ) ) {
-			return $new;
-		}
-
-		foreach ( array_merge( self::$native_site_key_names, self::$native_secret_key_names ) as $key ) {
-			$was = isset( $old[ $key ] ) ? (string) $old[ $key ] : '';
-			$now = isset( $new[ $key ] ) ? (string) $new[ $key ] : '';
-
-			if ( '' !== $was && '' === $now ) {
-				GSWP_Log::error(
-					'Blocked a write that would have emptied Gravity Forms\' stored reCAPTCHA setting "' . $key . '". '
-					. 'This plugin serves that option blanked on the front end and never writes to it; '
-					. 'the value on disk is unchanged.'
-				);
-
-				return $old;
-			}
-		}
-
-		return $new;
 	}
 
 	/**

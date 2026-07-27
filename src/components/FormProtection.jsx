@@ -43,7 +43,7 @@ export default function FormProtection( { settings, onChange } ) {
 					</h2>
 					<p className="mt-1 text-sm leading-6 text-gray-600">
 						{ __(
-							'No supported form plugins are active. When Gravity Forms is installed, this panel lets this plugin take over its reCAPTCHA.',
+							'No supported form plugins are active. When Gravity Forms is installed, this panel lets this plugin score its forms.',
 							'google-security-for-wordpress'
 						) }
 					</p>
@@ -60,7 +60,13 @@ export default function FormProtection( { settings, onChange } ) {
 				</h2>
 				<p className="mt-1 text-sm leading-6 text-gray-600">
 					{ __(
-						'This plugin replaces a form plugin’s own reCAPTCHA, so a single implementation scores every form and payment on the site. When this is on, that plugin’s reCAPTCHA is switched off. Nothing in its settings is changed — turning this off restores it on the next page load.',
+						'Scores a form plugin’s submissions here, so one reCAPTCHA implementation covers every form and payment on the site.',
+						'google-security-for-wordpress'
+					) }
+				</p>
+				<p className="mt-2 text-sm leading-6 text-gray-600">
+					{ __(
+						'This does not switch the form plugin’s own reCAPTCHA off — this plugin never writes to another plugin’s settings. Turn it off there yourself once the table below shows every form receiving a token. Until you do, both run: each submission is assessed twice, and the form plugin applies its own score threshold, so it can reject a submission for reasons that never reach this plugin’s logs.',
 						'google-security-for-wordpress'
 					) }
 				</p>
@@ -116,7 +122,7 @@ export default function FormProtection( { settings, onChange } ) {
 									<p className="mt-1 text-xs leading-5 text-gray-500">
 										{ isOn( provider )
 											? __(
-													'Its own reCAPTCHA is switched off so only one implementation runs. Payments are scored with transaction data and the outcome is reported back to Google.',
+													'Payments are scored with transaction data and the outcome is reported back to Google. Check the “Its own reCAPTCHA” column below — where it is still on, turn it off in that plugin.',
 													'google-security-for-wordpress'
 											  )
 											: __(

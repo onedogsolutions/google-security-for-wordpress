@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.5
+Stable tag: 2.21.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,12 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.21.0 =
+* Changed: this plugin no longer switches another plugin's reCAPTCHA off for you. Versions 2.20.0–2.20.5 stood a form plugin's reCAPTCHA down by filtering its stored settings so they read as unconfigured. That is not safe: a settings screen reads its option to populate its fields and saves back what it read, so the filtered values reached the database and emptied Gravity Forms' stored keys on a live site. The mechanism has been removed rather than patched, because any plugin's settings screen behaves this way. Form scoring, coverage checks and enforcement are unchanged — only the automatic switch-off is gone.
+* Added: this plugin now tells you where else reCAPTCHA is configured. It scans for site keys stored by other plugins, names each one, says whether the key matches yours, and explains the consequence — a different key means one of the two will fail to execute on any page carrying both, while a matching key means every submission is assessed twice under two different thresholds. Retiring the other implementation is your decision to make.
+* Added: guidance on the API Credentials screen to configure reCAPTCHA in this plugin only, and in the Form Protection panel stating plainly that the form plugin's own reCAPTCHA keeps running until you turn it off there.
+* Note for anyone affected: if your Gravity Forms reCAPTCHA keys were emptied by 2.20.0–2.20.4, re-enter them on the Gravity Forms reCAPTCHA settings page. Nothing in this version, or any version from now on, writes to another plugin's settings.
 
 = 2.20.5 =
 * Fixed: Gravity Forms' own reCAPTCHA settings page could not be edited. To stand Gravity Forms' reCAPTCHA down, this plugin filters the setting it reads — but the filter was also applied inside wp-admin, so the settings page showed empty key fields and could not be saved correctly. It now applies only on the front end and to AJAX form submissions, never to an admin screen. Nothing was ever written to Gravity Forms' settings by this plugin, but if Gravity Forms itself saved the blank fields back while the page was affected, the keys will need re-entering once; run tests/manual/16-gf-settings-integrity.php to check.

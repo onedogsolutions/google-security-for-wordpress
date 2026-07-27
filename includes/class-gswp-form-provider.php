@@ -3,7 +3,17 @@
  * Form Provider Contract
  *
  * A provider makes this plugin the reCAPTCHA implementation for a third-party
- * form plugin, so that plugin's own reCAPTCHA can eventually be switched off.
+ * form plugin, so the operator can then retire that plugin's own reCAPTCHA.
+ *
+ * A provider never switches the host plugin's reCAPTCHA off itself. 2.20.x did,
+ * by filtering the host's stored settings at read time, and the host's own
+ * settings screen saved the filtered value back and destroyed its keys. There
+ * is no version of that idea that is safe: any screen which reads an option to
+ * populate its fields will write back whatever it was shown. Providers may read
+ * the host's configuration to report on it — see native_captcha_state() — and
+ * may add their own markup and validation, but must never filter or write
+ * another plugin's settings. GSWP_Foreign_Recaptcha turns what is found into a
+ * notice, and the operator decides.
  *
  * Written as an interface with the first implementation rather than after the
  * third: Fluent Forms and FluentCart are already committed, and this codebase
@@ -103,21 +113,6 @@ interface GSWP_Form_Provider {
 	 * @return string One of 'off', 'v3', 'v2', 'unknown'.
 	 */
 	public function native_captcha_state( $form_id );
-
-	/**
-	 * Stand down the host plugin's own reCAPTCHA.
-	 *
-	 * Called before register_hooks() when the provider is on. Must be
-	 * runtime-only: never write to the host plugin's stored configuration, so
-	 * that turning this provider off restores its implementation on the next
-	 * request with nothing to undo and no forms to re-edit. That reversibility
-	 * is the safety property that replaces the staged rollout.
-	 *
-	 * Failing to disable is safe — the host plugin keeps scoring alongside us
-	 * and the loader owner deduplicates the shared script — so an implementation
-	 * that cannot confirm the mechanism should do nothing rather than guess.
-	 */
-	public function disable_native();
 
 	/**
 	 * Register the runtime hooks: field injection and submission validation.

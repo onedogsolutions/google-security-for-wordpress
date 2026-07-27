@@ -1,6 +1,29 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 45 (this plugin corrupted Gravity Forms' settings)
+## Current Phase: Phase 46 (settings takeover removed; detect and warn instead)
+
+### Phase 46 Modifications (v2.21.0)
+The takeover mechanism is gone. Not narrowed, not guarded — removed.
+
+**Why it could not be kept.** The premise was that filtering a host plugin's settings is safe because it writes nothing and reverses on the next request. That premise is false, and Phase 45 was not a bug within a sound design but the design failing exactly as it must: *any* settings screen that reads an option to populate its fields writes back what it was shown. Gravity Forms is not unusual in this; it is typical. The 2.20.5 admin-scope guard and write guard reduce the blast radius but leave a mechanism whose correctness depends on correctly enumerating every context in which a foreign plugin might read its own settings — an open-ended obligation with silent, destructive failure.
+
+**Two further reasons, either sufficient on its own.**
+- *It never demonstrated a benefit.* Phase 43 established `disable_native()` had been a no-op for several versions. Across that entire period payments worked, GF's reCAPTCHA coexisted with ours, the loader owner deduplicated the shared script, and every form received our token. The feature that destroyed a live site's configuration has not once been observed providing protection. The original Stripe outage was caused by the Conflict Guard stripping GF's loader tag and by divergent keys/script families — both fixed independently in Phases 36–44, neither dependent on takeover.
+- *The bindings are unmaintainable.* One plugin, one version, three wrong guesses: the option name (Phase 43), the setting names inside it (Phase 44), the add-on class name (Phase 45, twice — unqualified `class_exists()` against a namespaced `Gravity_Forms\Gravity_Forms_RECAPTCHA\GF_RECAPTCHA`). Fluent Forms, WPForms, Formidable and PowerPack would each multiply that across versions that rename freely, with corruption as the failure mode.
+
+**Removed:** `GSWP_Form_Provider::disable_native()` from the contract; the GF implementation, `blank_native_settings()`, `protect_native_settings()`, `is_gf_form_submission()`; and the registry call. The contract now states the prohibition explicitly — providers may read a host's configuration to report on it, never filter or write it.
+
+**Added — `GSWP_Foreign_Recaptcha`.** Scans for site keys configured by other plugins, names each, and says whether the key matches ours, with the consequence spelled out: a different key means only one of the two can be pre-rendered and the other silently fails (the original outage); a matching key means both run, so every submission is assessed twice and the other plugin's threshold is a second invisible policy. Deliberately guess-free — it uses the same `LIKE '%recaptcha%' OR '%captcha%' OR 'gravityformsaddon%'` query that actually found the GF option in Phase 44, matches values against the Google site-key shape, and reports unrecognised findings under their raw option name rather than skipping them. Secrets are excluded (they never reach a browser, so they indicate no loader). Cached 12h, flushed on key change or plugin activation; dismissals key on a findings hash so a new or changed finding re-arms.
+
+**Copy corrected everywhere it claimed something untrue.** The upgrade notice, the Form Protection panel, and the per-provider status all said the form plugin's reCAPTCHA "has been switched off". They now state that it keeps running until the operator turns it off, and why that matters. New guidance on the API Credentials screen: configure reCAPTCHA here and nowhere else.
+
+**What this costs, stated honestly:** on a site whose operator ignores the notice, two reCAPTCHAs run indefinitely. That is a duplicate assessment per submission and a second threshold we cannot see. Bounded, and preferable to an unbounded risk of destroying another plugin's configuration.
+
+**Unchanged:** everything that protects a form — token injection, markup fallback injection, the coverage assertion, asymmetric enforcement, the kill switch, transaction data on payment forms. Those are ours and touch nobody else's data. `native_captcha_state()` also stays, still reading raw via `$wpdb`, because detection is now the whole feature.
+
+**Also:** `Diagnostics.jsx` had 35 pre-existing lint errors (33 formatting, 2 nested ternaries). Fixed — a red lint gate hides the next real `no-undef`, which is the defect it was added for in 2.20.1.
+
+## Historical Phase: Phase 45 (this plugin corrupted Gravity Forms' settings)
 
 ### Phase 45 Modifications (v2.20.5)
 The 2.20.4 binding fix worked. That is precisely why it did damage: `disable_native()` had been filtering an option that did not exist, so it had no effect anywhere. Once the names were correct, the filter started applying **on admin screens too**, and Gravity Forms' own reCAPTCHA settings page reads that option to populate its fields and writes back what it read. The operator reported the page could no longer be saved; chunk 15 then confirmed the option had been reduced to `connection_type`, `nonce` and `action` — `site_key_v3`, `secret_key_v3`, `score_threshold_v3`, `disable_badge_v3`, `recaptcha_keys_status_v3`, `site_key_v2`, `secret_key_v2` and `type_v2` all gone.
