@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.21.0
+Stable tag: 2.21.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,10 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.21.1 =
+* Fixed: the Form Protection table reported a form plugin's own reCAPTCHA as active after its add-on had been deactivated. Deactivating a plugin does not delete its settings, and this plugin was reading those stored settings rather than checking whether the add-on was running — so it reported a reCAPTCHA that could not execute, and told you to switch off something already off. It now asks Gravity Forms which add-ons are registered, and reports "off" when the reCAPTCHA add-on is not among them.
+* Fixed: the same mistake in the "reCAPTCHA is also configured elsewhere" notice. Findings belonging to a deactivated Gravity Forms reCAPTCHA add-on are no longer reported. Other plugins do not publish their own state, so their findings are still listed, and the notice now says plainly that it is reporting stored settings and that a deactivated plugin keeps them.
 
 = 2.21.0 =
 * Changed: this plugin no longer switches another plugin's reCAPTCHA off for you. Versions 2.20.0–2.20.5 stood a form plugin's reCAPTCHA down by filtering its stored settings so they read as unconfigured. That is not safe: a settings screen reads its option to populate its fields and saves back what it read, so the filtered values reached the database and emptied Gravity Forms' stored keys on a live site. The mechanism has been removed rather than patched, because any plugin's settings screen behaves this way. Form scoring, coverage checks and enforcement are unchanged — only the automatic switch-off is gone.

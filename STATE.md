@@ -1,6 +1,21 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 46 (settings takeover removed; detect and warn instead)
+## Current Phase: Phase 47 (config mistaken for behaviour)
+
+### Phase 47 Modifications (v2.21.1)
+First real use of the 2.21.0 reporting found it wrong, in the same way three earlier defects were wrong.
+
+**Deactivating a plugin does not delete its options.** The operator restored the Gravity Forms keys, deactivated the reCAPTCHA add-on, and the Form Protection table still reported `v3 / Enterprise` on all five forms. `native_captcha_state()` read the *stored settings* and inferred a running reCAPTCHA from them. The settings outlive the add-on, so the panel reported a reCAPTCHA that could not execute and instructed the operator to switch off something already off.
+
+This is the Phase 43–45 error repeating in a new place: **inferring behaviour from configuration.** Phase 43 inferred an option name, Phase 44 inferred the setting names inside it, Phase 45 inferred a class name. Here the inference was that stored keys imply a live integration. Removing the takeover in Phase 46 removed the damage that class of error could do, not the error itself.
+
+**Fix:** new `native_addon_active()` asks Gravity Forms which add-ons it has registered — the same `GFAddOn::get_registered_addons()` call chunk 18 verified returns `Gravity_Forms\Gravity_Forms_RECAPTCHA\GF_RECAPTCHA` on the live site. `native_captcha_state()` checks it first and returns `off` when the add-on is absent. It returns `unknown`, never `off`, when GF core itself is not loaded and the question cannot be answered — the pessimistic direction is preserved for the case we genuinely cannot see.
+
+**Same fix applied to `GSWP_Foreign_Recaptcha`**, where the identical false positive existed: it reported keys stored by any plugin, running or not. `owner_is_inactive()` is deliberately narrow — Gravity Forms publishes its registered add-ons and nothing else here does, so only GF findings can be suppressed on this basis. Everything else is still reported, and the notice now states outright that findings come from stored settings and that a deactivated plugin keeps them. Guessing which other plugins are live from option names would be the same mistake a fifth time.
+
+**Copy corrected:** the divergent-key headline claimed another plugin "is running reCAPTCHA". It knows only what is configured, and now says so.
+
+## Historical Phase: Phase 46 (settings takeover removed; detect and warn instead)
 
 ### Phase 46 Modifications (v2.21.0)
 The takeover mechanism is gone. Not narrowed, not guarded — removed.

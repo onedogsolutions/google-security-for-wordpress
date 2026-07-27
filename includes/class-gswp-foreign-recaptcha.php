@@ -124,6 +124,41 @@ class GSWP_Foreign_Recaptcha {
 	}
 
 	/**
+	 * Whether the plugin owning an option is known to be switched off.
+	 *
+	 * Deactivating a WordPress plugin does not delete its options, so a stored
+	 * site key proves only that a plugin was configured once — never that it is
+	 * running now. Reporting one of those as a live conflict sends the operator
+	 * to switch off something already off.
+	 *
+	 * This can only be answered where the owning plugin exposes its own state,
+	 * so it is deliberately narrow rather than a guess: Gravity Forms publishes
+	 * its registered add-ons, and nothing else here does. Everything else is
+	 * still reported, and the notice says plainly that findings come from stored
+	 * settings.
+	 *
+	 * @param string $option Option name.
+	 * @return bool True only when the owner is known to be inactive.
+	 */
+	private static function owner_is_inactive( $option ) {
+		if ( 0 !== strpos( $option, 'gravityformsaddon' ) ) {
+			return false;
+		}
+
+		if ( ! class_exists( 'GFAddOn' ) || ! method_exists( 'GFAddOn', 'get_registered_addons' ) ) {
+			return false;
+		}
+
+		foreach ( (array) GFAddOn::get_registered_addons() as $class ) {
+			if ( false !== stripos( (string) $class, 'recaptcha' ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
 	 * Whether a scalar looks like a Google reCAPTCHA site key.
 	 *
 	 * Classic and Enterprise site keys share the same shape, so this cannot
@@ -172,6 +207,10 @@ class GSWP_Foreign_Recaptcha {
 
 			// Never report ourselves.
 			if ( 0 === strpos( $option, 'gswp_' ) ) {
+				continue;
+			}
+
+			if ( self::owner_is_inactive( $option ) ) {
 				continue;
 			}
 
@@ -304,7 +343,7 @@ class GSWP_Foreign_Recaptcha {
 
 		echo '<p><strong>' . esc_html(
 			$divergent
-				? __( 'Google Security: another plugin is running reCAPTCHA with a different site key', 'google-security-for-wordpress' )
+				? __( 'Google Security: another plugin is configured with a different reCAPTCHA site key', 'google-security-for-wordpress' )
 				: __( 'Google Security: reCAPTCHA is also configured in another plugin', 'google-security-for-wordpress' )
 		) . '</strong></p>';
 
@@ -329,6 +368,8 @@ class GSWP_Foreign_Recaptcha {
 		}
 
 		echo '<p>' . esc_html__( 'Recommended: turn reCAPTCHA off in the plugin listed above and configure it only here. This plugin deliberately does not switch it off for you — writing to another plugin’s settings is how its stored keys get destroyed.', 'google-security-for-wordpress' ) . '</p>';
+
+		echo '<p><em>' . esc_html__( 'These are stored settings. A plugin that has been deactivated keeps its settings, so if one listed above is switched off it is not loading anything and can be ignored.', 'google-security-for-wordpress' ) . '</em></p>';
 
 		$dismiss = wp_nonce_url( add_query_arg( self::DISMISS_ARG, '1' ), self::DISMISS_ARG );
 

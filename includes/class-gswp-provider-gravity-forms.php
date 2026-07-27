@@ -326,11 +326,20 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * than a confirmed key, so a v3 integration this does not recognise reports
 	 * 'unknown'. That is the safe direction — 'unknown' never lets the settings
 	 * UI claim GF's reCAPTCHA is already off.
+	 *
+	 * The add-on's own state is checked FIRST, because its settings outlive it.
+	 * Deactivating a WordPress plugin does not delete its options, so reading
+	 * the stored keys alone reported a live reCAPTCHA for an add-on that had
+	 * been switched off — configuration mistaken for behaviour.
 	 */
 	public function native_captcha_state( $form_id ) {
 		$form = $this->form( $form_id );
 		if ( null === $form ) {
 			return 'unknown';
+		}
+
+		if ( false === self::native_addon_active() ) {
+			return 'off';
 		}
 
 		// A CAPTCHA field on the form is the visible-challenge case.
@@ -389,6 +398,34 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		return 'unknown';
+	}
+
+	/**
+	 * Whether Gravity Forms' reCAPTCHA add-on is actually running.
+	 *
+	 * VERIFIED against a live install: the add-on registers itself with Gravity
+	 * Forms as `Gravity_Forms\Gravity_Forms_RECAPTCHA\GF_RECAPTCHA`. Asking
+	 * Gravity Forms for its registered add-ons rather than testing a class name
+	 * is deliberate — that class is namespaced, and an unqualified
+	 * class_exists() against it reported "not loaded" for an add-on that was
+	 * active the whole time. Matching on the registered list needs no knowledge
+	 * of the namespace and survives the add-on being renamed.
+	 *
+	 * @return bool|null True or false, or null when Gravity Forms itself is not
+	 *                   loaded and the question cannot be answered.
+	 */
+	private static function native_addon_active() {
+		if ( ! class_exists( 'GFAddOn' ) || ! method_exists( 'GFAddOn', 'get_registered_addons' ) ) {
+			return null;
+		}
+
+		foreach ( (array) GFAddOn::get_registered_addons() as $class ) {
+			if ( false !== stripos( (string) $class, 'recaptcha' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
