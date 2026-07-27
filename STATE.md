@@ -1,6 +1,24 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 43 (disable_native() confirmed broken)
+## Current Phase: Phase 44 (GF bindings verified; cross-family dedup bug found)
+
+### Phase 44 Modifications (v2.20.4)
+Chunk 15 discovery run on staging. It fixed the binding and, more importantly, exposed a latent token-generation failure that no earlier test could have caught.
+
+**The GF option name was right; the setting names inside it were not.**
+- Verified against the live install (Gravity Forms reCAPTCHA add-on **2.2.2**): the option is `gravityformsaddon_gravityformsrecaptcha_settings` — already first in our candidate list — but its keys are `site_key_v3`, `secret_key_v3`, `site_key_v2`, `secret_key_v2`, `type_v2`, plus a `recaptcha_keys_status_v3` validity flag. This class looked for `site_key` / `public_key` / `siteKey`, none of which exist there. So `native_captcha_state()` reported `unknown` and `blank_native_settings()` faithfully blanked keys that were not present. Both failures, one cause.
+- Fixed with the real names (suffixed first, unsuffixed retained as a fallback for other add-on versions), and the validity flag is now cleared too — leaving it set makes the add-on believe it is still configured. A `site_key_v2` whose `type_v2` is not `invisible` now correctly returns `v2`, so a visible-checkbox form is excluded from replacement instead of being taken over as `unknown`.
+
+**The serious find: dedup could silently stop token generation.**
+- This site has our plugin on **Enterprise** and Gravity Forms on **classic** (`connection_type = classic`) — with the **same site key**. So GF emits `api.js?render=K` and this plugin emits `enterprise.js?render=K`.
+- `GSWP_Recaptcha_Loader::filter_tag()` deduplicated on the `render=` key **alone**, so it treated those two tags as duplicates and dropped whichever printed second. If GF's `api.js` won, our bootstrap — running with `isEnterprise = true` — would call `grecaptcha.enterprise`, a namespace classic `api.js` never defines. `api()` returns undefined, every `fetchToken()` rejects, and **no token field is ever populated**. On this site that means payment and account-creating forms rejecting real submissions.
+- No test so far would have caught it: chunk 12 checks the token *field* is present, not that it is *filled*, and nothing has been exercised in a browser.
+- Fixed: dedup now keys on **family + site key**. `api.js` and `enterprise.js` are different APIs that merely accept the same key, so they are never duplicates of each other. When both appear for one key, both are kept and the condition is logged at error level as an integration-type conflict — the operator should align the two plugins, but nothing breaks in the meantime.
+- The option-name fix removes the collision at source on this site: once `disable_native()` actually works, GF stops emitting `api.js` at all.
+
+**Also confirmed from the dump:** all three consumers (this plugin, GF, PowerPack `bb_powerpack_recaptcha_v3_site_key`) hold the *same* site key, so there is no divergent-key conflict on staging — the 2.18.1 warning correctly stayed silent. GF's rendered element is `<div class="gf_invisible ginput_recaptchav3" data-sitekey="…">`, matched by the `ginput_recaptcha` needle added in Phase 43.
+
+## Historical Phase: Phase 43 (disable_native() confirmed broken)
 
 ### Phase 43 Modifications (no version bump — test scripts only)
 Operator re-added Gravity Forms' reCAPTCHA and re-ran chunk 14. **`disable_native()` does not work.**

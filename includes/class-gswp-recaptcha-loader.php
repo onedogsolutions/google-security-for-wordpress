@@ -85,6 +85,13 @@ class GSWP_Recaptcha_Loader {
 	private static $foreign_cache = null;
 
 	/**
+	 * Site key observed being loaded by both API families this request, or ''.
+	 *
+	 * @var string
+	 */
+	private static $family_conflict = '';
+
+	/**
 	 * Wire the render-time hooks. Called once from the plugin bootstrap.
 	 */
 	public static function init() {
@@ -219,6 +226,26 @@ class GSWP_Recaptcha_Loader {
 	}
 
 	/**
+	 * Which reCAPTCHA API family a loader belongs to.
+	 *
+	 * `api.js` (classic) and `enterprise.js` are different APIs that happen to
+	 * accept the same site key. Classic defines `grecaptcha` only; Enterprise
+	 * callers need `grecaptcha.enterprise`. Treating them as interchangeable
+	 * because their `render=` matches is how a page ends up with one script and
+	 * two consumers, one of which is calling a namespace that was never loaded.
+	 *
+	 * @param string $src Script source URL.
+	 * @return string 'enterprise', 'classic', or '' when not a reCAPTCHA loader.
+	 */
+	public static function family_from_src( $src ) {
+		if ( ! self::is_recaptcha_src( $src ) ) {
+			return '';
+		}
+
+		return false !== stripos( (string) $src, '/enterprise.js' ) ? 'enterprise' : 'classic';
+	}
+
+	/**
 	 * Extract the site key a reCAPTCHA loader pre-renders.
 	 *
 	 * @param string $src Script source URL.
@@ -336,11 +363,29 @@ class GSWP_Recaptcha_Loader {
 			return $tag;
 		}
 
-		if ( isset( self::$emitted_keys[ $key ] ) ) {
+		// Deduplicate on key AND API family. Two tags for the same key are only
+		// duplicates when they load the same script: `api.js` and
+		// `enterprise.js` are different APIs. Collapsing them would leave one
+		// consumer calling a namespace the surviving script never defined —
+		// classic `api.js` defines `grecaptcha` but not `grecaptcha.enterprise`,
+		// so an Enterprise caller would silently stop producing tokens.
+		$family = self::family_from_src( $src );
+		$slot   = $family . '|' . $key;
+
+		if ( isset( self::$emitted_keys[ $slot ] ) ) {
 			return '';
 		}
 
-		self::$emitted_keys[ $key ] = true;
+		self::$emitted_keys[ $slot ] = true;
+
+		// Same key, other family already emitted: both are needed, so neither is
+		// dropped — but it is a misconfiguration worth reporting, because the
+		// page now carries two reCAPTCHA scripts and one of the two plugins is
+		// on the wrong integration type.
+		$other = ( 'enterprise' === $family ? 'classic' : 'enterprise' ) . '|' . $key;
+		if ( isset( self::$emitted_keys[ $other ] ) ) {
+			self::$family_conflict = $key;
+		}
 
 		return $tag;
 	}
@@ -352,8 +397,21 @@ class GSWP_Recaptcha_Loader {
 	 */
 	public static function key_emitted() {
 		$site_key = self::site_key();
+		if ( '' === $site_key ) {
+			return false;
+		}
 
-		return '' !== $site_key && isset( self::$emitted_keys[ $site_key ] );
+		return isset( self::$emitted_keys[ 'enterprise|' . $site_key ] )
+			|| isset( self::$emitted_keys[ 'classic|' . $site_key ] );
+	}
+
+	/**
+	 * Site key loaded by both API families on this request, if any.
+	 *
+	 * @return string
+	 */
+	public static function family_conflict() {
+		return self::$family_conflict;
 	}
 
 	/**
@@ -365,6 +423,17 @@ class GSWP_Recaptcha_Loader {
 	 * request and no write at all.
 	 */
 	public static function record_conflicts() {
+		// Same key, both API families: not a key conflict, but a real one.
+		if ( '' !== self::$family_conflict ) {
+			GSWP_Log::error(
+				'reCAPTCHA integration-type conflict: site key '
+				. self::mask_key( self::$family_conflict )
+				. ' is being loaded as BOTH classic (api.js) and Enterprise (enterprise.js) on the same page. '
+				. 'Both scripts are being kept because they are different APIs, but one of the plugins involved is '
+				. 'configured with the wrong integration type. Set them both to the same type.'
+			);
+		}
+
 		$conflicts = self::conflicts();
 
 		if ( empty( $conflicts ) ) {

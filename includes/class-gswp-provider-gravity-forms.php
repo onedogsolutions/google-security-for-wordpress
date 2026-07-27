@@ -121,6 +121,23 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	);
 
 	/**
+	 * Setting names inside GF's reCAPTCHA option that hold a site key.
+	 *
+	 * Suffixed names verified against the reCAPTCHA add-on 2.2.2; the
+	 * unsuffixed ones are kept as a fallback for other versions.
+	 *
+	 * @var string[]
+	 */
+	private static $native_site_key_names = array( 'site_key_v3', 'site_key_v2', 'site_key', 'public_key', 'siteKey' );
+
+	/**
+	 * Setting names inside GF's reCAPTCHA option that hold a secret.
+	 *
+	 * @var string[]
+	 */
+	private static $native_secret_key_names = array( 'secret_key_v3', 'secret_key_v2', 'secret_key', 'private_key' );
+
+	/**
 	 * Shared verifier.
 	 *
 	 * @var GSWP_Verifier|null
@@ -331,13 +348,32 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			}
 		}
 
-		// The reCAPTCHA add-on (v3 / Enterprise) is configured site-wide.
+		// The reCAPTCHA add-on is configured site-wide, and keeps v2 and v3 keys
+		// in the same option under separate, suffixed names.
+		//
+		// VERIFIED against a live install (Gravity Forms reCAPTCHA add-on 2.2.2):
+		// the option is `gravityformsaddon_gravityformsrecaptcha_settings` and
+		// the keys are `site_key_v3` / `secret_key_v3` / `site_key_v2` /
+		// `secret_key_v2` / `type_v2`. Earlier versions of this class looked for
+		// `site_key` and `public_key`, which exist in neither — so detection
+		// reported 'unknown' and disable_native() blanked keys that were not
+		// there. The unsuffixed names are retained only as a fallback for other
+		// add-on versions.
 		foreach ( $this->native_v3_option_candidates() as $option ) {
 			$settings = get_option( $option, null );
 			if ( ! is_array( $settings ) ) {
 				continue;
 			}
-			foreach ( array( 'site_key', 'public_key', 'siteKey' ) as $key ) {
+
+			// A v2 checkbox is a visible challenge we cannot replace.
+			if ( ! empty( $settings['site_key_v2'] ) ) {
+				$type = isset( $settings['type_v2'] ) ? (string) $settings['type_v2'] : 'checkbox';
+				if ( 'invisible' !== $type ) {
+					return 'v2';
+				}
+			}
+
+			foreach ( self::$native_site_key_names as $key ) {
 				if ( ! empty( $settings[ $key ] ) ) {
 					return 'v3';
 				}
@@ -350,9 +386,10 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	/**
 	 * Candidate option names for GF's v3 reCAPTCHA add-on settings.
 	 *
-	 * UNVERIFIED. Filterable so a site can correct it without a code change,
-	 * which is also how the staging discovery pass can confirm the real key
-	 * before it is hard-coded.
+	 * `gravityformsaddon_gravityformsrecaptcha_settings` is VERIFIED against a
+	 * live install (add-on 2.2.2) and is listed first. The others are retained
+	 * for other add-on versions. Filterable so a site can correct it without a
+	 * code change.
 	 *
 	 * @return string[]
 	 */
@@ -362,6 +399,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			array(
 				'gravityformsaddon_gravityformsrecaptcha_settings',
 				'gravityformsaddon_recaptcha_settings',
+				'gravityformsaddon_gravityformsrecaptcha_v2_settings',
 			)
 		);
 	}
@@ -425,9 +463,17 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return $value;
 		}
 
-		foreach ( array( 'site_key', 'public_key', 'siteKey', 'secret_key', 'private_key' ) as $key ) {
+		foreach ( array_merge( self::$native_site_key_names, self::$native_secret_key_names ) as $key ) {
 			if ( isset( $value[ $key ] ) ) {
 				$value[ $key ] = '';
+			}
+		}
+
+		// The add-on also caches a "keys are valid" flag; leaving it set while
+		// the keys read as empty makes it believe it is still configured.
+		foreach ( array( 'recaptcha_keys_status_v3', 'recaptcha_keys_status_v2' ) as $flag ) {
+			if ( isset( $value[ $flag ] ) ) {
+				$value[ $flag ] = 0;
 			}
 		}
 

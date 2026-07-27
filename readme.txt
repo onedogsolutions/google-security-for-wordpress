@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.3
+Stable tag: 2.20.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.4 =
+* Fixed: this plugin could silently stop generating reCAPTCHA tokens when another plugin loaded reCAPTCHA with the same site key but the other integration type. Duplicate script tags were collapsed on the site key alone, but the classic loader (api.js) and the Enterprise loader (enterprise.js) are different APIs — keeping the wrong one left this plugin calling a namespace that was never loaded, so token fields stayed empty and submissions to payment or registration forms were rejected. Tags are now only treated as duplicates when the site key *and* the integration type match, and a site loading both is reported.
+* Fixed: Gravity Forms' own reCAPTCHA is now correctly detected and switched off. The settings this plugin read were named site_key and public_key; Gravity Forms actually stores site_key_v3, site_key_v2 and their secrets, so detection always reported "unknown" and the disable step blanked settings that did not exist. Verified against Gravity Forms reCAPTCHA add-on 2.2.2.
+* Fixed: a Gravity Form using a visible v2 checkbox is now correctly identified and excluded from replacement, rather than being reported as unknown and taken over.
 
 = 2.20.3 =
 * Changed: Gravity Forms forms that create a WordPress account (via the User Registration add-on) are now treated as strictly as forms that take payment. A submission with no verification token is rejected rather than accepted-and-flagged. Account creation is a security surface, and admitting an unverified submission to it is how spam registrations get in; treating it like a contact form was inconsistent with the rest of this plugin. Forms this plugin has never managed to reach are still always allowed through, so a gap on our side cannot block a real signup.
