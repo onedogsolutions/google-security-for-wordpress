@@ -511,7 +511,10 @@ export default function FormProtection( { settings, onChange } ) {
 
 							{ isOn( provider ) &&
 								( provider.forms || [] ).some(
-									( form ) => form.covered && ! form.injected
+									( form ) =>
+										form.covered &&
+										! form.injected &&
+										! isInternal( form.id )
 								) && (
 									<p className="mt-3 text-xs leading-5 text-amber-700">
 										{ __(
@@ -524,11 +527,27 @@ export default function FormProtection( { settings, onChange } ) {
 							{ isOn( provider ) && (
 								<p className="mt-3 text-xs leading-5 text-gray-500">
 									{ __(
-										'Tick “Not public” for any form your site submits programmatically rather than a visitor filling in — one that generates a certificate on course completion, for example. Those forms cannot produce a reCAPTCHA token, so this plugin stops scoring them and stops reporting them as gaps. Everything else keeps running.',
+										'Tick “Not public” for any form your site submits programmatically rather than a visitor filling in — one that generates a certificate on course completion, for example. It stops this plugin reporting a missing token on that form as a coverage gap. It does not stop the form being scored: a submission that arrives from a real browser with a token is always scored, whatever this is set to.',
 										'google-security-for-wordpress'
 									) }
 								</p>
 							) }
+
+							{ isOn( provider ) &&
+								( provider.forms || [] ).some(
+									( form ) =>
+										isInternal( form.id ) &&
+										( form.password ||
+											form.payment ||
+											form.account_feed )
+								) && (
+									<p className="mt-2 text-xs leading-5 text-amber-700">
+										{ __(
+											'A form marked “Not public” also takes payment, changes a password, or touches an account. That is allowed — those submissions are still scored whenever they carry a token — but check the mark is deliberate: it silences the alert that would otherwise tell you the form had stopped being protected.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								) }
 						</div>
 					);
 				} ) }

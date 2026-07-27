@@ -115,10 +115,21 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * worse than no alerts, because they teach the operator to ignore the real
 	 * one.
 	 *
-	 * Listing a form here removes it from scoring, from coverage reporting and
-	 * from the alerting — deliberately an operator declaration rather than
-	 * anything inferred from the request, so it cannot be spoofed by a caller
-	 * omitting a field (the bypass class removed in 2.17.0).
+	 * Listing a form here suppresses the missing-token alarm for it: no coverage
+	 * gap, no error log line, no operator email. That is ALL it does.
+	 *
+	 * It deliberately does NOT stop the form being scored. The first cut made an
+	 * internal form ineligible, which switched this plugin off for it entirely —
+	 * and an operator who ticked the box on a password-change form reachable in
+	 * the browser silently lost all bot scoring on a credential change. A
+	 * reporting preference must never be able to remove protection; the two are
+	 * not the operator's to trade against each other by accident. A submission
+	 * carrying a token is scored whatever this says, so the declaration is
+	 * inert on any form a human can actually reach.
+	 *
+	 * Deliberately an operator declaration rather than anything inferred from
+	 * the request, so it cannot be spoofed by a caller omitting a field (the
+	 * bypass class removed in 2.17.0).
 	 */
 	const INTERNAL_OPTION = 'gswp_gf_internal_forms';
 
@@ -282,13 +293,15 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return false;
 		}
 
-		// A form nobody submits in a browser cannot produce a token, and
-		// treating its absence as a coverage gap is a false alarm on every
-		// programmatic run.
-		if ( $this->form_is_internal( $form_id ) ) {
-			return false;
-		}
-
+		// NOTE: an internal form is deliberately still eligible. Making it
+		// ineligible — as 2.22.0 first did — switched this plugin off for that
+		// form entirely: no token field, no scoring, nothing. On a form that
+		// really is only ever driven programmatically that is merely useless,
+		// but on a form reachable in a browser it silently strips protection
+		// from whatever the form does, up to and including changing a password.
+		// A reporting preference must never be able to do that. See
+		// form_is_internal(): the declaration now suppresses the missing-token
+		// ALARM and nothing else.
 		return 'v2' !== $this->native_captcha_state( $form_id );
 	}
 
@@ -520,11 +533,50 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		if ( $this->form_creates_account( $form_id ) ) {
 			return 'register';
 		}
+		// Ranked above a plain account update: changing a password is the step
+		// an account takeover performs to lock the real owner out, so it is
+		// worth scoring and tuning on its own rather than averaging in with
+		// profile edits.
+		if ( $this->form_changes_password( $form_id ) ) {
+			return 'password_reset';
+		}
 		if ( $this->form_updates_account( $form_id ) ) {
 			return 'account_update';
 		}
 
 		return 'submit';
+	}
+
+	/**
+	 * Whether a form sets or changes a password.
+	 *
+	 * Read from the stored form definition, never the request. A password field
+	 * is the signal: whether the change lands via a User Registration update
+	 * feed or the site's own handler, the form is a credential-changing surface
+	 * either way.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	public function form_changes_password( $form_id ) {
+		$cached = $this->memo_get( 'password', $form_id );
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
+		$form = $this->form( $form_id );
+		if ( null === $form || empty( $form['fields'] ) || ! is_array( $form['fields'] ) ) {
+			return $this->memo_set( 'password', $form_id, false );
+		}
+
+		foreach ( $form['fields'] as $field ) {
+			$type = is_object( $field ) && isset( $field->type ) ? $field->type : '';
+			if ( 'password' === $type ) {
+				return $this->memo_set( 'password', $form_id, true );
+			}
+		}
+
+		return $this->memo_set( 'password', $form_id, false );
 	}
 
 	/**
@@ -574,6 +626,9 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 		if ( $this->form_creates_account( $form_id ) ) {
 			return 'gf_register';
+		}
+		if ( $this->form_changes_password( $form_id ) ) {
+			return 'gf_password';
 		}
 		if ( $this->form_updates_account( $form_id ) ) {
 			return 'gf_account_update';
@@ -980,6 +1035,17 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		$token = isset( $_POST[ self::TOKEN_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ self::TOKEN_FIELD ] ) ) : '';
 
 		if ( '' === $token ) {
+			// Declared programmatic: no browser, so no token, and neither a gap
+			// nor an attack. Admit it without the alarm.
+			//
+			// This is the ONLY thing the declaration does. A submission that
+			// DOES carry a token has already fallen past this branch and is
+			// scored exactly like any other — so ticking "Not public" can never
+			// silently unprotect a form somebody can actually reach.
+			if ( $this->form_is_internal( $form_id ) ) {
+				return $validation_result;
+			}
+
 			// Coverage assertion. A missing token means one of two very
 			// different things, and they deserve opposite responses.
 			if ( 0 === $this->last_injection( $form_id ) ) {
@@ -1210,7 +1276,9 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		return array(
 			'action'  => $this->action_for( $form_id ),
 			'context' => $this->context_for( $form_id ),
-			'account' => $this->account_feed_type( $form_id ),
+			'account'  => $this->account_feed_type( $form_id ),
+			'password' => $this->form_changes_password( $form_id ),
+			'internal' => $this->form_is_internal( $form_id ),
 		);
 	}
 

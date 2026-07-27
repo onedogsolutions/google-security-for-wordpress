@@ -275,6 +275,7 @@ class GSWP_Form_Provider_Registry {
 				$row['action']        = isset( $policy['action'] ) ? $policy['action'] : '';
 				$row['context']       = isset( $policy['context'] ) ? $policy['context'] : '';
 				$row['account_feed']  = isset( $policy['account'] ) ? $policy['account'] : '';
+				$row['password']      = ! empty( $policy['password'] );
 			}
 
 			if ( method_exists( $provider, 'last_rejection' ) ) {
