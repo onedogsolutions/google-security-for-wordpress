@@ -102,7 +102,12 @@ foreach ( $provider->forms() as $form_id => $title ) {
 	$out[] = '  classified as : ' . ( $is_strict
 		? 'STRICT (missing token -> reject)' . ( $is_payment ? ' [payment]' : '' ) . ( $is_account ? ' [creates account]' : '' )
 		: 'ordinary (missing token -> allow + flag)' );
-	$out[] = '  feeds         : ' . ( empty( $all_feeds ) ? 'none' : implode( ', ', $all_feeds ) );
+	$feed_counts = array_count_values( $all_feeds );
+	$feed_list   = array();
+	foreach ( $feed_counts as $label => $n ) {
+		$feed_list[] = $n > 1 ? $label . ' x' . $n : $label;
+	}
+	$out[] = '  feeds         : ' . ( empty( $feed_list ) ? 'none' : implode( ', ', $feed_list ) );
 	$out[] = '  because       : ' . ( empty( $reasons ) ? 'no payment feed and no pricing field' : implode( ' | ', $reasons ) );
 	$out[] = '  GF own captcha: ' . $provider->native_captcha_state( $form_id );
 	$out[] = '  eligible      : ' . ( $provider->form_is_eligible( $form_id ) ? 'yes' : 'no' );
@@ -121,7 +126,7 @@ foreach ( $provider->forms() as $form_id => $title ) {
 		$stripped = preg_replace( '/<input[^>]*name="' . preg_quote( $token, '/' ) . '"[^>]*>/i', '', $markup );
 
 		$found = array();
-		foreach ( array( 'g-recaptcha', 'grecaptcha', 'data-sitekey', 'gfield_captcha', 'recaptcha/api', 'recaptcha/enterprise' ) as $needle ) {
+		foreach ( array( 'g-recaptcha', 'grecaptcha', 'data-sitekey', 'gfield_captcha', 'ginput_recaptcha', 'recaptcha/api', 'recaptcha/enterprise' ) as $needle ) {
 			if ( false !== stripos( (string) $stripped, $needle ) ) {
 				$found[] = $needle;
 			}

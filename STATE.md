@@ -1,6 +1,19 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 42 (account-creating forms treated as sensitive)
+## Current Phase: Phase 43 (disable_native() confirmed broken)
+
+### Phase 43 Modifications (no version bump — test scripts only)
+Operator re-added Gravity Forms' reCAPTCHA and re-ran chunk 14. **`disable_native()` does not work.**
+
+- `GF captcha in markup: PRESENT -> data-sitekey` on all five forms, and `GF own captcha: unknown`. Both facts have one cause: the option names in `native_v3_option_candidates()` do not match what this site actually stores, so the read-time filter attaches to nothing. Detection and disabling fail together because they read the same wrong key.
+- **The fail-safe design held.** Nothing broke: GF's reCAPTCHA kept working alongside ours, the loader owner deduplicates when the keys match, and every form still received our token. That was the stated property of filtering settings rather than unhooking internals, and it is now demonstrated rather than asserted.
+- **Cost of the failure is real but bounded:** the site is paying for two assessments per submission instead of one, and GF's threshold is still a second invisible policy.
+- **Fingerprint worth noting:** the markup matched `data-sitekey` but *not* `g-recaptcha`, `grecaptcha`, `gfield_captcha`, `recaptcha/api` or `recaptcha/enterprise`. That points at GF's own field wrapper rather than a standard Google widget div — `ginput_recaptcha` is the likely class, so it has been added to the detection needle list (detection only; no behaviour change).
+- **No third guess at the option name.** Guessing is defect D5 and has now failed twice. New `15-gf-native-discovery.php` dumps every option whose name contains `recaptcha`/`captcha` or starts with `gravityformsaddon`, with key values masked; extracts each rendered `data-sitekey` with 440 characters of surrounding markup; and states whether GF's key matches this plugin's. Those two outputs are what will fix the binding.
+- **The divergent-key question is now live on that site.** The operator re-added GF reCAPTCHA; if the key differs from ours, staging currently reproduces the original outage condition. Chunk 15 says so explicitly and tells the operator to check whether the 2.18.1 conflict notice fired — which doubles as the first real test of that warning path.
+- Also deduplicated the feed list in chunk 14; form #2 has eleven active coupon feeds and the raw list was unreadable.
+
+## Historical Phase: Phase 42 (account-creating forms treated as sensitive)
 
 ### Phase 42 Modifications (v2.20.3)
 Chunk 14 run on staging. Two results and one gap it exposed.

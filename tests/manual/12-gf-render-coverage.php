@@ -98,7 +98,7 @@ foreach ( $forms as $form_id => $title ) {
 		// printed was a false negative.
 		$stripped  = preg_replace( '/<input[^>]*name="' . preg_quote( $token_field, '/' ) . '"[^>]*>/i', '', $markup );
 		$gf_captcha = 'none';
-		foreach ( array( 'g-recaptcha', 'grecaptcha', 'data-sitekey', 'gfield_captcha', 'recaptcha/api', 'recaptcha/enterprise' ) as $needle ) {
+		foreach ( array( 'g-recaptcha', 'grecaptcha', 'data-sitekey', 'gfield_captcha', 'ginput_recaptcha', 'recaptcha/api', 'recaptcha/enterprise' ) as $needle ) {
 			if ( false !== stripos( (string) $stripped, $needle ) ) {
 				$gf_captcha = 'PRESENT';
 				break;
