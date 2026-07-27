@@ -368,12 +368,12 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		if ( ! method_exists( 'GFAPI', 'get_feeds' ) ) {
-			return $this->memo_set( 'account_feed_type', $form_id, '' );
+			return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( '', $form_id ) );
 		}
 
 		$feeds = GFAPI::get_feeds( null, (int) $form_id );
 		if ( ! is_array( $feeds ) ) {
-			return $this->memo_set( 'account_feed_type', $form_id, '' );
+			return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( '', $form_id ) );
 		}
 
 		$type = '';
@@ -397,10 +397,36 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			}
 
 			// 'create', or a value we do not recognise, or no value at all.
-			return $this->memo_set( 'account_feed_type', $form_id, 'create' );
+			return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( 'create', $form_id ) );
 		}
 
-		return $this->memo_set( 'account_feed_type', $form_id, $type );
+		return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( $type, $form_id ) );
+	}
+
+	/**
+	 * Let a site correct a form's account classification.
+	 *
+	 * The feed-type binding is UNVERIFIED, and getting it wrong is not
+	 * cosmetic: a profile-edit form misread as a signup is scored under the
+	 * stricter threshold and rejected outright when its token is missing. A
+	 * site that hits this should not have to wait for a release, so the answer
+	 * is filterable:
+	 *
+	 *     add_filter( 'gswp_gf_account_feed_type', function ( $type, $form_id ) {
+	 *         return in_array( $form_id, array( 7, 9 ), true ) ? 'update' : $type;
+	 *     }, 10, 2 );
+	 *
+	 * Returning anything other than 'create' or 'update' means "this form
+	 * touches no account".
+	 *
+	 * @param string $type    Derived type: 'create', 'update', or ''.
+	 * @param int    $form_id Form identifier.
+	 * @return string Filtered type.
+	 */
+	private function filter_account_type( $type, $form_id ) {
+		$filtered = apply_filters( 'gswp_gf_account_feed_type', $type, (int) $form_id );
+
+		return in_array( $filtered, array( 'create', 'update' ), true ) ? $filtered : '';
 	}
 
 	/**

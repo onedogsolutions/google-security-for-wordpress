@@ -14,6 +14,38 @@ function nativeLabel( state ) {
 }
 
 /**
+ * What a form does that makes it worth protecting.
+ *
+ * These are not alternatives. A registration form can take payment AND create
+ * an account, and the earlier single-value column hid the second fact behind
+ * the first — it reported "payment" and said nothing about the account, which
+ * is the more security-relevant of the two.
+ *
+ * @param {Object} form Coverage row.
+ * @return {string} Comma-separated labels, or an em dash when none apply.
+ */
+function sensitiveLabel( form ) {
+	const labels = [];
+
+	if ( form.payment ) {
+		labels.push( __( 'payment', 'google-security-for-wordpress' ) );
+	}
+
+	// account_feed distinguishes creating an account from updating one and is
+	// independent of payment. Providers that do not report it fall back to the
+	// older derived flag, which is only meaningful on non-payment forms.
+	if ( form.account_feed === 'create' ) {
+		labels.push( __( 'creates account', 'google-security-for-wordpress' ) );
+	} else if ( form.account_feed === 'update' ) {
+		labels.push( __( 'updates account', 'google-security-for-wordpress' ) );
+	} else if ( form.account_feed === undefined && form.account ) {
+		labels.push( __( 'creates account', 'google-security-for-wordpress' ) );
+	}
+
+	return labels.length ? labels.join( ' + ' ) : '\u2014';
+}
+
+/**
  * Why a form last rejected a submission.
  *
  * "Why is this form rejecting people?" had no answer anywhere in wp-admin, and
@@ -367,30 +399,9 @@ export default function FormProtection( { settings, onChange } ) {
 															) }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
-														{ form.payment &&
-															__(
-																'payment',
-																'google-security-for-wordpress'
-															) }
-														{ ! form.payment &&
-															form.account &&
-															__(
-																'creates account',
-																'google-security-for-wordpress'
-															) }
-														{ ! form.payment &&
-															! form.account &&
-															form.account_feed ===
-																'update' &&
-															__(
-																'updates account',
-																'google-security-for-wordpress'
-															) }
-														{ ! form.payment &&
-															! form.account &&
-															form.account_feed !==
-																'update' &&
-															'—' }
+														{ sensitiveLabel(
+															form
+														) }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
 														{ form.enforcement ===

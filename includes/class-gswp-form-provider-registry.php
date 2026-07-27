@@ -240,6 +240,10 @@ class GSWP_Form_Provider_Registry {
 				'eligible'    => $eligible,
 				'covered'     => $eligible && $result['on'],
 				'payment'     => $payment,
+				// Derived, and lossy: a payment form could never also report that
+				// it creates an account. Kept for providers that offer nothing
+				// better; where form_policy() exists, 'account_feed' below is
+				// authoritative and independent of whether the form takes money.
 				'account'     => $strict && ! $payment,
 				'native'      => $provider->native_captcha_state( $form_id ),
 				'enforcement' => $strict ? 'reject' : 'allow',
