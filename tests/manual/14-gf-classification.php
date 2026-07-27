@@ -37,6 +37,19 @@ if ( ! class_exists( 'GSWP_Form_Provider_Registry' ) || ! class_exists( 'GFAPI' 
 $provider = GSWP_Form_Provider_Registry::get( 'gravity-forms' );
 $token    = GSWP_Provider_Gravity_Forms::TOKEN_FIELD;
 
+// Run context. Printed by every chunk so a result can always be tied to the
+// plugin version and site that produced it — two earlier rounds were read
+// against the wrong version because the output carried no provenance.
+$gswp_ctx = array(
+	'=== RUN CONTEXT ===',
+	'  plugin version : ' . ( defined( 'GSWP_VERSION' ) ? GSWP_VERSION : 'NOT ACTIVE' ),
+	'  site           : ' . wp_parse_url( home_url(), PHP_URL_HOST ),
+	'  time (UTC)     : ' . gmdate( 'Y-m-d H:i:s' ),
+	'  php            : ' . PHP_VERSION,
+	'',
+);
+echo implode( "\n", $gswp_ctx ) . "\n";
+
 $out   = array();
 $out[] = '=== GF classification audit ===';
 $out[] = 'Transaction Defense: ' . ( '1' === get_option( 'gswp_txn_defense', '0' ) ? 'ON' : 'OFF' );

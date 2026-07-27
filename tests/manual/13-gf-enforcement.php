@@ -41,6 +41,19 @@ if ( ! GSWP_Form_Provider_Registry::is_on( 'gravity-forms' ) ) {
 	return;
 }
 
+// Run context. Printed by every chunk so a result can always be tied to the
+// plugin version and site that produced it — two earlier rounds were read
+// against the wrong version because the output carried no provenance.
+$gswp_ctx = array(
+	'=== RUN CONTEXT ===',
+	'  plugin version : ' . ( defined( 'GSWP_VERSION' ) ? GSWP_VERSION : 'NOT ACTIVE' ),
+	'  site           : ' . wp_parse_url( home_url(), PHP_URL_HOST ),
+	'  time (UTC)     : ' . gmdate( 'Y-m-d H:i:s' ),
+	'  php            : ' . PHP_VERSION,
+	'',
+);
+echo implode( "\n", $gswp_ctx ) . "\n";
+
 $out   = array();
 $out[] = '=== GF enforcement policy ===';
 
