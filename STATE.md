@@ -1,6 +1,24 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 41 (non-WooCommerce gaps; root cause corrected)
+## Current Phase: Phase 42 (account-creating forms treated as sensitive)
+
+### Phase 42 Modifications (v2.20.3)
+Chunk 14 run on staging. Two results and one gap it exposed.
+
+**Classification is correct.** Form #2 Registration carries an active `gravityformsstripe` feed plus `product`/`total` fields, so its PAYMENT classification is right. The other four have no payment feed and no pricing field. My earlier suspicion that "#5 Certificate" and "#8 Professional Certification Exam" might be misclassified payment forms was wrong — they carry `gravityformswebhooks` and `gravityformsuserregistration` respectively, no payment.
+
+**The markup check is now trustworthy but unexercised.** `GF captcha in markup: none` on every form, and `GF own captcha: unknown` — but the operator has manually removed Gravity Forms' reCAPTCHA from that site, so there is nothing for `disable_native()` to disable. The fixed detection produced no false positives, which is worth something, but **`disable_native()` remains unverified**. The operator has offered to re-add GF reCAPTCHA and retest; doing so with a *different* key would exercise `disable_native()` and reproduce the original divergent-key condition in one go.
+
+**Gap the run exposed: account-creating forms were failing open.**
+- Forms #6 (User Profile) and #8 (Professional Certification Exam) carry active `gravityformsuserregistration` feeds. They create WordPress accounts. Under the 2.20.0–2.20.2 policy they were "non-payment", so a submission with no verification token was **admitted and flagged** rather than rejected.
+- That is inconsistent with the rest of this plugin, which has a long history of chasing exactly this problem — Account Defender registration screening (Phase 20), the PowerPack registration form block (Phase 28), the local content heuristic (Phase 31). Guarding `wp-login.php?action=register` and WooCommerce registration while letting an unverified Gravity Forms signup through is not a defensible split.
+- **Fix:** new `form_is_strict()` on the provider contract — true when a form takes payment **or** creates an account. Enforcement now keys off it; `form_has_payment()` still gates `transactionData`, which remains payment-only. Account-creating forms are also scored with the `register` action and the registration threshold rather than the generic `submit`.
+- **Blast radius is bounded by the coverage assertion**, which is why this is safe to do rather than a new outage risk: fail-closed only bites on a form we have successfully injected into. A form we have never reached is still allowed through on every tier, so a gap of ours cannot block a real signup.
+- Reporting: audit rows gain `account`; the Form Protection table's "Payment" column becomes "Sensitive" and distinguishes payment from account-creating. Chunks 13 and 14 updated to the broader predicate.
+
+**Transaction Defense is now ON** on the staging site (it became reachable in 2.20.2), so the GF payment path is live — assessments for form #2 should now carry `transactionData`. High-risk blocking remains off, which is the right posture until scenario 6 has been run.
+
+## Historical Phase: Phase 41 (non-WooCommerce gaps; root cause corrected)
 
 ### Phase 41 Modifications (v2.20.2)
 Two defects reported from staging, both specific to **a site that takes payments through Gravity Forms with no WooCommerce installed** — the configuration the 2.19/2.20 work was built for, and the one least exercised until now.

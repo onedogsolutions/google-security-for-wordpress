@@ -80,6 +80,23 @@ interface GSWP_Form_Provider {
 	public function form_has_payment( $form_id );
 
 	/**
+	 * Whether a form warrants fail-closed enforcement.
+	 *
+	 * Broader than form_has_payment(): a form that creates a WordPress account
+	 * is a security surface too, and admitting an unverified submission to it is
+	 * how spam registrations get in. Both money and account creation are
+	 * outcomes worth refusing rather than admitting unverified; a contact form
+	 * entry is not.
+	 *
+	 * Like form_has_payment(), must derive from the stored form definition and
+	 * never from the request.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	public function form_is_strict( $form_id );
+
+	/**
 	 * State of the host plugin's own captcha for a form.
 	 *
 	 * @param int|string $form_id Form identifier.

@@ -104,6 +104,23 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	);
 
 	/**
+	 * Add-on slugs whose feeds create or modify a WordPress account.
+	 *
+	 * A form that creates a user account is a security surface, not a contact
+	 * form. Treating it like one — accepting a submission with no verification
+	 * token — is how spam registrations get in, which this plugin has a history
+	 * of chasing (see the Account Defender and content-heuristic work). It gets
+	 * the same fail-closed treatment as a payment.
+	 *
+	 * UNVERIFIED against installed source.
+	 *
+	 * @var string[]
+	 */
+	private static $account_addons = array(
+		'gravityformsuserregistration',
+	);
+
+	/**
 	 * Shared verifier.
 	 *
 	 * @var GSWP_Verifier|null
@@ -237,6 +254,46 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether a form's feeds create or modify a WordPress account.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	public function form_creates_account( $form_id ) {
+		if ( ! method_exists( 'GFAPI', 'get_feeds' ) ) {
+			return false;
+		}
+
+		$feeds = GFAPI::get_feeds( null, (int) $form_id );
+		if ( ! is_array( $feeds ) ) {
+			return false;
+		}
+
+		foreach ( $feeds as $feed ) {
+			if ( empty( $feed['is_active'] ) ) {
+				continue;
+			}
+			$slug = isset( $feed['addon_slug'] ) ? (string) $feed['addon_slug'] : '';
+			if ( in_array( $slug, self::$account_addons, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * Fail closed on anything that moves money or creates an account. Both are
+	 * outcomes worth refusing rather than admitting unverified; a contact form
+	 * entry is not.
+	 */
+	public function form_is_strict( $form_id ) {
+		return $this->form_has_payment( $form_id ) || $this->form_creates_account( $form_id );
 	}
 
 	/**
@@ -568,6 +625,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		$payment = $this->form_has_payment( $form_id );
+		$strict  = $this->form_is_strict( $form_id );
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Gravity Forms validates its own nonce before this filter runs.
 		$token = isset( $_POST[ self::TOKEN_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ self::TOKEN_FIELD ] ) ) : '';
@@ -604,7 +662,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			// decision is read from the stored form definition, never from the
 			// request — a request-derived predicate would let a caller opt out
 			// by omitting the field, the bypass class removed in 2.17.0.
-			if ( $payment ) {
+			if ( $strict ) {
 				return $this->reject(
 					$validation_result,
 					__( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' ),
@@ -615,7 +673,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			$this->pending_unverified[ $form_id ] = true;
 			$this->log(
 				sprintf(
-					'Gravity Forms #%d submitted with no reCAPTCHA token; admitted (non-payment form, fail-open). If this repeats, token generation is broken on that page.',
+					'Gravity Forms #%d submitted with no reCAPTCHA token; admitted (takes no payment and creates no account, fail-open). If this repeats, token generation is broken on that page.',
 					$form_id
 				)
 			);
@@ -624,7 +682,7 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		}
 
 		$context     = $payment ? 'checkout' : 'wp_register';
-		$action      = $payment ? 'checkout' : 'submit';
+		$action      = $payment ? 'checkout' : ( $this->form_creates_account( $form_id ) ? 'register' : 'submit' );
 		$event_extra = $payment ? $this->payment_context( $form, $form_id ) : array();
 
 		$result = $this->verifier->verify_token( $context, $action, $event_extra, null, $token );

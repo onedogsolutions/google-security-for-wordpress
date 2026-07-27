@@ -233,6 +233,7 @@ class GSWP_Form_Provider_Registry {
 		foreach ( $forms as $form_id => $title ) {
 			$eligible = $provider->form_is_eligible( $form_id );
 			$payment  = $provider->form_has_payment( $form_id );
+			$strict   = $provider->form_is_strict( $form_id );
 
 			$result['forms'][] = array(
 				'id'          => $form_id,
@@ -240,8 +241,9 @@ class GSWP_Form_Provider_Registry {
 				'eligible'    => $eligible,
 				'covered'     => $eligible && $result['on'],
 				'payment'     => $payment,
+				'account'     => $strict && ! $payment,
 				'native'      => $provider->native_captcha_state( $form_id ),
-				'enforcement' => $payment ? 'reject' : 'allow',
+				'enforcement' => $strict ? 'reject' : 'allow',
 				'injected'    => $provider->last_injection( $form_id ),
 			);
 

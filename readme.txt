@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.2
+Stable tag: 2.20.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.3 =
+* Changed: Gravity Forms forms that create a WordPress account (via the User Registration add-on) are now treated as strictly as forms that take payment. A submission with no verification token is rejected rather than accepted-and-flagged. Account creation is a security surface, and admitting an unverified submission to it is how spam registrations get in; treating it like a contact form was inconsistent with the rest of this plugin. Forms this plugin has never managed to reach are still always allowed through, so a gap on our side cannot block a real signup.
+* Changed: account-creating forms are scored with the "register" action and the registration threshold rather than the generic submit action.
+* Changed: the Form Protection table's "Payment" column is now "Sensitive", and distinguishes payment forms from account-creating ones.
 
 = 2.20.2 =
 * Fixed: the Transaction Defense settings panel was hidden unless WooCommerce was active, which made the setting unreachable on sites that take payments through Gravity Forms without WooCommerce — exactly the sites the Gravity Forms payment scoring was built for. The panel now always appears with an Enterprise key.

@@ -53,16 +53,16 @@ foreach ( array_keys( $forms ) as $form_id ) {
 	if ( ! $provider->form_is_eligible( $form_id ) ) {
 		continue;
 	}
-	if ( ! $payment_form && $provider->form_has_payment( $form_id ) ) {
+	if ( ! $payment_form && $provider->form_is_strict( $form_id ) ) {
 		$payment_form = $form_id;
 	}
-	if ( ! $plain_form && ! $provider->form_has_payment( $form_id ) ) {
+	if ( ! $plain_form && ! $provider->form_is_strict( $form_id ) ) {
 		$plain_form = $form_id;
 	}
 }
 
-$out[] = 'Payment form under test:     ' . ( $payment_form ? '#' . $payment_form : 'none found' );
-$out[] = 'Non-payment form under test: ' . ( $plain_form ? '#' . $plain_form : 'none found' );
+$out[] = 'Strict form under test:      ' . ( $payment_form ? '#' . $payment_form : 'none found' );
+$out[] = 'Fail-open form under test:   ' . ( $plain_form ? '#' . $plain_form : 'none found' );
 $out[] = '';
 
 $log_option = GSWP_Provider_Gravity_Forms::INJECTION_OPTION;
@@ -99,7 +99,7 @@ if ( $payment_form ) {
 	$allowed = $validate( $payment_form );
 
 	$mark(
-		'Payment form with no token is REJECTED',
+		'Strict form (payment or account) with no token is REJECTED',
 		! $allowed,
 		'a payment can be submitted with no verification'
 	);
@@ -113,7 +113,7 @@ if ( $plain_form ) {
 	$allowed = $validate( $plain_form );
 
 	$mark(
-		'Non-payment form with no token is ALLOWED',
+		'Ordinary form with no token is ALLOWED',
 		$allowed,
 		'a contact form that cannot be submitted is worse than a spam entry'
 	);

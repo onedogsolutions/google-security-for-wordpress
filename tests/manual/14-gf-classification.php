@@ -92,8 +92,16 @@ foreach ( $provider->forms() as $form_id => $title ) {
 	}
 
 	$is_payment = $provider->form_has_payment( $form_id );
+	$is_account = method_exists( $provider, 'form_creates_account' ) ? $provider->form_creates_account( $form_id ) : false;
+	$is_strict  = method_exists( $provider, 'form_is_strict' ) ? $provider->form_is_strict( $form_id ) : $is_payment;
 
-	$out[] = '  classified as : ' . ( $is_payment ? 'PAYMENT (missing token -> reject)' : 'non-payment (missing token -> allow + flag)' );
+	if ( $is_account ) {
+		$reasons[] = 'account-creating feed';
+	}
+
+	$out[] = '  classified as : ' . ( $is_strict
+		? 'STRICT (missing token -> reject)' . ( $is_payment ? ' [payment]' : '' ) . ( $is_account ? ' [creates account]' : '' )
+		: 'ordinary (missing token -> allow + flag)' );
 	$out[] = '  feeds         : ' . ( empty( $all_feeds ) ? 'none' : implode( ', ', $all_feeds ) );
 	$out[] = '  because       : ' . ( empty( $reasons ) ? 'no payment feed and no pricing field' : implode( ' | ', $reasons ) );
 	$out[] = '  GF own captcha: ' . $provider->native_captcha_state( $form_id );

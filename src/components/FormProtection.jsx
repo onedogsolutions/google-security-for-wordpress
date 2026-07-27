@@ -170,7 +170,7 @@ export default function FormProtection( { settings, onChange } ) {
 											</th>
 											<th className="py-2 pr-4 font-medium">
 												{ __(
-													'Payment',
+													'Sensitive',
 													'google-security-for-wordpress'
 												) }
 											</th>
@@ -232,12 +232,20 @@ export default function FormProtection( { settings, onChange } ) {
 															) }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
-														{ form.payment
-															? __(
-																	'yes',
-																	'google-security-for-wordpress'
-															  )
-															: '—' }
+														{ form.payment &&
+															__(
+																'payment',
+																'google-security-for-wordpress'
+															) }
+														{ ! form.payment &&
+															form.account &&
+															__(
+																'creates account',
+																'google-security-for-wordpress'
+															) }
+														{ ! form.payment &&
+															! form.account &&
+															'—' }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
 														{ form.enforcement ===
