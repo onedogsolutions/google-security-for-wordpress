@@ -108,6 +108,7 @@ class GSWP_Rest_Api {
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
 			'form_providers'         => GSWP_Form_Provider_Registry::audit_all(),
+			'gf_internal_forms'      => array_map( 'intval', (array) get_option( 'gswp_gf_internal_forms', array() ) ),
 			// Two-factor authentication.
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
@@ -899,6 +900,22 @@ class GSWP_Rest_Api {
 
 				GSWP_Form_Provider_Registry::set( $provider_id, '1' === (string) $on || true === $on );
 			}
+		}
+
+		// Forms the operator has declared are never submitted by a visitor.
+		if ( isset( $params['gf_internal_forms'] ) && is_array( $params['gf_internal_forms'] ) ) {
+			$internal = array_values(
+				array_unique(
+					array_filter(
+						array_map( 'intval', $params['gf_internal_forms'] ),
+						static function ( $id ) {
+							return $id > 0;
+						}
+					)
+				)
+			);
+
+			update_option( 'gswp_gf_internal_forms', $internal, false );
 		}
 
 		if ( isset( $params['conflict_mode'] ) ) {

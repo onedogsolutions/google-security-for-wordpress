@@ -105,6 +105,25 @@ export default function FormProtection( { settings, onChange } ) {
 	const killed =
 		settings.form_providers_enabled === '0' || audit.enabled === false;
 
+	// Forms the operator has declared are driven programmatically. Held as a
+	// pending list so the checkboxes behave like every other unsaved setting.
+	const internalForms = (
+		settings.gf_internal_forms ||
+		adminData.settings?.gf_internal_forms ||
+		[]
+	).map( Number );
+
+	const isInternal = ( formId ) => internalForms.includes( Number( formId ) );
+
+	const toggleInternal = ( formId, checked ) => {
+		const id = Number( formId );
+		const next = checked
+			? [ ...internalForms, id ]
+			: internalForms.filter( ( existing ) => existing !== id );
+
+		onChange( 'gf_internal_forms', [ ...new Set( next ) ] );
+	};
+
 	if ( providers.length === 0 ) {
 		return (
 			<div className="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl">
@@ -347,9 +366,15 @@ export default function FormProtection( { settings, onChange } ) {
 													'google-security-for-wordpress'
 												) }
 											</th>
-											<th className="py-2 font-medium">
+											<th className="py-2 pr-4 font-medium">
 												{ __(
 													'Its own reCAPTCHA',
+													'google-security-for-wordpress'
+												) }
+											</th>
+											<th className="py-2 font-medium">
+												{ __(
+													'Not public',
 													'google-security-for-wordpress'
 												) }
 											</th>
@@ -365,10 +390,15 @@ export default function FormProtection( { settings, onChange } ) {
 													<td className="py-2 pr-4">
 														{ ! form.eligible && (
 															<span className="text-gray-400">
-																{ __(
-																	'not eligible',
-																	'google-security-for-wordpress'
-																) }
+																{ form.internal
+																	? __(
+																			'not scored',
+																			'google-security-for-wordpress'
+																	  )
+																	: __(
+																			'not eligible',
+																			'google-security-for-wordpress'
+																	  ) }
 															</span>
 														) }
 														{ form.eligible &&
@@ -438,10 +468,30 @@ export default function FormProtection( { settings, onChange } ) {
 															form.last_rejection
 														) }
 													</td>
-													<td className="py-2 text-gray-600">
+													<td className="py-2 pr-4 text-gray-600">
 														{ nativeLabel(
 															form.native
 														) }
+													</td>
+													<td className="py-2">
+														<input
+															type="checkbox"
+															checked={ isInternal(
+																form.id
+															) }
+															onChange={ ( e ) =>
+																toggleInternal(
+																	form.id,
+																	e.target
+																		.checked
+																)
+															}
+															className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+															aria-label={ __(
+																'This form is never submitted by a visitor',
+																'google-security-for-wordpress'
+															) }
+														/>
 													</td>
 												</tr>
 											)
@@ -470,6 +520,15 @@ export default function FormProtection( { settings, onChange } ) {
 										) }
 									</p>
 								) }
+
+							{ isOn( provider ) && (
+								<p className="mt-3 text-xs leading-5 text-gray-500">
+									{ __(
+										'Tick “Not public” for any form your site submits programmatically rather than a visitor filling in — one that generates a certificate on course completion, for example. Those forms cannot produce a reCAPTCHA token, so this plugin stops scoring them and stops reporting them as gaps. Everything else keeps running.',
+										'google-security-for-wordpress'
+									) }
+								</p>
+							) }
 						</div>
 					);
 				} ) }

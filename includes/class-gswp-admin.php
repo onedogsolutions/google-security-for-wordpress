@@ -127,6 +127,7 @@ class GSWP_Admin {
 			'threshold_gf_account_update' => get_option( 'gswp_threshold_gf_account_update', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
+			'gf_internal_forms'      => array_map( 'intval', (array) get_option( 'gswp_gf_internal_forms', array() ) ),
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
 			'tfa_remember'           => get_option( 'gswp_2fa_remember', '1' ),

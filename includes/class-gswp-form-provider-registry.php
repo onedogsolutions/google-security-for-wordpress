@@ -267,6 +267,14 @@ class GSWP_Form_Provider_Registry {
 				$row['last_rejection'] = $provider->last_rejection( $form_id );
 			}
 
+			// An internal form is ineligible for a different reason than a v2
+			// challenge is, and the distinction matters: one is a deliberate
+			// exclusion, the other is a form we decline to cover. Reporting both
+			// as "not eligible" would leave the operator chasing the wrong thing.
+			if ( method_exists( $provider, 'form_is_internal' ) ) {
+				$row['internal'] = $provider->form_is_internal( $form_id );
+			}
+
 			$result['forms'][] = $row;
 
 			if ( ! $eligible ) {

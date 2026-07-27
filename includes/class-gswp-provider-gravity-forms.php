@@ -100,6 +100,29 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	const REJECTION_OPTION = 'gswp_gf_last_rejection';
 
 	/**
+	 * Option listing form ids that are never submitted by a visitor.
+	 *
+	 * Not every Gravity Form is a form in the ordinary sense. A site can drive
+	 * one programmatically — generating a certificate when a student completes a
+	 * course, for instance — so it is never rendered on the front end and never
+	 * carries a browser-minted token.
+	 *
+	 * This plugin had no concept of that, and the consequences all pointed the
+	 * wrong way: the coverage report showed a permanent "no token seen yet" state
+	 * with the un-actionable instruction to load the form on the front end, and
+	 * every programmatic submission logged a COVERAGE GAP at error level and
+	 * fired the operator alert. Alerts that cry wolf on routine activity are
+	 * worse than no alerts, because they teach the operator to ignore the real
+	 * one.
+	 *
+	 * Listing a form here removes it from scoring, from coverage reporting and
+	 * from the alerting — deliberately an operator declaration rather than
+	 * anything inferred from the request, so it cannot be spoofed by a caller
+	 * omitting a field (the bypass class removed in 2.17.0).
+	 */
+	const INTERNAL_OPTION = 'gswp_gf_internal_forms';
+
+	/**
 	 * Add-on slugs whose presence marks a form as taking payment.
 	 *
 	 * UNVERIFIED against installed source. Incompleteness is safe: an
@@ -259,7 +282,39 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return false;
 		}
 
+		// A form nobody submits in a browser cannot produce a token, and
+		// treating its absence as a coverage gap is a false alarm on every
+		// programmatic run.
+		if ( $this->form_is_internal( $form_id ) ) {
+			return false;
+		}
+
 		return 'v2' !== $this->native_captcha_state( $form_id );
+	}
+
+	/**
+	 * Whether a form is driven programmatically rather than submitted by a
+	 * visitor.
+	 *
+	 * Declared by the operator, never inferred from the request. See
+	 * INTERNAL_OPTION for why this exists.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	public function form_is_internal( $form_id ) {
+		$listed = get_option( self::INTERNAL_OPTION, array() );
+		$listed = is_array( $listed ) ? array_map( 'intval', $listed ) : array();
+
+		$internal = in_array( (int) $form_id, $listed, true );
+
+		/**
+		 * Filter whether a Gravity Form is internal (never publicly submitted).
+		 *
+		 * @param bool $internal Whether the form is internal.
+		 * @param int  $form_id  Form identifier.
+		 */
+		return (bool) apply_filters( 'gswp_gf_form_is_internal', $internal, (int) $form_id );
 	}
 
 	/**
