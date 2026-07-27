@@ -13,6 +13,48 @@ function nativeLabel( state ) {
 	}
 }
 
+/**
+ * Why a form last rejected a submission.
+ *
+ * "Why is this form rejecting people?" had no answer anywhere in wp-admin, and
+ * none in the logs either, which is how a working customer came to be reported
+ * as a suspected spammer. Only the cause and the time are shown — nothing about
+ * whoever submitted it.
+ *
+ * @param {{reason: string, time: number}|null} rejection Recorded rejection.
+ * @return {string} Human-readable cause, or an em dash when there is none.
+ */
+function rejectionLabel( rejection ) {
+	if ( ! rejection || ! rejection.reason ) {
+		return '—';
+	}
+
+	const reasons = {
+		recaptcha_low_score: __( 'low score', 'google-security-for-wordpress' ),
+		recaptcha_expired: __(
+			'token expired',
+			'google-security-for-wordpress'
+		),
+		recaptcha_action_mismatch: __(
+			'action mismatch',
+			'google-security-for-wordpress'
+		),
+		recaptcha_failed: __(
+			'token rejected',
+			'google-security-for-wordpress'
+		),
+		recaptcha_missing: __( 'no token', 'google-security-for-wordpress' ),
+		'missing token': __( 'no token', 'google-security-for-wordpress' ),
+		'low score': __( 'low score', 'google-security-for-wordpress' ),
+		'transaction risk': __(
+			'transaction risk',
+			'google-security-for-wordpress'
+		),
+	};
+
+	return reasons[ rejection.reason ] || rejection.reason;
+}
+
 export default function FormProtection( { settings, onChange } ) {
 	const adminData =
 		typeof window !== 'undefined' && window.gswpAdminData
@@ -158,6 +200,81 @@ export default function FormProtection( { settings, onChange } ) {
 								</button>
 							</div>
 
+							{ isOn( provider ) && (
+								<div className="mt-4 rounded-md bg-gray-50 p-3">
+									<p className="text-xs font-medium text-gray-700">
+										{ __(
+											'Score thresholds',
+											'google-security-for-wordpress'
+										) }
+									</p>
+									<p className="mt-1 text-xs text-gray-500">
+										{ __(
+											'A submission scoring below its threshold is rejected as spam. Each class of form has its own dial: before 2.22.0 they all borrowed the WordPress registration threshold, so tightening that to keep fake signups out silently tightened your contact forms too. A signed-in user editing their own profile is scored but never blocked for a missing token.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+									<div className="mt-3 space-y-3">
+										{ [
+											{
+												key: 'threshold_gf_submit',
+												label: __(
+													'Ordinary submissions',
+													'google-security-for-wordpress'
+												),
+											},
+											{
+												key: 'threshold_gf_register',
+												label: __(
+													'Creates an account',
+													'google-security-for-wordpress'
+												),
+											},
+											{
+												key: 'threshold_gf_account_update',
+												label: __(
+													'Updates an account',
+													'google-security-for-wordpress'
+												),
+											},
+										].map( ( dial ) => {
+											const value =
+												parseFloat(
+													settings[ dial.key ]
+												) || 0.5;
+
+											return (
+												<div
+													key={ dial.key }
+													className="flex items-center gap-x-3"
+												>
+													<span className="w-44 shrink-0 text-xs text-gray-600">
+														{ dial.label }
+													</span>
+													<input
+														type="range"
+														min="0.0"
+														max="1.0"
+														step="0.1"
+														value={ value }
+														onChange={ ( e ) =>
+															onChange(
+																dial.key,
+																e.target.value
+															)
+														}
+														className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+													/>
+													<span className="w-8 text-right text-xs font-semibold text-indigo-600">
+														{ value.toFixed( 1 ) }
+													</span>
+												</div>
+											);
+										} ) }
+									</div>
+								</div>
+							) }
+
 							<div className="mt-4 overflow-x-auto">
 								<table className="min-w-full text-left text-xs">
 									<thead className="text-gray-500">
@@ -183,6 +300,18 @@ export default function FormProtection( { settings, onChange } ) {
 											<th className="py-2 pr-4 font-medium">
 												{ __(
 													'Missing token',
+													'google-security-for-wordpress'
+												) }
+											</th>
+											<th className="py-2 pr-4 font-medium">
+												{ __(
+													'Action / threshold',
+													'google-security-for-wordpress'
+												) }
+											</th>
+											<th className="py-2 pr-4 font-medium">
+												{ __(
+													'Last rejection',
 													'google-security-for-wordpress'
 												) }
 											</th>
@@ -251,6 +380,16 @@ export default function FormProtection( { settings, onChange } ) {
 															) }
 														{ ! form.payment &&
 															! form.account &&
+															form.account_feed ===
+																'update' &&
+															__(
+																'updates account',
+																'google-security-for-wordpress'
+															) }
+														{ ! form.payment &&
+															! form.account &&
+															form.account_feed !==
+																'update' &&
 															'—' }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
@@ -264,6 +403,29 @@ export default function FormProtection( { settings, onChange } ) {
 																	'allow + flag',
 																	'google-security-for-wordpress'
 															  ) }
+													</td>
+													<td className="py-2 pr-4 text-gray-600">
+														{ form.action ? (
+															<>
+																<span className="font-mono">
+																	{
+																		form.action
+																	}
+																</span>
+																<span className="block text-gray-400">
+																	{
+																		form.context
+																	}
+																</span>
+															</>
+														) : (
+															'—'
+														) }
+													</td>
+													<td className="py-2 pr-4 text-gray-600">
+														{ rejectionLabel(
+															form.last_rejection
+														) }
 													</td>
 													<td className="py-2 text-gray-600">
 														{ nativeLabel(
