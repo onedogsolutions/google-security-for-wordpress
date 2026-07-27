@@ -146,17 +146,26 @@ $out[] = '';
 $out[] = '3. Gravity Forms reCAPTCHA add-on';
 $out[] = '';
 
+// Ask Gravity Forms which add-ons it has registered rather than testing a
+// guessed class name. The add-on class is namespaced
+// (Gravity_Forms\Gravity_Forms_RECAPTCHA\GF_RECAPTCHA), so the unqualified
+// class_exists() this section used to do reported "not loaded" for an add-on
+// that was active the whole time.
 $addon_class = '';
-foreach ( array( 'GF_RECAPTCHA', 'GFRecaptcha', 'GF_Recaptcha' ) as $candidate ) {
-	if ( class_exists( $candidate ) ) {
-		$addon_class = $candidate;
-		break;
+
+if ( class_exists( 'GFAddOn' ) ) {
+	foreach ( GFAddOn::get_registered_addons() as $class ) {
+		if ( false !== stripos( $class, 'recaptcha' ) ) {
+			$addon_class = $class;
+			break;
+		}
 	}
+	$out[] = '  add-on class : ' . ( '' === $addon_class ? 'not registered with Gravity Forms' : $addon_class );
+} else {
+	$out[] = '  add-on class : cannot tell — Gravity Forms core is not loaded on this request';
 }
 
-$out[] = '  add-on class : ' . ( '' === $addon_class ? 'NOT LOADED (add-on inactive?)' : $addon_class );
-
-if ( '' !== $addon_class && method_exists( $addon_class, 'get_instance' ) ) {
+if ( '' !== $addon_class && is_callable( array( $addon_class, 'get_instance' ) ) ) {
 	$instance = call_user_func( array( $addon_class, 'get_instance' ) );
 	if ( is_object( $instance ) && method_exists( $instance, 'get_version' ) ) {
 		$out[] = '  version      : ' . $instance->get_version();
