@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.20.0
+Stable tag: 2.20.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.20.1 =
+* Fixed: the Google Security settings screen rendered blank on 2.20.0. The new Form Protection panel referenced a variable that had been removed during development, which threw a JavaScript error and prevented the whole settings app from mounting. No data was affected and no protection was impaired — only the settings screen was unreachable.
+* Fixed: the "Token seen" column in the Form Protection panel showed whether a form was covered rather than whether a token field had actually been observed reaching it, which is the more useful and more honest signal.
+* Internal: the JavaScript lint configuration now flags undefined variables, which is the check that would have caught the above before release.
 
 = 2.20.0 =
 * Changed: Form Protection now replaces Gravity Forms' reCAPTCHA outright rather than offering a staged path towards it. When it is on, Gravity Forms' own reCAPTCHA is switched off and this plugin scores every eligible form. The four-stage rollout added in 2.19.0 is gone — there is one switch.

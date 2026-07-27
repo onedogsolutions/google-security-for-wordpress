@@ -75,7 +75,7 @@ export default function FormProtection( { settings, onChange } ) {
 						</h3>
 						<p className="mt-1 text-xs leading-5 text-amber-700">
 							{ __(
-								'The master switch is off, or GSWP_DISABLE_FORM_PROVIDERS is defined in wp-config.php. No form plugin is being intercepted, whatever the stages below say.',
+								'The master switch is off, or GSWP_DISABLE_FORM_PROVIDERS is defined in wp-config.php. No form plugin is being intercepted, whatever the switches below say.',
 								'google-security-for-wordpress'
 							) }
 						</p>
@@ -196,25 +196,7 @@ export default function FormProtection( { settings, onChange } ) {
 														{ form.title }
 													</td>
 													<td className="py-2 pr-4">
-														{ form.eligible ? (
-															<span
-																className={
-																	form.covered
-																		? 'text-green-700'
-																		: 'text-amber-700'
-																}
-															>
-																{ form.covered
-																	? __(
-																			'yes',
-																			'google-security-for-wordpress'
-																	  )
-																	: __(
-																			'no',
-																			'google-security-for-wordpress'
-																	  ) }
-															</span>
-														) : (
+														{ ! form.eligible && (
 															<span className="text-gray-400">
 																{ __(
 																	'not eligible',
@@ -222,6 +204,32 @@ export default function FormProtection( { settings, onChange } ) {
 																) }
 															</span>
 														) }
+														{ form.eligible &&
+															! form.covered && (
+																<span className="text-gray-400">
+																	—
+																</span>
+															) }
+														{ form.eligible &&
+															form.covered && (
+																<span
+																	className={
+																		form.injected
+																			? 'text-green-700'
+																			: 'text-amber-700'
+																	}
+																>
+																	{ form.injected
+																		? __(
+																				'yes',
+																				'google-security-for-wordpress'
+																		  )
+																		: __(
+																				'not yet',
+																				'google-security-for-wordpress'
+																		  ) }
+																</span>
+															) }
 													</td>
 													<td className="py-2 pr-4 text-gray-600">
 														{ form.payment
@@ -264,14 +272,17 @@ export default function FormProtection( { settings, onChange } ) {
 								</p>
 							) }
 
-							{ uncovered > 0 && (
-								<p className="mt-3 text-xs leading-5 text-amber-700">
-									{ __(
-										'Some eligible forms are not covered. Do not switch off the form plugin’s reCAPTCHA until this reads zero — those forms would be left with no bot protection at all.',
-										'google-security-for-wordpress'
-									) }
-								</p>
-							) }
+							{ isOn( provider ) &&
+								( provider.forms || [] ).some(
+									( form ) => form.covered && ! form.injected
+								) && (
+									<p className="mt-3 text-xs leading-5 text-amber-700">
+										{ __(
+											'Some forms have not yet been observed receiving a token field. Load each one on the front end and reload this page. A form that never receives a token is submitted unscored — you will also be emailed if that happens.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								) }
 						</div>
 					);
 				} ) }

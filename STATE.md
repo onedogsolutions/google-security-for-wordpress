@@ -1,6 +1,18 @@
 # State Tracker - Google Security for WordPress
 
-## Current Phase: Phase 38 (Gravity Forms reCAPTCHA replaced outright)
+## Current Phase: Phase 39 (settings screen white-screen fix)
+
+### Phase 39 Modifications (v2.20.1)
+- **Bug shipped in 2.20.0: the entire settings app failed to mount.** `FormProtection.jsx` referenced `uncovered` in a JSX conditional after the `const uncovered = …` declaration had been removed, throwing `ReferenceError: uncovered is not defined` inside React's render and blanking `options-general.php?page=gswp-admin`. Reported from staging with the console trace.
+- **Cause was a bad edit, not a bad design.** Two string replacements in the same scripted edit failed to match because of an indentation mismatch, so the old JSX blocks survived while the declarations they depended on were deleted separately. `npm run lint:js` passed throughout: the `@wordpress/scripts` default config flags **unused** variables but not **undefined** ones, so it caught the leftover `canGoSole` and said nothing about the dangling `uncovered`.
+- **Fixes:**
+  1. Replaced the stale `uncovered > 0` block with the intended warning, which reports forms that are covered but have never been observed receiving a token field.
+  2. Fixed a second survivor of the same failed edit: the "Token seen" column header was correct but its cell still rendered `form.covered`, so it reported whether a form was *expected* to be covered rather than whether a token had actually reached it. Now renders `form.injected`, with `—` for forms not currently covered.
+  3. Corrected settings copy that still referred to the removed takeover "stages".
+- **Guard against recurrence.** Added `.eslintrc.js` extending the `@wordpress/scripts` config with `no-undef: error`. Lint output is unchanged at 35 pre-existing formatting errors in `Diagnostics.jsx`, so the rule costs nothing and closes the exact gap that let this ship. Verified the rebuilt bundle contains no reference to `uncovered`.
+- **No PHP changed**, no options touched, no migration. Protection behaviour in 2.20.0 was unaffected — only the settings screen was unreachable.
+
+## Historical Phase: Phase 38 (Gravity Forms reCAPTCHA replaced outright)
 
 ### Phase 38 Modifications (v2.20.0)
 Implements `PLAN-gravity-forms-direct-replacement.md`. Supersedes the staged design in `PLAN-form-provider-replacement.md` §6 and the 2.19.0 release that shipped it.
