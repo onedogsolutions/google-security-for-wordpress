@@ -592,9 +592,21 @@ class GSWP_Recaptcha_Loader {
 	 *
 	 * Keeps every `.g-recaptcha-response` field on the page populated with a
 	 * fresh token: fetched on load, refreshed before the two-minute expiry, on
-	 * tab refocus, and whenever a matching field is added to the DOM. Covers
-	 * WooCommerce checkout fragment replacement and AJAX login popups, and
-	 * intercepts standard login/register submits as a last resort.
+	 * tab refocus, on a bfcache restore, whenever a matching field is added to
+	 * the DOM, and — since 2.22.1 — immediately after any submission that spent
+	 * one. Covers WooCommerce checkout fragment replacement and AJAX login
+	 * popups, and intercepts standard login/register submits as a last resort.
+	 *
+	 * INVARIANT: a token field is never observably empty once it has been
+	 * populated. Tokens are replaced in place (the new value is assigned only
+	 * when it resolves), never cleared first. A Gravity Forms form that takes
+	 * payment or creates an account fails CLOSED on a missing token
+	 * (GSWP_Provider_Gravity_Forms::validate_submission()), so a blank field
+	 * during a refresh round trip would reject a live payment outright. The
+	 * degraded case is a stale token and a soft "please try again"; it must
+	 * never be a hard block. The one deliberate exception is
+	 * clearCheckoutTokens(), which is scoped to the WooCommerce checkout form
+	 * and paired with an immediate refresh.
 	 *
 	 * Vanilla JS with no jQuery dependency so script optimizers that delay
 	 * jQuery cannot delay token generation; the jQuery bindings are a
@@ -662,6 +674,33 @@ class GSWP_Recaptcha_Loader {
 				}
 			}
 
+			// Replace one field's token in place. fetchToken() assigns only when
+			// the new token resolves, so the field keeps the old (spent) value
+			// until then and is never empty. See the INVARIANT note in PHP.
+			function replaceToken(input) {
+				if (input) {
+					fetchToken(input).catch(noop);
+				}
+			}
+
+			// The token that just left with a submission is spent: v3 tokens are
+			// single use. Deferred a tick so the in-flight submission serializes
+			// the current value first.
+			function replaceAfterSubmit(input) {
+				if (!input) {
+					return;
+				}
+				window.setTimeout(function() {
+					replaceToken(input);
+				}, 0);
+			}
+
+			function tokenFieldIn(node) {
+				return node && node.querySelector
+					? node.querySelector('.g-recaptcha-response')
+					: null;
+			}
+
 			// Coalesce bursts of DOM mutations into a single refresh.
 			var refreshTimer = null;
 			function queueRefresh() {
@@ -704,6 +743,16 @@ class GSWP_Recaptcha_Loader {
 					}
 				});
 
+				// A bfcache restore (back button) resurrects a page whose token
+				// expired while it was frozen: timers were paused, so the
+				// interval above never ran, and visibilitychange does not fire
+				// for a page that was already visible when it was frozen.
+				window.addEventListener('pageshow', function(e) {
+					if (e.persisted) {
+						refreshAll();
+					}
+				});
+
 				// WooCommerce replaces the payment fragment (and our hidden
 				// input) whenever the order review updates, and inserts a
 				// notice group when a checkout attempt fails. Tokens are
@@ -727,24 +776,70 @@ class GSWP_Recaptcha_Loader {
 				});
 				observer.observe(document.body, { childList: true, subtree: true });
 
-				// Fallback: intercept standard form submits (Login, Register)
-				// if the token is somehow still missing. The native
-				// form.submit() does not re-fire this listener.
+				// Two separate jobs on submit.
+				//
+				// 1. Last-resort fallback, unchanged: a standard (non-AJAX)
+				//    login or register form carrying no token at all is held
+				//    back until one arrives. Still scoped to those two
+				//    selectors on purpose — preventDefault()ing an arbitrary
+				//    form is not something to widen casually, and least of all
+				//    a payment form. The native form.submit() does not re-fire
+				//    this listener.
+				//
+				// 2. Replace the token the submission just spent. This is the
+				//    only hook tied to a submission, and a submission is the
+				//    only thing that spends a token: without it a form that
+				//    stays in the DOM (any AJAX login form, e.g. the PowerPack
+				//    or Xootix modules) resubmits the spent value and Google
+				//    returns DUPE, which surfaces to the visitor as "Anti-spam
+				//    verification expired" no matter what they type. Before
+				//    2.22.1 the only recovery was the 100-second interval.
 				document.addEventListener('submit', function(e) {
 					var form = e.target;
-					if (!form.matches || !form.matches('form.login, form.register')) {
+					var input = tokenFieldIn(form);
+					if (!input) {
 						return;
 					}
 
-					var input = form.querySelector('.g-recaptcha-response');
-					if (input && !input.value && api()) {
+					if (!input.value && api() && form.matches
+						&& form.matches('form.login, form.register')) {
 						e.preventDefault();
 						e.stopPropagation();
 						var submit = function() {
 							form.submit();
 						};
 						fetchToken(input).then(submit, submit);
+						return;
 					}
+
+					replaceAfterSubmit(input);
+				}, true);
+
+				// Some modules submit from a click handler that calls
+				// preventDefault(), so no submit event ever fires at all. Cover
+				// those from the click instead.
+				//
+				// Deliberately NOT a global jQuery ajaxComplete hook: a Gravity
+				// Forms page fires AJAX for multi-page navigation, conditional
+				// logic, and the Stripe add-on's payment-intent calls, and
+				// re-minting a token against a form that is mid-payment is not
+				// something to do on every XHR that happens to complete.
+				//
+				// This also covers multi-page GF forms, where gform_validation
+				// runs per page transition and therefore spends the token on
+				// each "Next".
+				document.addEventListener('click', function(e) {
+					var target = e.target;
+					if (!target || !target.closest) {
+						return;
+					}
+
+					var control = target.closest('button, input[type="submit"], input[type="image"]');
+					if (!control) {
+						return;
+					}
+
+					replaceAfterSubmit(tokenFieldIn(control.closest('form')));
 				}, true);
 
 				// Progressive enhancement: when jQuery is present, also hook

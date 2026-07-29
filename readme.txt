@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.22.0
+Stable tag: 2.22.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,10 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.22.1 =
+* Fixed: after any rejected submission, the next attempt on the same form was itself rejected with "Anti-spam verification expired" — no matter what the visitor did. reCAPTCHA tokens can only be used once, and a form that submits without reloading the page (an AJAX login form, or a Gravity Form) kept resubmitting the spent one. The only thing that eventually cleared it was a background refresh up to 100 seconds later, so the form appeared to fix itself with no explanation. A token is now replaced the moment a submission spends it. Most visible on login forms, where a single mistyped password locked the visitor out of retrying; on a Gravity Forms payment form it meant a customer whose card was declined could be blocked from trying again.
+* Fixed: returning to a form with the browser's Back button could reject the next submission. The restored page carried the token it was frozen with, which had usually expired. Tokens are now refreshed when a page is restored from the back/forward cache.
 
 = 2.22.0 =
 * Fixed: Gravity Forms forms that create or update a WordPress account rejected every submission, from every visitor, with "Verification failed. You have been flagged as potential spam." Nobody was flagged as spam. This plugin decided the reCAPTCHA action twice — once when placing the hidden token field in the form, once when checking the submission — and the two disagreed for account forms, so reCAPTCHA Enterprise rejected the token on a name mismatch before it ever looked at the score. The two decisions now come from one place and cannot drift apart again. If you use Gravity Forms with the User Registration add-on and Enterprise keys, this affected every submission of those forms.
