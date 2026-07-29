@@ -106,10 +106,20 @@ class GSWP_Rest_Api {
 			'threshold_gf_register'  => get_option( 'gswp_threshold_gf_register', '0.5' ),
 			'threshold_gf_account_update' => get_option( 'gswp_threshold_gf_account_update', '0.5' ),
 			'threshold_gf_password'  => get_option( 'gswp_threshold_gf_password', '0.5' ),
+			// Fluent Forms, per class of form. Deliberately its own set rather
+			// than sharing the Gravity Forms dials: a site tuning one form
+			// plugin's registration threshold must not silently retune another,
+			// which is the defect 2.22.0 fixed when GF stopped borrowing
+			// threshold_wp_register.
+			'threshold_ff_submit'    => get_option( 'gswp_threshold_ff_submit', '0.5' ),
+			'threshold_ff_register'  => get_option( 'gswp_threshold_ff_register', '0.5' ),
+			'threshold_ff_account_update' => get_option( 'gswp_threshold_ff_account_update', '0.5' ),
+			'threshold_ff_password'  => get_option( 'gswp_threshold_ff_password', '0.5' ),
 			'conflict_mode'          => get_option( 'gswp_conflict_mode', 'off' ),
 			'form_providers_enabled' => GSWP_Form_Provider_Registry::enabled() ? '1' : '0',
 			'form_providers'         => GSWP_Form_Provider_Registry::audit_all(),
 			'gf_internal_forms'      => array_map( 'intval', (array) get_option( 'gswp_gf_internal_forms', array() ) ),
+			'ff_internal_forms'      => array_map( 'intval', (array) get_option( 'gswp_ff_internal_forms', array() ) ),
 			// Two-factor authentication.
 			'tfa_enabled'            => get_option( 'gswp_2fa_enabled', '1' ),
 			'tfa_enforced_roles'     => array_values( (array) get_option( 'gswp_2fa_enforced_roles', array() ) ),
@@ -846,6 +856,10 @@ class GSWP_Rest_Api {
 			'threshold_gf_register',
 			'threshold_gf_account_update',
 			'threshold_gf_password',
+			'threshold_ff_submit',
+			'threshold_ff_register',
+			'threshold_ff_account_update',
+			'threshold_ff_password',
 		);
 		foreach ( $thresholds as $threshold ) {
 			if ( isset( $params[ $threshold ] ) ) {
@@ -905,11 +919,21 @@ class GSWP_Rest_Api {
 		}
 
 		// Forms the operator has declared are never submitted by a visitor.
-		if ( isset( $params['gf_internal_forms'] ) && is_array( $params['gf_internal_forms'] ) ) {
+		// One list per provider: form ids are only unique within their own form
+		// plugin, so a single shared list would have Gravity Form #3 silencing
+		// the alarm on Fluent Form #3.
+		foreach ( array(
+			'gf_internal_forms' => 'gswp_gf_internal_forms',
+			'ff_internal_forms' => 'gswp_ff_internal_forms',
+		) as $param => $option ) {
+			if ( ! isset( $params[ $param ] ) || ! is_array( $params[ $param ] ) ) {
+				continue;
+			}
+
 			$internal = array_values(
 				array_unique(
 					array_filter(
-						array_map( 'intval', $params['gf_internal_forms'] ),
+						array_map( 'intval', $params[ $param ] ),
 						static function ( $id ) {
 							return $id > 0;
 						}
@@ -917,7 +941,7 @@ class GSWP_Rest_Api {
 				)
 			);
 
-			update_option( 'gswp_gf_internal_forms', $internal, false );
+			update_option( $option, $internal, false );
 		}
 
 		if ( isset( $params['conflict_mode'] ) ) {

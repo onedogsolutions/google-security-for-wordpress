@@ -3,8 +3,19 @@
 **Target release:** 2.23.0
 **Deliverable:** `GSWP_Provider_Fluent_Forms`, implementing `GSWP_Form_Provider`,
 reaching feature parity with `GSWP_Provider_Gravity_Forms` (2.22.0).
-**Status:** plan only. No provider code is written until §5 discovery is answered
-on a live install.
+**Status: IMPLEMENTED, UNVERIFIED.** All of §6 and §8 are written and shipped on
+this branch. §5's discovery chunks are written but **have not been run** — no
+part of this has met a live Fluent Forms install.
+
+That inverts the sequencing this plan originally proposed ("§6 does not begin
+until 20–23 are answered"), and the inversion is the reason §7 matters: the
+provider ships **off**, `maybe_migrate()` will not switch it on, and the coverage
+table reports every form's classification before anything intercepts a
+submission. The discovery chunks are how it gets turned on, not a gate that was
+skipped. Nothing here reaches a visitor until an operator runs
+`tests/manual/20-26` and clicks the switch.
+
+Where the code diverged from the plan, §11 records it.
 
 ---
 
@@ -291,13 +302,14 @@ All of these are read through a filterable candidate list
 
 ---
 
-## 5. Discovery — chunks 20–25
+## 5. Discovery — chunks 20–26
 
 Extends `tests/manual/`, continuing the numbering after `19-gf-action-pairing.php`
 and following its conventions: standalone PHP, no network calls, prints a
 labelled block the operator pastes back. Each chunk answers questions that cannot
-be answered from this repository, and **§6 does not begin until 20–23 are
-answered.**
+be answered from this repository. **20–23 must be answered before the provider
+is switched on anywhere** — see the status note at the head of this document for
+why they were written alongside §6 rather than before it.
 
 - **`20-ff-preflight.php`** — Fluent Forms present? Version, Pro present, which
   constants and classes actually exist, which tables exist. Settles the
@@ -328,6 +340,12 @@ answered.**
   provider needs an explicit void step or must not block on transaction risk at
   all. This is the 2.16.0 Stripe question, asked once rather than discovered in
   production.
+
+- **`26-ff-enforcement.php`** — the offline regression guards from §8: action
+  pairing, the coverage assertion exercised behaviourally, "Not public"
+  semantics, and provider isolation from Gravity Forms. Needs no network, no
+  submission and no entry, and detaches the coverage-gap alert listeners so
+  running it never emails the operator.
 
 Chunks 24 and 25 gate only the Transaction Defense and account-classification
 features (§6.3, §6.4), not the core provider.
@@ -505,6 +523,73 @@ where Fluent Forms' architecture differs from Gravity Forms' in ways that reach
 the request path, and which the earlier estimate assumed away.
 
 ---
+
+## 11. What the implementation changed from this plan
+
+Recorded because a plan that silently diverges from its code is worse than no
+plan.
+
+- **Chunk numbering ran to 26, not 25.** §8's regression guards needed a home;
+  they are `26-ff-enforcement.php` and they run offline. Its coverage assertion
+  is behavioural — it calls `validate_submission()` on a never-injected form and
+  asserts the submission is admitted — rather than the source-text inspection an
+  earlier draft used. It detaches the `gswp_form_coverage_gap` listeners for the
+  duration so running the test does not email the operator, which would have
+  reproduced the cry-wolf problem the branch exists to prevent.
+
+- **The buffered backstop needed a third failure mode.** §4.1 said the buffer
+  refuses to close when the nesting level does not match. That is necessary but
+  not sufficient: simply *returning* at that point abandons our own open buffer
+  and swallows the rest of the page — a far worse outcome than the missing token
+  field it was reporting. `close_backstop_buffer()` now unwinds to the level it
+  found before reporting the gap.
+
+- **`payment_context()` was implemented rather than stubbed.** The plan's own
+  contract says nothing UNVERIFIED reaches a request path before discovery. This
+  is the exception, and it is a principled one: the function requires billing
+  region **and** postal code before it emits anything, and returns an empty
+  array otherwise. The empty return is the pessimistic path — `GSWP_Verifier`
+  degrades to a plain score — so an inferred field mapping that is wrong
+  produces exactly the same behaviour as no mapping at all.
+
+- **Transaction blocking is off by default, not merely "gated on chunk 25".**
+  `may_block_payment()` returns false and is overridden per site with
+  `gswp_ff_txn_block_allowed`. The settings screen says so in plain language:
+  claiming to have blocked a payment we did not block is worse than not
+  claiming it.
+
+- **`reject()` can decline to reject.** §4.2 anticipated this; the code makes it
+  explicit. When no field can be resolved to display the message, the submission
+  is admitted and flagged rather than rejected, because a rejection the visitor
+  cannot see is indistinguishable from a site outage.
+
+- **Two things outside the stated scope were fixed.** The `Changes a password`
+  threshold has existed as an option since 2.22.0 but was never rendered, so the
+  class of form most worth tuning could only be reached through the database —
+  both providers now show the dial. And `gf_internal_forms` was a single global
+  list; it is now keyed per provider, because form ids are only unique within
+  their own plugin and Gravity Form #3 would otherwise have silenced the alarm
+  on Fluent Form #3.
+
+- **`native_captcha_state()` never returns `off` for Fluent Forms.** Proving
+  absence would mean trusting that the candidate option-name list is complete,
+  and it is not confirmed. A site with no captcha configured therefore reads
+  `unknown`. Noisier, but `unknown` can never let the settings screen claim
+  another plugin's captcha is off while it is running. Eligibility is identical
+  either way.
+
+## 12. What remains before this can be switched on for anybody
+
+1. Run `tests/manual/20-26` on a live install and report each block.
+2. Settle the three UNVERIFIED bindings the chunks target: the submission
+   transport (§3.1), the account feed meta key (§3.3), and the captcha option
+   names (§4).
+3. Answer the charge-timing question (chunk 25) per gateway before enabling
+   `gswp_ff_txn_block_allowed`.
+4. Only then remove `'fluent-forms'` from the holdback list in
+   `GSWP_Form_Provider_Registry::migrates_by_default()` — and only with field
+   reports to justify it, not because the code looks finished.
+
 
 ## Sources
 

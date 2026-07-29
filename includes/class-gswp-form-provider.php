@@ -109,8 +109,20 @@ interface GSWP_Form_Provider {
 	/**
 	 * State of the host plugin's own captcha for a form.
 	 *
+	 * 'other' means a challenge that is neither ours nor Google's — Fluent
+	 * Forms ships hCaptcha and Turnstile alongside reCAPTCHA, and none of the
+	 * original four values could express that. 'off' would have been a lie,
+	 * 'v2' misnames the product to an operator who then goes looking for
+	 * reCAPTCHA settings that do not exist, and 'unknown' would have left the
+	 * form eligible so we would take over a form already running Turnstile.
+	 *
+	 * It sits in the eligibility path rather than behind a method_exists()
+	 * guard — like form_policy() and last_rejection() — because it decides
+	 * whether we cover a form at all, and eligibility logic must not be
+	 * optional. A provider that only ever meets reCAPTCHA never returns it.
+	 *
 	 * @param int|string $form_id Form identifier.
-	 * @return string One of 'off', 'v3', 'v2', 'unknown'.
+	 * @return string One of 'off', 'v3', 'v2', 'other', 'unknown'.
 	 */
 	public function native_captcha_state( $form_id );
 

@@ -8,9 +8,33 @@ function nativeLabel( state ) {
 			return __( 'v3 / Enterprise', 'google-security-for-wordpress' );
 		case 'v2':
 			return __( 'v2 checkbox', 'google-security-for-wordpress' );
+		// A challenge that is neither ours nor Google's — Fluent Forms ships
+		// hCaptcha and Turnstile alongside reCAPTCHA. Naming it "v2 checkbox"
+		// would send the operator looking for reCAPTCHA settings that do not
+		// exist on their site.
+		case 'other':
+			return __(
+				'hCaptcha / Turnstile',
+				'google-security-for-wordpress'
+			);
 		default:
 			return __( 'unknown', 'google-security-for-wordpress' );
 	}
+}
+
+/**
+ * The settings-key prefix a provider's per-form options use.
+ *
+ * Each form plugin gets its own threshold dials and its own "not public" list.
+ * Sharing them would mean tuning one plugin's registration threshold silently
+ * retuned another's, and would let form #3 in one plugin silence the alarm on
+ * form #3 in the other.
+ *
+ * @param {string} providerId Provider id.
+ * @return {string} Option prefix.
+ */
+function prefixFor( providerId ) {
+	return providerId === 'fluent-forms' ? 'ff' : 'gf';
 }
 
 /**
@@ -106,22 +130,28 @@ export default function FormProtection( { settings, onChange } ) {
 		settings.form_providers_enabled === '0' || audit.enabled === false;
 
 	// Forms the operator has declared are driven programmatically. Held as a
-	// pending list so the checkboxes behave like every other unsaved setting.
-	const internalForms = (
-		settings.gf_internal_forms ||
-		adminData.settings?.gf_internal_forms ||
-		[]
-	).map( Number );
+	// pending list so the checkboxes behave like every other unsaved setting,
+	// and kept per provider — form ids are only unique within their own plugin.
+	const internalFormsFor = ( providerId ) => {
+		const key = `${ prefixFor( providerId ) }_internal_forms`;
 
-	const isInternal = ( formId ) => internalForms.includes( Number( formId ) );
+		return ( settings[ key ] || adminData.settings?.[ key ] || [] ).map(
+			Number
+		);
+	};
 
-	const toggleInternal = ( formId, checked ) => {
+	const isInternal = ( providerId, formId ) =>
+		internalFormsFor( providerId ).includes( Number( formId ) );
+
+	const toggleInternal = ( providerId, formId, checked ) => {
+		const key = `${ prefixFor( providerId ) }_internal_forms`;
 		const id = Number( formId );
+		const current = internalFormsFor( providerId );
 		const next = checked
-			? [ ...internalForms, id ]
-			: internalForms.filter( ( existing ) => existing !== id );
+			? [ ...current, id ]
+			: current.filter( ( existing ) => existing !== id );
 
-		onChange( 'gf_internal_forms', [ ...new Set( next ) ] );
+		onChange( key, [ ...new Set( next ) ] );
 	};
 
 	if ( providers.length === 0 ) {
@@ -136,7 +166,7 @@ export default function FormProtection( { settings, onChange } ) {
 					</h2>
 					<p className="mt-1 text-sm leading-6 text-gray-600">
 						{ __(
-							'No supported form plugins are active. When Gravity Forms is installed, this panel lets this plugin score its forms.',
+							'No supported form plugins are active. When Gravity Forms or Fluent Forms is installed, this panel lets this plugin score its forms.',
 							'google-security-for-wordpress'
 						) }
 					</p>
@@ -183,6 +213,7 @@ export default function FormProtection( { settings, onChange } ) {
 
 				{ providers.map( ( provider ) => {
 					const ineligible = ( provider.ineligible || [] ).length;
+					const prefix = prefixFor( provider.id );
 
 					return (
 						<div key={ provider.id } className="mt-8">
@@ -261,30 +292,42 @@ export default function FormProtection( { settings, onChange } ) {
 									</p>
 									<p className="mt-1 text-xs text-gray-500">
 										{ __(
-											'A submission scoring below its threshold is rejected as spam. Each class of form has its own dial: before 2.22.0 they all borrowed the WordPress registration threshold, so tightening that to keep fake signups out silently tightened your contact forms too. A signed-in user editing their own profile is scored but never blocked for a missing token.',
+											'A submission scoring below its threshold is rejected as spam. Each class of form has its own dial, and each form plugin has its own set of them, so tightening one to keep fake signups out does not silently tighten your contact forms — or the other plugin’s forms — with it. A signed-in user editing their own profile, or changing their own password, is scored but never blocked for a missing token.',
 											'google-security-for-wordpress'
 										) }
 									</p>
 									<div className="mt-3 space-y-3">
 										{ [
 											{
-												key: 'threshold_gf_submit',
+												key: `threshold_${ prefix }_submit`,
 												label: __(
 													'Ordinary submissions',
 													'google-security-for-wordpress'
 												),
 											},
 											{
-												key: 'threshold_gf_register',
+												key: `threshold_${ prefix }_register`,
 												label: __(
 													'Creates an account',
 													'google-security-for-wordpress'
 												),
 											},
 											{
-												key: 'threshold_gf_account_update',
+												key: `threshold_${ prefix }_account_update`,
 												label: __(
 													'Updates an account',
+													'google-security-for-wordpress'
+												),
+											},
+											// The password dial has existed as an option since
+											// 2.22.0 but was never rendered, so the one class of
+											// form most worth tuning — the step an account
+											// takeover performs to lock the owner out — could
+											// only be reached through the database.
+											{
+												key: `threshold_${ prefix }_password`,
+												label: __(
+													'Changes a password',
 													'google-security-for-wordpress'
 												),
 											},
@@ -477,10 +520,12 @@ export default function FormProtection( { settings, onChange } ) {
 														<input
 															type="checkbox"
 															checked={ isInternal(
+																provider.id,
 																form.id
 															) }
 															onChange={ ( e ) =>
 																toggleInternal(
+																	provider.id,
 																	form.id,
 																	e.target
 																		.checked
@@ -514,7 +559,7 @@ export default function FormProtection( { settings, onChange } ) {
 									( form ) =>
 										form.covered &&
 										! form.injected &&
-										! isInternal( form.id )
+										! isInternal( provider.id, form.id )
 								) && (
 									<p className="mt-3 text-xs leading-5 text-amber-700">
 										{ __(
@@ -536,7 +581,7 @@ export default function FormProtection( { settings, onChange } ) {
 							{ isOn( provider ) &&
 								( provider.forms || [] ).some(
 									( form ) =>
-										isInternal( form.id ) &&
+										isInternal( provider.id, form.id ) &&
 										( form.password ||
 											form.payment ||
 											form.account_feed )
@@ -544,6 +589,19 @@ export default function FormProtection( { settings, onChange } ) {
 									<p className="mt-2 text-xs leading-5 text-amber-700">
 										{ __(
 											'A form marked “Not public” also takes payment, changes a password, or touches an account. That is allowed — those submissions are still scored whenever they carry a token — but check the mark is deliberate: it silences the alert that would otherwise tell you the form had stopped being protected.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								) }
+
+							{ provider.id === 'fluent-forms' &&
+								isOn( provider ) &&
+								( provider.forms || [] ).some(
+									( form ) => form.payment
+								) && (
+									<p className="mt-2 text-xs leading-5 text-gray-500">
+										{ __(
+											'Fluent Forms payments are scored and reported to Google, but a high-risk payment is not blocked here even when blocking is switched on elsewhere. Whether Fluent Forms authorises the card in the browser before the submission reaches this plugin has not been confirmed on a live install, and if it does, blocking would stop the order without releasing the hold on the customer’s card. The risk score is still recorded, and the outcome is still reported back to Google when the payment completes or is refunded.',
 											'google-security-for-wordpress'
 										) }
 									</p>

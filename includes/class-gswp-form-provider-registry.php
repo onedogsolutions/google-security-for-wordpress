@@ -56,6 +56,7 @@ class GSWP_Form_Provider_Registry {
 	 */
 	public static function init( GSWP_Verifier $verifier ) {
 		self::register( new GSWP_Provider_Gravity_Forms() );
+		self::register( new GSWP_Provider_Fluent_Forms() );
 
 		self::maybe_migrate();
 
@@ -201,6 +202,19 @@ class GSWP_Form_Provider_Registry {
 				continue;
 			}
 
+			// A provider in its first release is not switched on for anybody.
+			//
+			// This method is what delivered the 2.22.0 action-pairing defect to
+			// sites that never opted into form replacement, and it did so for a
+			// provider whose host-plugin bindings had already been wrong four
+			// times. A new provider's bindings are necessarily less verified
+			// than that, and the failure mode of getting one wrong is every
+			// payment and account form on the site failing closed. Saving the
+			// operator one click is not worth it.
+			if ( ! self::migrates_by_default( $id ) ) {
+				continue;
+			}
+
 			self::set( $id, true );
 			$activated[] = $provider->label();
 		}
@@ -208,6 +222,38 @@ class GSWP_Form_Provider_Registry {
 		if ( ! empty( $activated ) ) {
 			update_option( 'gswp_form_providers_activated_notice', $activated, false );
 		}
+	}
+
+	/**
+	 * Whether a provider may be switched on automatically at upgrade.
+	 *
+	 * A list rather than a hard-coded id test so the answer is a property of
+	 * the provider's maturity, not of its name, and so flipping one is a
+	 * one-line change in the release that has field reports to justify it.
+	 *
+	 * Removing an id from this list is a deliberate act with a deliberate
+	 * trigger: clean coverage reports from real installs. It is not something
+	 * to do because the code looks finished.
+	 *
+	 * @param string $id Provider id.
+	 * @return bool
+	 */
+	public static function migrates_by_default( $id ) {
+		$holdback = array(
+			// 2.23.0. Its bindings were written from vendor documentation that
+			// could not be opened directly, and the manual discovery suite
+			// (tests/manual chunks 20-26) has not been run against a live
+			// install. Flip this once it has.
+			'fluent-forms',
+		);
+
+		/**
+		 * Filter whether a provider is auto-enabled on upgrade.
+		 *
+		 * @param bool   $allowed Whether the provider may be auto-enabled.
+		 * @param string $id      Provider id.
+		 */
+		return (bool) apply_filters( 'gswp_provider_migrates_by_default', ! in_array( $id, $holdback, true ), $id );
 	}
 
 	/**
