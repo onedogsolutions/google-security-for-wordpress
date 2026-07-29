@@ -2,9 +2,11 @@
 
 ## Release state
 
-**`main` is at v2.22.0** as of Phase 48, fast-forwarded from the Phase 48 branch. It was at v2.21.1 immediately before, so the merge added exactly Phase 48: seven commits, one release, no backlog.
+**`main` is at v2.22.1** as of Phase 49, fast-forwarded from `claude/2fa-suspicious-login-check-byzsfv`. It was at v2.22.0 immediately before, so the merge added exactly Phase 49: five commits, one release, no backlog. (Phase 48 took it from v2.21.1 to v2.22.0 the same way, in seven commits.)
 
-**Phase 49 (v2.22.1) is NOT on `main`.** It lives on `claude/2fa-suspicious-login-check-byzsfv` and has not been merged or released. It has not run on a live site — a testing ZIP was built for the operator, and the staging checks in `PLAN-suspicious-login-2fa-and-stale-token.md` are outstanding, including the WooCommerce checkout regression case, which **cannot** be signed off from the reporting site (it has no WooCommerce).
+**v2.22.1 is on `main` but has NOT been validated on a live site.** Merged at the operator's explicit request, with that caveat stated rather than assumed away. The evidence behind it is `php -l`, `node --check` on the generated bootstrap, and a hand-rolled DOM stub (12 assertions, covering the never-empty invariant) — **no browser, no WordPress, no PowerPack/Gravity Forms/Stripe**. The staging checks in `PLAN-suspicious-login-2fa-and-stale-token.md` are outstanding, including the WooCommerce checkout regression case, which **cannot** be signed off from the reporting site (it has no WooCommerce). A testing ZIP was delivered to the operator.
+
+Treat `main` as released-but-unproven until those checks land. The change is confined to inline JS in `get_bootstrap_js()`, so a revert is a single-file revert of one commit — but note that reverting restores the stale-token defect, it does not restore a known-good state.
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
