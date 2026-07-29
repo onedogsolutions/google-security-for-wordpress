@@ -3,6 +3,11 @@
 Investigation of the reported login failure on the AALP PowerPack login form, and of
 the "Require 2FA on suspicious logins" feature it was attributed to.
 
+> **Revised after two corrections from the operator:** this site has no WooCommerce, and
+> it takes payment through Gravity Forms + Stripe. The second one changes the fix — GF
+> payment forms fail closed on a missing token, so the token field must never be blanked.
+> See §3 "Higher-stakes variant" and §5 step 1.
+
 **Short answer.** The suspicious-login 2FA step-up is not the cause and is not buggy —
 on a site with no 2FA-enrolled users it is a complete no-op, and it cannot produce a
 code prompt for a user who has not enrolled. The message Angela saw is
@@ -199,6 +204,42 @@ field, the MutationObserver would catch it — but only after a 250 ms debounce 
 network round trip to Google, which an impatient second click still beats. The fix below
 is correct either way.
 
+### Higher-stakes variant: the Gravity Forms + Stripe path
+
+This site takes payment through Gravity Forms + Stripe, and the GF token field carries
+the same `g-recaptcha-response` class (`class-gravity-forms:998`) and is filled by the
+same bootstrap. So the same defect reaches the payment forms — where the consequence is
+a blocked transaction rather than a re-typed password.
+
+An expired or duplicate token on a GF form is not treated leniently. Only a
+**non-strict** action mismatch is admitted; every other `WP_Error`, including
+`recaptcha_expired`, falls through to a hard rejection:
+
+```php
+// includes/class-gswp-provider-gravity-forms.php:1146-1148
+$this->record_rejection( $form_id, $result->get_error_code() );
+return $this->reject( $validation_result, wp_strip_all_tags( $result->get_error_message() ), $form_id );
+```
+
+There are two sub-cases, and they need different evidence:
+
+1. **GF re-renders the form** (server-side validation failure, feed failure). The new
+   markup carries a fresh `value=""` field, the MutationObserver fires, and a token
+   arrives ~0.5–1.5 s later. A customer who clicks Pay inside that window submits an
+   **empty** field on a strict form → fails closed → "We could not verify this
+   submission." Reason recorded as `missing token`.
+2. **Stripe.js reports a card error client-side** (decline, failed 3DS) without a GF
+   re-render. The old spent token persists → retry → `DUPE` → "Anti-spam verification
+   expired." Reason recorded as `recaptcha_expired`.
+
+I cannot tell from this repo which of the two the Stripe add-on produces on a decline —
+that needs the add-on's source or a staging test. Both are plausible, both are real, and
+the fix addresses both: case 1 by never blanking, case 2 by refreshing after submit.
+
+The reason this matters for sequencing: a declined card is *the* moment a customer
+retries immediately, so this is the retry path most likely to be hit in anger — and the
+one where the failure costs money rather than patience.
+
 ---
 
 ## 4. How to confirm this on the live site
@@ -237,6 +278,21 @@ If the step-up did fire, there will also be
 `Account Defender flagged SUSPICIOUS_LOGIN_ACTIVITY; 2FA step-up requested.`
 (`includes/class-gswp-account-defender.php:222`). I would expect this to be absent.
 
+**Check the payment forms too — this one has a UI.** GF rejections are recorded per form
+in the `gswp_gf_last_rejection` option (`class-gravity-forms:100`, written by
+`record_rejection()` at `:1215`) and surfaced on the **Form Protection** tab as each
+form's last rejection reason (`src/components/FormProtection.jsx:468`). No WP-CLI
+needed. Look at the Stripe payment forms:
+
+- `recaptcha_expired` → sub-case 2 above: a customer retried after a decline and was
+  blocked by the anti-spam layer.
+- `missing token` → sub-case 1: a submit landed while the field was empty. Note this is
+  the same reason string a genuine coverage gap or a blocked script would produce, so it
+  is suggestive rather than conclusive on its own.
+- Note the 5-minute throttle on repeats of the *same* reason (`:1229-1235`) — the
+  timestamp shows the most recent occurrence, not a count, so this tells you whether it
+  happens, not how often.
+
 **Follow-up worth scheduling:** `GSWP_Log::tail()` (`includes/class-gswp-log.php:133`)
 is never called anywhere — not in the REST API, not in `Diagnostics.jsx`. The tail is
 written and then unreadable without WP-CLI. That is tolerable on a WooCommerce site with
@@ -254,21 +310,38 @@ All changes are in `get_bootstrap_js()` in
 surface, no build step — the bootstrap is inline JS printed from PHP, so `src/` and
 `build/` are untouched.
 
-**1. Treat a submitted token as spent.** Add a helper that blanks a field's value and
-queues a refresh:
+**1. Replace a submitted token *in place*. Never blank it.**
 
 ```js
-function markSpent(input) {
-    if (input && input.value) {
-        input.value = '';
-        queueRefresh();
-    }
+function replaceToken(input) {
+    // fetchToken() only assigns input.value once the new token resolves, so the
+    // field always holds *some* token. Do not clear it first.
+    if (input) { fetchToken(input).catch(noop); }
 }
 ```
 
-Blanking matters as much as refetching: it re-arms the existing empty-field submit
-fallback, and it guarantees a resubmit inside the refresh round trip fails as
-`recaptcha_missing` ("please refresh the page") rather than as a spam accusation.
+**This is the constraint that shapes the whole fix, and it comes from Gravity Forms.**
+A GF form that takes payment or creates an account is "strict"
+(`class-gravity-forms:509-511`), and a strict form **fails closed on a missing token**:
+
+```php
+// includes/class-gswp-provider-gravity-forms.php:1080-1088
+if ( $strict ) {
+    $this->record_rejection( $form_id, 'missing token' );
+    return $this->reject( $validation_result,
+        __( 'We could not verify this submission. Please refresh the page and try again.', ... ) );
+}
+```
+
+My earlier draft blanked the field before refetching. On this site that would have been
+worse than the bug: it opens a window of a few hundred milliseconds in which the token
+field is empty, and a customer clicking Pay inside that window has a **live Stripe
+transaction rejected outright**. Refresh-in-place keeps the field populated at all times.
+
+The trade-off is explicit and correct: a retry landing inside the refresh round trip
+still carries the old spent token and still gets today's "expired" message. That is
+unchanged behaviour, not a regression — and a soft "please try again" beats a hard block
+on a payment form every time.
 
 **2. Refresh after every submit, on any form carrying a token field.** Widen the
 existing capture-phase `submit` listener from `form.login, form.register` to any form
@@ -292,32 +365,35 @@ document.addEventListener('submit', function(e) {
     }
 
     // New: the token just left with this request. Replace it for the next attempt.
-    setTimeout(function() { markSpent(input); }, 0);
+    setTimeout(function() { replaceToken(input); }, 0);
 }, true);
 ```
 
 Keep the `preventDefault`/`form.submit()` branch scoped to `form.login, form.register`
-as today if we want zero risk of altering an unrelated non-AJAX form's submit path; the
-post-submit refresh is the part that must be universal.
+as today — zero risk of altering an unrelated non-AJAX form's submit path, and on a GF
+payment form that branch must never start intercepting anything. The post-submit
+refresh is the part that must be universal.
 
 **3. Backstop for modules that never emit a `submit` event.** Some modules bind a click
-handler on the button and `preventDefault` there, so no `submit` event fires. When
-jQuery is present, refresh spent tokens whenever any AJAX request completes — outside
-the WooCommerce checkout form, which already has its own handling:
+handler on the button and `preventDefault` there, so no `submit` event fires. Scope this
+to a click on a submit control inside a form that carries a token field:
 
 ```js
-$(document).on('ajaxComplete', function() {
-    var inputs = document.querySelectorAll('.g-recaptcha-response');
-    for (var i = 0; i < inputs.length; i++) {
-        if (!inputs[i].closest('form.woocommerce-checkout')) {
-            markSpent(inputs[i]);
-        }
-    }
-});
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest && e.target.closest('button, input[type="submit"]');
+    if (!btn) { return; }
+    var form = btn.closest('form');
+    var input = form && form.querySelector('.g-recaptcha-response');
+    if (input) { setTimeout(function() { replaceToken(input); }, 0); }
+}, true);
 ```
 
-An extra token mint is harmless — `grecaptcha.execute` is designed to be called freely,
-and the field is only read at submit time.
+**Do not use a global jQuery `ajaxComplete` hook here.** It was in my first draft as the
+catch-all, and it is the wrong instrument on this site: a GF page fires AJAX for
+multi-page navigation, conditional logic, and the Stripe add-on's payment-intent calls,
+so it would re-mint tokens continuously against a form that is mid-payment. Refreshing
+in place makes that merely wasteful rather than dangerous, but there is no reason to
+accept the noise when a scoped click handler covers the same modules.
 
 **4. Handle bfcache restores.** The bootstrap has no `pageshow` handler (the 2FA modal
 script at `assets/js/gswp-2fa-modal.js:262` does). A back-button restore resurrects a
@@ -363,7 +439,13 @@ they are. Step 3 explicitly skips checkout fields so the two mechanisms cannot f
 | PowerPack Login Form (the reported case) | `wp-login.php` — has its own submit-time refresh |
 | PowerPack Registration / Lost Password | WooCommerce Blocks checkout — has its own script |
 | Xootix Login/Signup Popup | Anything server-side: no PHP logic, options, or REST changes |
-| Any AJAX form using the shared bootstrap | The 2FA step-up — no change proposed |
+| **Gravity Forms + Stripe payment forms** | The 2FA step-up — no change proposed |
+| Any AJAX form using the shared bootstrap | |
+
+The GF payment forms are the reason this is a careful change rather than a trivial one.
+Every step above is constrained by one rule: **the token field must never be observably
+empty on a strict form.** Any future edit to the bootstrap should be read against that
+rule first.
 
 Version bump to 2.22.1 (patch: bug fix, no new surface) across the main plugin header,
 `GSWP_VERSION`, `readme.txt` stable tag + changelog, and `package.json`.
