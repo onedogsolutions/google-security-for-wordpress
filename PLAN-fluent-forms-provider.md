@@ -88,10 +88,26 @@ Confirmed by reading the existing code, not assumed:
 - **The loader.** `GSWP_Recaptcha_Loader` is generic by design and already names
   Fluent Forms as a case it handles without special-casing. The footer bootstrap
   fills every `.g-recaptcha-response` on the page, refreshes before the 120 s
-  expiry, watches for late-added nodes via `MutationObserver`, and refreshes on
-  `visibilitychange` and on `submit`. **The MutationObserver is what makes an
-  AJAX-rendered or modal Fluent Form work at all** — this is load-bearing for
-  Fluent Forms in a way it never was for Gravity Forms.
+  expiry, watches for late-added nodes via `MutationObserver`, refreshes on
+  `visibilitychange` and on a bfcache `pageshow`, and — since **v2.22.1** —
+  replaces a token the moment a submission spends it, from both the `submit`
+  event and a `click` backstop.
+
+  **Two parts of that are load-bearing for Fluent Forms in a way they never were
+  for Gravity Forms.** The `MutationObserver` is what makes an AJAX-rendered or
+  modal Fluent Form work at all. And the 2.22.1 post-submit replacement is a
+  hard prerequisite, not a neighbouring improvement: v3 tokens are single-use,
+  Fluent Forms never leaves the page, and before 2.22.1 a visitor whose first
+  submission was rejected for any reason would have been rejected again on every
+  retry for up to 100 seconds while Google returned DUPE. That would have read as
+  a defect in this provider. 2.22.1's `click` backstop was written for "modules
+  that submit from a click handler that calls `preventDefault()`, so no submit
+  event ever fires at all" — which is a description of Fluent Forms' submit path.
+
+  There is no ordering hazard: `replaceAfterSubmit()` defers a tick so Fluent
+  Forms serialises the current value first, and `fetchToken()` assigns only on
+  resolve, so a fail-closed Fluent Form can never be rejected for a blank field
+  mid-refresh.
 - **The verifier.** `verify_token( $context, $actions, $event_extra, null, $token )`
   is already parameterised over the token string, so a provider that reads its
   token from somewhere other than `$_POST` needs nothing from it.
@@ -577,6 +593,16 @@ plan.
   `unknown`. Noisier, but `unknown` can never let the settings screen claim
   another plugin's captcha is off while it is running. Eligibility is identical
   either way.
+
+- **v2.22.1 turned out to be a prerequisite, discovered at merge time.** `main`
+  shipped the stale-token rework while this branch was being written. It touches
+  a file this branch does not, so git reported no conflict — and the silence was
+  misleading in the useful direction. §2 now records why. The lesson worth
+  keeping: *a clean merge is evidence about text, not about behaviour.* The two
+  changes had to be reasoned about together precisely because nothing forced it.
+
+- **This work was renumbered Phase 49 → Phase 50.** `main`'s Phase 49 is v2.22.1.
+  See `PLAN-fluent-forms-merge-to-main.md` §1.
 
 ## 12. What remains before this can be switched on for anybody
 

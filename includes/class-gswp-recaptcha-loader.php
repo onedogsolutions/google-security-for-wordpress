@@ -599,14 +599,20 @@ class GSWP_Recaptcha_Loader {
 	 *
 	 * INVARIANT: a token field is never observably empty once it has been
 	 * populated. Tokens are replaced in place (the new value is assigned only
-	 * when it resolves), never cleared first. A Gravity Forms form that takes
-	 * payment or creates an account fails CLOSED on a missing token
-	 * (GSWP_Provider_Gravity_Forms::validate_submission()), so a blank field
+	 * when it resolves), never cleared first. A form that takes payment or
+	 * creates an account fails CLOSED on a missing token, so a blank field
 	 * during a refresh round trip would reject a live payment outright. The
 	 * degraded case is a stale token and a soft "please try again"; it must
 	 * never be a hard block. The one deliberate exception is
 	 * clearCheckoutTokens(), which is scoped to the WooCommerce checkout form
 	 * and paired with an immediate refresh.
+	 *
+	 * The constraint is NOT specific to one form plugin, though it was found
+	 * through Gravity Forms. Every provider implementing GSWP_Form_Provider
+	 * enforces the same asymmetry — see validate_submission() in
+	 * GSWP_Provider_Gravity_Forms and GSWP_Provider_Fluent_Forms — so a site
+	 * with no Gravity Forms is not a site where blanking becomes safe. Adding a
+	 * provider adds a caller of this invariant, never an exemption from it.
 	 *
 	 * Vanilla JS with no jQuery dependency so script optimizers that delay
 	 * jQuery cannot delay token generation; the jQuery bindings are a

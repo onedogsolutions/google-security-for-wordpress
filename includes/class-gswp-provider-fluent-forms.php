@@ -1126,9 +1126,20 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 		// which fills every .g-recaptcha-response and refreshes it before the
 		// 120-second expiry. No provider-specific JavaScript.
 		//
-		// The bootstrap's MutationObserver is what makes this work for Fluent
-		// Forms specifically: a form rendered into the DOM after page load —
-		// in a modal, or by a conditional — still gets its field populated.
+		// Two parts of that bootstrap are load-bearing for Fluent Forms in a way
+		// they never were for Gravity Forms, and neither is obvious from here:
+		//
+		//  - the MutationObserver, which populates a form rendered into the DOM
+		//    after page load — in a modal, or by a conditional;
+		//  - the post-submit token replacement added in 2.22.1. v3 tokens are
+		//    single-use and a Fluent Form never leaves the page, so without it a
+		//    visitor whose first submission was rejected for ANY reason would be
+		//    rejected again on every retry for up to 100 seconds while Google
+		//    returned DUPE. That is not a nicety this provider benefits from; it
+		//    is a prerequisite, and it would have surfaced as a defect here.
+		//
+		// Neither is safe to weaken on the grounds that "the form plugin handles
+		// it" — nothing in Fluent Forms knows this field exists.
 		GSWP_Recaptcha_Loader::enqueue();
 
 		$this->record_injection( $form_id );
