@@ -150,7 +150,12 @@ document.addEventListener('submit', function(e) {
 Neither condition helps here. The PowerPack login form is not `form.login` or
 `form.register`, and after a failed attempt the field is not empty — it holds the old,
 now-spent token. The form is submitted over AJAX and stays in the DOM, so nothing is
-re-inserted and no WooCommerce notice appears.
+re-inserted.
+
+The two WooCommerce-specific paths are structurally dead on this site — **AALP has no
+WooCommerce installed** — so of the five refresh triggers only three can ever fire here:
+the 100-second interval, `visibilitychange`, and DOM insertion. None of them is tied to
+a submission, which is the only event that actually spends a token.
 
 **Result: after any rejected login attempt, the same spent token sits in the form until
 the 100-second interval happens to fire.** Every retry inside that window is
@@ -199,9 +204,25 @@ is correct either way.
 ## 4. How to confirm this on the live site
 
 The plugin already logs exactly what is needed. `log_rejection()`
-(`includes/class-gswp-verifier.php:322-345`) writes at warning level, so it lands in
-WooCommerce → Status → Logs (source `gswp`) or the PHP error log on a site without
-WooCommerce. Look for lines from around the time of the call:
+(`includes/class-gswp-verifier.php:322-345`) writes at warning level via `GSWP_Log`.
+
+**AALP has no WooCommerce**, so the usual WooCommerce → Status → Logs viewer does not
+exist here. `GSWP_Log::write()` (`includes/class-gswp-log.php:81-102`) falls back for
+exactly this case — it is the configuration the class was written for
+(`includes/class-gswp-log.php:5-12`). Two sinks are available:
+
+1. **The PHP error log.** Warnings are written unconditionally on a non-WooCommerce
+   site — the `WP_DEBUG` gate applies only to `info` level — prefixed `GSWP [warning]`.
+   Wherever the host writes `error_log()` output (often `wp-content/debug.log`, or the
+   host's PHP error log).
+2. **The in-database tail**, the last 50 events, in the `gswp_log_tail` option:
+   ```
+   wp option get gswp_log_tail --format=json
+   ```
+   Nothing in the admin UI reads this yet (see the note below), so WP-CLI or a DB query
+   is the only way in. On this site it is likely the easier of the two.
+
+Look for lines from around the time of the call:
 
 ```
 reCAPTCHA rejected a submission: token not usable. context=wp_login expected_action=login invalidReason: DUPE site_key=...
@@ -216,10 +237,13 @@ If the step-up did fire, there will also be
 `Account Defender flagged SUSPICIOUS_LOGIN_ACTIVITY; 2FA step-up requested.`
 (`includes/class-gswp-account-defender.php:222`). I would expect this to be absent.
 
-Note: `GSWP_Log` also keeps a 50-entry tail in the `gswp_log_tail` option
-(`includes/class-gswp-log.php:35`), but nothing in the admin UI reads it yet. Surfacing
-it on the Diagnostics tab is a small, separate improvement worth doing — it is precisely
-the "what happened to my customer ten minutes ago" question this ticket is.
+**Follow-up worth scheduling:** `GSWP_Log::tail()` (`includes/class-gswp-log.php:133`)
+is never called anywhere — not in the REST API, not in `Diagnostics.jsx`. The tail is
+written and then unreadable without WP-CLI. That is tolerable on a WooCommerce site with
+its own log viewer; on a site like this one it means the plugin's own record of what it
+rejected is effectively invisible to the operator. Surfacing the tail on the Diagnostics
+tab is a small, self-contained improvement and answers precisely the "what happened to
+my customer ten minutes ago" question this ticket is.
 
 ---
 
@@ -320,11 +344,17 @@ they are. Step 3 explicitly skips checkout fields so the two mechanisms cannot f
      **After:** second attempt logs in.
   2. Same on the Xootix Login/Signup Popup — it uses the same bootstrap
      (`includes/class-gswp-xootix.php:228-229`) and has the identical gap.
-  3. WooCommerce checkout: failed payment → retry still works (no regression).
-  4. `wp-login.php`: unchanged, it uses its own inline script.
-  5. Gravity Forms AJAX form: failed validation → retry still works. GF re-renders the
+  3. `wp-login.php`: unchanged, it uses its own inline script.
+  4. Gravity Forms AJAX form: failed validation → retry still works. GF re-renders the
      form so the MutationObserver already covered it; confirm nothing double-fires.
-- Check the `gswp` log after each: no `invalidReason: DUPE` lines should remain.
+     This is the retry path that matters most on a Gravity-Forms-and-no-WooCommerce
+     site, so it carries the regression risk that checkout would carry elsewhere.
+- Check the log after each (`wp option get gswp_log_tail --format=json`, or the PHP
+  error log): no `invalidReason: DUPE` lines should remain.
+- **Not testable on this site:** the WooCommerce checkout regression case. The
+  checkout bindings are untouched by this change and step 3 of the plan explicitly
+  skips checkout fields, but the plugin ships to WooCommerce sites, so this needs a
+  separate Woo staging install before release — it cannot be signed off from AALP.
 
 ### Scope
 
