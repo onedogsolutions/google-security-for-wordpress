@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.23.1
+Stable tag: 2.23.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,17 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.23.2 =
+* Fixed: a Fluent Forms profile-edit form ("User Update") was classified the same as a signup form and rejected a submission with a missing or stale token, telling a signed-in visitor their own profile edit could not be verified. Fluent Forms Pro stores both signup and profile-update feeds under one internal record, and this plugin was reading it wrong on every install. It now reads the same field Fluent Forms Pro itself uses to tell the two apart, confirmed against Fluent Forms Pro's source directly. This is the highest-impact fix in this release; Fluent Forms support remains switched off by default until you turn it on.
+* Fixed: a Transaction Defense annotation (marking a Fluent Forms payment as legitimate or fraudulent after the fact, for reCAPTCHA Enterprise sites with that feature on) never actually ran — the two pieces of information it needed were being read from the wrong positions, silently. It now reads correctly.
+* Fixed: a Fluent Forms rejection message could be delivered to the browser and never appear on screen, leaving the visitor watching a stopped submit button with no explanation. It's now shown the same way Fluent Forms shows its own site-wide messages (like "too many attempts"), which is guaranteed visible.
+* Fixed: a site with reCAPTCHA v2 keys saved in Fluent Forms — a very common configuration, even if v2 isn't actually used on any form — was previously reported as ineligible for coverage on every single Fluent Forms form, with no visible reason. Coverage is now based on whether Fluent Forms will actually validate a challenge on that specific form, which can be confirmed directly rather than assumed from a global setting.
+* Fixed: Fluent Forms conversational forms (the one-question-at-a-time style) were reported as a form this plugin covers, then flagged with a coverage-gap warning on every single submission forever, because they render through a path this plugin cannot inject into. They are now correctly reported as unsupported instead of alarming continuously about a gap that can never close.
+* Changed: high-risk Fluent Forms transactions can now be blocked by default when Transaction Defense is on, rather than only scored and logged. Every payment method Fluent Forms ships (Stripe, Square, PayPal, and others) was confirmed not to charge or place a hold on a card before this plugin's check runs, so a block leaves nothing pending on the customer's card. If your site uses a non-standard or add-on payment gateway, you can turn blocking back off with a filter — see the Form Protection screen.
+* Changed: this plugin's own field is now registered with Fluent Forms as an expected submission value, rather than being recovered by re-reading the raw request. This is a more direct integration with how Fluent Forms is actually built, confirmed against Fluent Forms' source.
+* Fixed: three Fluent Forms payment field types (Stripe's and Square's card entry, and the coupon field) were not recognised by this plugin's payment-detection fallback.
+* Note: every fix in this release was confirmed by reading Fluent Forms' and Fluent Forms Pro's own source code directly, resolving open questions from 2.23.0 and 2.23.1 that could not be settled from documentation or a single live site.
 
 = 2.23.1 =
 * Fixed: this plugin could not read Fluent Forms settings that Fluent Forms stores as an object rather than a list — and on Fluent Forms 6.2.9 at least one is. Any such setting read as "not present". If your reCAPTCHA configuration is one of them, the Form Protection table would have reported Fluent Forms' own captcha as "unknown" while it was configured and running, and treated those forms as ours to take over. Found by the verification suite on a live install, before the provider had been switched on anywhere.

@@ -15,46 +15,64 @@
  * ---------------------------------------------------------------------------
  * VERIFICATION STATUS
  *
- * Written from vendor documentation reached only through search excerpts — the
- * documentation site is blocked from the authoring environment — plus one
- * option name this project confirmed against a live install during the Smart
- * Key Scavenger work. See PLAN-fluent-forms-provider.md §0 and §4.
+ * Every binding in this file has been read directly from installed source:
+ * Fluent Forms 6.2.9 (free) and Fluent Forms Pro 6.2.7. Nothing here should
+ * be treated as verified for a different major version — 2.23.1 shipped a
+ * defect that traced back to exactly that assumption (an option's TYPE
+ * outliving the version it was confirmed against; see raw_option()).
  *
- * Every host-plugin binding below is therefore marked and every one fails to
- * the pessimistic answer:
+ * `FluentForm\App\Modules\Form\FormHandler::onSubmit()` is DEAD CODE — the
+ * live AJAX submission path is
+ * `SubmissionHandler::submit() -> SubmissionHandlerService::handleSubmission()`
+ * (app/Hooks/Ajax.php). Do not re-derive a binding from onSubmit(); it is
+ * commented out at its only call site and none of its behaviour runs.
  *
- *   - an unrecognised captcha state returns 'unknown', never 'off';
+ * Every host-plugin binding below still fails to the pessimistic answer where
+ * source did not settle the question outright:
+ *
  *   - a form we cannot inspect is ineligible, so we do not claim to cover it;
  *   - a form we cannot classify is treated as a PAYMENT form, so it fails
  *     closed rather than silently fails open on a real payment;
- *   - a User Registration feed whose type cannot be read is treated as
- *     'create', the stricter reading;
+ *   - a User Registration feed row we cannot decode is treated as 'create',
+ *     the stricter reading (account_feed_type() now reads the verified feed
+ *     shape first and falls back to this only when no feed row parses);
  *   - unreadable billing mappings yield no transactionData, which
  *     GSWP_Verifier already degrades to a plain score rather than an API error.
  *
  * Three Fluent Forms specifics carry more weight than any hook name:
  *
  *   1. SUBMISSION TRANSPORT. Fluent Forms submits over AJAX and serialises the
- *      form into a single request parameter, so the token is very probably NOT
- *      at $_POST[ TOKEN_FIELD ]. submitted_token() tries three transports and
- *      is correct under any of them. Reading the token from the request is
- *      fine — it is request data. What is never request-derived is the
- *      ENFORCEMENT DECISION: form_is_strict() reads the stored form definition,
- *      so a caller cannot opt out by omitting a field (the bypass class removed
+ *      form into a single request parameter. VERIFIED:
+ *      SubmissionHandlerService::prepareHandler() filters $formData down to
+ *      registered fields plus a fixed allow-list
+ *      (Helper::getWhiteListedFields()) before it ever reaches the
+ *      validation filter — an unregistered, unwhitelisted key is dropped.
+ *      register_hooks() therefore whitelists TOKEN_FIELD via
+ *      fluentform/white_listed_fields (whitelist_token_field()), which is
+ *      what makes submitted_token()'s first transport genuinely work rather
+ *      than assumed to. Reading the token from the request is fine — it is
+ *      request data. What is never request-derived is the ENFORCEMENT
+ *      DECISION: form_is_strict() reads the stored form definition, so a
+ *      caller cannot opt out by omitting a field (the bypass class removed
  *      in 2.17.0).
  *
- *   2. REJECTION VISIBILITY. Fluent Forms attaches validation errors to fields.
- *      Our token field is not one of its registered fields, so an error keyed
- *      to it may be delivered and then dropped for want of a DOM node to attach
- *      it to — the visitor sees the button spin and stop, with nothing on
- *      screen. This plugin must have no branch that hangs a submission, so
- *      error_field_for() resolves a real field to carry the message.
+ *   2. REJECTION VISIBILITY. Fluent Forms attaches validation errors to keys,
+ *      and VERIFIED: any key that resolves to no field in the DOM is
+ *      rendered through its error-stack fallback under both
+ *      `errorMessagePlacement` settings (assets/js/form-submission.js). Our
+ *      token field IS a resolvable key, and attaching a rejection to it
+ *      renders nothing — the opposite of the earlier assumption. reject()
+ *      therefore uses a deliberately unresolvable key (see ERROR_KEY), which
+ *      Fluent Forms itself does for its own form-level errors ('restricted').
  *
  *   3. NO WHOLE-MARKUP FILTER. Fluent Forms has no equivalent of
  *      gform_get_form_filter, so the coverage backstop is a gated output
- *      buffer. It only opens for a form whose primary injection point has
- *      already been observed to miss, and it refuses to close a buffer it does
- *      not own.
+ *      buffer. VERIFIED: FormBuilder::render() wraps its own body in
+ *      ob_start()/ob_get_clean() with the two render actions always paired
+ *      inside it, which is why the nesting-level guard in
+ *      close_backstop_buffer() has held. It only opens for a form whose
+ *      primary injection point has already been observed to miss, and it
+ *      refuses to close a buffer it does not own.
  * ---------------------------------------------------------------------------
  *
  * @package Google_Security_For_WordPress
@@ -76,6 +94,28 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * the shared footer bootstrap fills every .g-recaptcha-response on the page.
 	 */
 	const TOKEN_FIELD = 'gswp_ff_token';
+
+	/**
+	 * The errors key a rejection message is delivered under.
+	 *
+	 * Deliberately a name that matches NO element in the form. Fluent Forms'
+	 * inline renderer (assets/js/form-submission.js, S() -> j()) falls back
+	 * to the .ff-errors-in-stack container for any key it cannot resolve to
+	 * a DOM node, and the stack renderer displays every key unconditionally
+	 * — so an unresolvable key is the one delivery that is visible under
+	 * both `errorMessagePlacement` settings. Fluent Forms uses this exact
+	 * mechanism itself: core's rate limiter and Pro's user-registration
+	 * guard both key form-level errors to 'restricted', a name that matches
+	 * no field either (FormValidationService::preventMaliciousAttacks(),
+	 * Pro UserRegistration/Getter::resetErrormessage()).
+	 *
+	 * It must NOT be TOKEN_FIELD. That name DOES resolve, to our own hidden
+	 * input, which sends the message down the branch that appends a <div>
+	 * into an <input> — rendering nothing and leaving the visitor with a
+	 * stopped spinner. The invisible-rejection failure reject() exists to
+	 * prevent is reachable only by naming our own field.
+	 */
+	const ERROR_KEY = 'gswp_verification';
 
 	/**
 	 * Submission meta key holding the assessment resource name.
@@ -127,10 +167,10 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * Field elements that mean the form quotes or takes money.
 	 *
-	 * PARTIAL: element names follow Fluent Forms' documented payment field set.
-	 * Incompleteness is safe — the authoritative signal is the `has_payment`
-	 * column, this is the fallback, and a form we cannot classify at all is
-	 * treated as a payment form.
+	 * VERIFIED against the component constructors in Fluent Forms 6.2.9 and
+	 * Fluent Forms Pro 6.2.7. `has_payment` is the authoritative signal; this
+	 * is the fallback for it being unreadable, and a form we cannot classify
+	 * at all is still treated as a payment form.
 	 *
 	 * @var string[]
 	 */
@@ -141,6 +181,9 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 		'subscription_payment_component',
 		'item_quantity_component',
 		'payment_summary_component',
+		'stripe_inline',
+		'square_inline',
+		'payment_coupon',
 	);
 
 	/**
@@ -434,6 +477,16 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * and the threat model. Those forms keep Fluent Forms' own captcha —
 	 * partial takeover is a supported end state, not a failure.
 	 *
+	 * Also ineligible: a conversational form. VERIFIED against
+	 * FluentConversational\Classes\Form::renderFormHtml() (both plugins) —
+	 * it renders into a Vue view and fires NONE of form_element_start /
+	 * before_form_render / after_form_render, so there is no hook this
+	 * provider can inject a token field on. A prior version left these
+	 * eligible, which meant every submission took the never-injected
+	 * fail-open branch and logged a COVERAGE GAP forever, on a form that was
+	 * never coverable in the first place. See native_captcha_state()'s
+	 * 'unsupported' state.
+	 *
 	 * An internal form is deliberately still eligible. See INTERNAL_OPTION.
 	 */
 	public function form_is_eligible( $form_id ) {
@@ -442,7 +495,30 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			return false;
 		}
 
-		return ! in_array( $this->native_captcha_state( $form_id ), array( 'v2', 'other' ), true );
+		return ! in_array( $this->native_captcha_state( $form_id ), array( 'v2', 'other', 'unsupported' ), true );
+	}
+
+	/**
+	 * Whether a form is a Fluent Forms conversational form.
+	 *
+	 * VERIFIED: marked by fluentform_form_meta.meta_key = 'is_conversion_form'
+	 * with value 'yes', read the same way Fluent Forms' own
+	 * Helper::isConversionForm() does.
+	 *
+	 * @param int|string $form_id Form identifier.
+	 * @return bool
+	 */
+	private function form_is_conversational( $form_id ) {
+		$cached = $this->memo_get( 'conversational', $form_id );
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
+		return $this->memo_set(
+			'conversational',
+			$form_id,
+			'yes' === $this->form_meta_value( $form_id, 'is_conversion_form' )
+		);
 	}
 
 	/**
@@ -551,84 +627,130 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * What a form's User Registration feeds do to an account.
 	 *
-	 * UNVERIFIED: Fluent Forms Pro stores integration feeds as rows in
-	 * fluentform_form_meta, and neither the meta_key naming nor the key that
-	 * distinguishes a registration feed from a profile-update feed is confirmed
-	 * against installed source. Chunk 24 of the manual suite prints every meta
-	 * row per form verbatim so this can be settled on a live install.
+	 * VERIFIED against Fluent Forms Pro 6.2.7 source. Both feed kinds are
+	 * stored under ONE meta_key, `user_registration_feeds`
+	 * (FormIntegrationService::update(), `$metaKey = $integrationName . '_feeds'`).
+	 * The discriminator is the `list_id` key inside the feed's JSON value, and
+	 * the vendor's own test for it is
+	 * `Arr::isTrue($feed,'enabled') && Arr::get($feed,'list_id') === 'user_update'`
+	 * (UserUpdateFormHandler::isValidFeed()). Registration is the default
+	 * branch: anything that is not `'user_update'` registers.
 	 *
-	 * Fails to the strict answer, per this class's standing rule: a feed we can
-	 * see but cannot classify is treated as 'create'. A form carrying both
-	 * kinds is 'create' — the stricter of the two.
+	 * A prior version of this method scanned for a meta_key CONTAINING
+	 * 'user_registration' or 'user_update' and guessed the discriminator from
+	 * four candidate keys (feedType, feed_type, userRegistrationType, type).
+	 * None of those exists. Because both feed kinds share one meta_key, that
+	 * scan read a User Update feed's row as a registration feed on every
+	 * install — form_is_strict() then rejects a signed-in visitor's own
+	 * profile edit on a missing token. Fixed by reading `list_id`.
+	 *
+	 * `_has_user_registration` / `_has_user_update` (read by Fluent Forms core
+	 * itself, and consulted here as a fallback) are STICKY: written when a
+	 * feed is saved, never cleared, and blind to `enabled`. They over-report,
+	 * which is safe for a fallback and wrong for a primary signal — hence the
+	 * feed rows are read first and the flags are only consulted when no feed
+	 * row could be read at all.
+	 *
+	 * A form carrying both an active registration feed and an active update
+	 * feed is a supported Fluent Forms configuration, and which behaviour
+	 * fires depends on whether the visitor is logged in (core gates
+	 * registration errors on `!get_current_user_id()` and update errors on
+	 * `get_current_user_id()`). is_user_logged_in() here is not request data
+	 * in the 2.17.0 sense — it is WordPress's authenticated identity from a
+	 * verified auth cookie, not a value the submitter can assert — so mirroring
+	 * the host's own gate does not reopen that bypass class.
+	 *
+	 * Feed `conditionals` are deliberately NOT evaluated: they are resolved
+	 * against submitted data, and the enforcement decision may not be read
+	 * from the request. A conditional feed counts as active.
 	 *
 	 * @param int|string $form_id Form identifier.
 	 * @return string 'create', 'update', or '' when the form touches no account.
 	 */
 	private function account_feed_type( $form_id ) {
-		$cached = $this->memo_get( 'account_feed_type', $form_id );
+		$logged_in = is_user_logged_in();
+		$bucket    = 'account_feed_type_' . ( $logged_in ? 'in' : 'out' );
+
+		$cached = $this->memo_get( $bucket, $form_id );
 		if ( null !== $cached ) {
 			return $cached;
 		}
 
-		$type = '';
+		$creates  = false;
+		$updates  = false;
+		$saw_feed = false;
 
 		foreach ( $this->form_meta_rows( $form_id ) as $row ) {
-			$key = isset( $row['meta_key'] ) ? strtolower( (string) $row['meta_key'] ) : '';
-
-			if ( false === strpos( $key, 'user_registration' ) && false === strpos( $key, 'user_update' ) ) {
+			if ( ! isset( $row['meta_key'] ) || 'user_registration_feeds' !== (string) $row['meta_key'] ) {
 				continue;
 			}
 
-			$meta = json_decode( isset( $row['value'] ) ? (string) $row['value'] : '', true );
-			$meta = is_array( $meta ) ? $meta : array();
+			$feed = json_decode( isset( $row['value'] ) ? (string) $row['value'] : '', true );
+
+			if ( ! is_array( $feed ) ) {
+				// A feed row we cannot read is a feed we must assume creates.
+				$saw_feed = true;
+				$creates  = true;
+				continue;
+			}
+
+			$saw_feed = true;
 
 			// A disabled feed does nothing. An unreadable enabled flag is
 			// treated as enabled, which is the stricter reading.
-			if ( isset( $meta['enabled'] ) && ! $meta['enabled'] ) {
+			if ( array_key_exists( 'enabled', $feed ) && ! $feed['enabled'] ) {
 				continue;
 			}
 
-			if ( $this->feed_is_update( $key, $meta ) ) {
-				// Only downgrade to 'update' if nothing has claimed 'create'.
-				$type = ( 'create' === $type ) ? 'create' : 'update';
-				continue;
+			// VERIFIED: FluentFormPro\Integrations\UserRegistration\
+			// UserUpdateFormHandler::isValidFeed(). 'user_update' is the only
+			// special value; everything else registers, which matches the
+			// vendor's own direction and keeps an unrecognised future value
+			// on the stricter answer.
+			if ( isset( $feed['list_id'] ) && 'user_update' === $feed['list_id'] ) {
+				$updates = true;
+			} else {
+				$creates = true;
 			}
-
-			return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( 'create', $form_id ) );
 		}
 
-		return $this->memo_set( 'account_feed_type', $form_id, $this->filter_account_type( $type, $form_id ) );
+		if ( ! $saw_feed ) {
+			// No readable feed rows. Fall back to the flags core itself reads
+			// (FormValidationService::validateSubmission()). Sticky and
+			// enabled-blind, so this branch only runs when nothing better
+			// is available.
+			$creates = 'yes' === $this->form_meta_value( $form_id, '_has_user_registration' );
+			$updates = 'yes' === $this->form_meta_value( $form_id, '_has_user_update' );
+		}
+
+		if ( $creates && $updates ) {
+			$type = $logged_in ? 'update' : 'create';
+		} elseif ( $creates ) {
+			$type = 'create';
+		} elseif ( $updates ) {
+			$type = 'update';
+		} else {
+			$type = '';
+		}
+
+		return $this->memo_set( $bucket, $form_id, $this->filter_account_type( $type, $form_id ) );
 	}
 
 	/**
-	 * Whether an account feed updates an existing user rather than creating one.
+	 * A single fluentform_form_meta value for a form, by meta_key.
 	 *
-	 * UNVERIFIED. Two independent signals are consulted because neither is
-	 * confirmed: the meta key naming, and a declared type inside the feed. A
-	 * feed that says nothing recognisable is NOT an update — it falls through
-	 * to 'create', the stricter reading.
-	 *
-	 * @param string $key  Lowercased meta key.
-	 * @param array  $meta Decoded feed value.
-	 * @return bool
+	 * @param int|string $form_id  Form identifier.
+	 * @param string     $meta_key Meta key to find.
+	 * @return string Value, or '' when the key is absent or unreadable.
 	 */
-	private function feed_is_update( $key, $meta ) {
-		if ( false !== strpos( $key, 'user_update' ) ) {
-			return true;
-		}
-
-		foreach ( array( 'feedType', 'feed_type', 'userRegistrationType', 'type' ) as $candidate ) {
-			if ( ! isset( $meta[ $candidate ] ) || ! is_scalar( $meta[ $candidate ] ) ) {
-				continue;
-			}
-
-			$declared = strtolower( trim( (string) $meta[ $candidate ] ) );
-			if ( 'update' === $declared || 'update_user' === $declared ) {
-				return true;
+	private function form_meta_value( $form_id, $meta_key ) {
+		foreach ( $this->form_meta_rows( $form_id ) as $row ) {
+			if ( isset( $row['meta_key'] ) && (string) $row['meta_key'] === $meta_key ) {
+				return isset( $row['value'] ) && is_scalar( $row['value'] ) ? (string) $row['value'] : '';
 			}
 		}
 
-		return false;
+		return '';
 	}
 
 	/**
@@ -842,66 +964,94 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * and 'unknown' would leave the form eligible so we would take over a form
 	 * that is also running Turnstile.
 	 *
-	 * The per-form field is checked before the global settings, because a
-	 * captcha field on the form is a visible challenge whatever the global
-	 * configuration says.
+	 * Returns 'unsupported' for a conversational form — see
+	 * form_is_conversational(). Checked first: a conversational form's field
+	 * definition is irrelevant, because there is no hook to inject into.
+	 *
+	 * VERIFIED against FormValidationService::validateReCaptcha() /
+	 * validateHCaptcha() / validateTurnstile() in Fluent Forms 6.2.9: a
+	 * challenge is validated, and therefore live, if and only if the form
+	 * carries the field OR the corresponding `fluentform/has_recaptcha` /
+	 * `fluentform/has_hcaptcha` / `fluentform/has_turnstile` auto-include
+	 * filter returns true. A prior version fell back to reporting the SITE'S
+	 * global reCAPTCHA configuration whenever a form had no captcha field —
+	 * so a site with reCAPTCHA v2 keys saved (extremely common; saved once
+	 * and left) reported 'v2' for every form on the site, making all of them
+	 * ineligible with no field anywhere explaining why. Fluent Forms' own gate
+	 * makes 'off' provable rather than assumed, once the auto-include filters
+	 * are also read.
+	 *
+	 * Reading `fluentform/has_recaptcha` etc. is a read of another plugin's
+	 * filter, not a write, and registers nothing — it cannot change host
+	 * behaviour, only what this method reports about it.
 	 */
 	public function native_captcha_state( $form_id ) {
+		if ( $this->form_is_conversational( $form_id ) ) {
+			return 'unsupported';
+		}
+
 		$form = $this->form( $form_id );
 		if ( null === $form ) {
 			return 'unknown';
 		}
 
-		$found_recaptcha_field = false;
+		$found = array(
+			'recaptcha' => false,
+			'other'     => false,
+		);
 
 		foreach ( $form['fields'] as $field ) {
 			if ( ! isset( self::$captcha_elements[ $field['element'] ] ) ) {
 				continue;
 			}
 
-			if ( 'other' === self::$captcha_elements[ $field['element'] ] ) {
-				return 'other';
-			}
+			$found[ self::$captcha_elements[ $field['element'] ] ] = true;
+		}
 
-			$found_recaptcha_field = true;
+		if ( $found['other'] || $this->native_auto_include( 'hcaptcha' ) || $this->native_auto_include( 'turnstile' ) ) {
+			return 'other';
+		}
+
+		$has_recaptcha = $found['recaptcha'] || $this->native_auto_include( 'recaptcha' );
+
+		if ( ! $has_recaptcha ) {
+			// Fluent Forms' own gate proves no challenge validates on this
+			// form. 'off' is no longer an assumption.
+			return 'off';
 		}
 
 		$settings = $this->native_recaptcha_settings();
 
-		// A reCAPTCHA field on the form is a rendered widget. Whether it is a
-		// visible challenge depends on the configured version, and an
+		// A reCAPTCHA field or auto-include is a rendered widget. Whether it is
+		// a visible challenge depends on the configured version, and an
 		// unreadable version must not be assumed invisible.
-		if ( $found_recaptcha_field ) {
-			return 'v3' === $this->native_recaptcha_version( $settings ) ? 'v3' : 'v2';
-		}
+		return 'v3' === $this->native_recaptcha_version( $settings ) ? 'v3' : 'v2';
+	}
 
-		// No captcha field on this form. A global configuration still tells the
-		// operator what Fluent Forms has set up, which is what the coverage
-		// table reports.
-		if ( array() === $settings ) {
-			// Nothing configured anywhere we recognise. 'unknown' rather than
-			// 'off': we have not proved absence, only failed to find it.
-			return $this->native_any_captcha_configured() ? 'other' : 'unknown';
-		}
-
-		$version = $this->native_recaptcha_version( $settings );
-
-		if ( 'v3' === $version ) {
-			return 'v3';
-		}
-		if ( 'v2' === $version ) {
-			return 'v2';
-		}
-
-		return 'unknown';
+	/**
+	 * Whether Fluent Forms will validate a captcha on every form regardless
+	 * of whether the field is present, via its auto-include filter.
+	 *
+	 * VERIFIED: `apply_filters('fluentform/has_recaptcha', false)` and its
+	 * hCaptcha / Turnstile equivalents, read in
+	 * FormValidationService::validateReCaptcha() etc. A read of another
+	 * plugin's filter; registers nothing, changes no host behaviour.
+	 *
+	 * @param string $type 'recaptcha', 'hcaptcha', or 'turnstile'.
+	 * @return bool
+	 */
+	private function native_auto_include( $type ) {
+		return (bool) apply_filters( 'fluentform/has_' . $type, false );
 	}
 
 	/**
 	 * Fluent Forms' stored reCAPTCHA settings.
 	 *
-	 * VERIFIED for `_fluentform_reCaptcha_details`: this project confirmed that
-	 * option name against a live install during the Smart Key Scavenger work
-	 * (see readme.txt, 2.13.x). The others are retained for other versions.
+	 * VERIFIED against GlobalSettingsHelper::storeReCaptcha() in Fluent Forms
+	 * 6.2.9: option name `_fluentform_reCaptcha_details`, stored as a PHP
+	 * array (`update_option(..., $captchaData, 'no')`, never an object), with
+	 * keys `siteKey`, `secretKey`, `api_version`. The other two candidates are
+	 * retained as tolerance for a version this was not verified against.
 	 * Filterable so a site can correct it without a code change.
 	 *
 	 * @return array Settings array, or empty when none found.
@@ -934,10 +1084,13 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * Which reCAPTCHA version Fluent Forms has configured.
 	 *
-	 * UNVERIFIED: the key holding the version is inferred. An unrecognised
-	 * value returns '', which callers treat as "not proven invisible" — the
-	 * pessimistic direction, since a v2 checkbox makes the form ineligible and
-	 * leaves Fluent Forms' own captcha in charge.
+	 * VERIFIED: the version lives at `api_version`, with exactly two literal
+	 * values — `'v2_visible'` and `'v3_invisible'`
+	 * (GlobalSettingsHelper::storeReCaptcha(), FormBuilder Recaptcha
+	 * component). The other candidate keys and the substring match against
+	 * 'v3'/'invisible'/'v2'/'checkbox' are kept as tolerance for a version
+	 * this was not verified against; the two literal values are the expected
+	 * path, not this fallback.
 	 *
 	 * @param array $settings Stored settings.
 	 * @return string 'v2', 'v3', or ''.
@@ -979,40 +1132,6 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 		// captcha running — an unverifiable answer must degrade to "we do not
 		// cover this form", which loses no protection.
 		return 'v2';
-	}
-
-	/**
-	 * Whether Fluent Forms has an hCaptcha or Turnstile configuration stored.
-	 *
-	 * UNVERIFIED: option names inferred by symmetry with the confirmed
-	 * reCAPTCHA one. A false negative here simply leaves the state 'unknown'.
-	 *
-	 * @return bool
-	 */
-	private function native_any_captcha_configured() {
-		$candidates = (array) apply_filters(
-			'gswp_ff_native_other_captcha_options',
-			array(
-				'_fluentform_hCaptcha_details',
-				'_fluentform_hcaptcha_details',
-				'_fluentform_turnstile_details',
-			)
-		);
-
-		foreach ( $candidates as $option ) {
-			$settings = $this->raw_option( $option );
-			if ( ! is_array( $settings ) ) {
-				continue;
-			}
-
-			foreach ( array( 'siteKey', 'site_key', 'secretKey', 'secret_key' ) as $key ) {
-				if ( ! empty( $settings[ $key ] ) ) {
-					return true;
-				}
-			}
-		}
-
-		return false;
 	}
 
 	/**
@@ -1109,29 +1228,52 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	public function register_hooks( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
 
-		// PARTIAL hook choice: fluentform/form_element_start runs before the
-		// form's input elements are rendered, so echoing here places our field
-		// inside the <form>. Chunk 21 confirms it fires on every render path.
+		// VERIFIED against FormBuilder::render() in Fluent Forms 6.2.9:
+		// fluentform/form_element_start runs before the form's input elements
+		// are rendered, so echoing here places our field inside the <form>.
+		// Chunk 21 confirms it fires on every render path. Gutenberg
+		// (GutenbergBlock::render()), Elementor (FluentFormWidget) and Pro's
+		// form modal (classes/FormModal.php) all emit
+		// do_shortcode('[fluentform ...]'), so all three route through this
+		// same FormBuilder::render() call. A conversational form does NOT —
+		// see form_is_conversational() — and is excluded at the eligibility
+		// check rather than relied on to reach this hook.
 		add_action( 'fluentform/form_element_start', array( $this, 'inject_token_field' ), 10, 1 );
 
 		// Coverage backstop. Fluent Forms has no equivalent of Gravity Forms'
 		// gform_get_form_filter — no filter receives the finished form HTML —
 		// so the backstop is an output buffer. It is deliberately narrow: see
-		// open_backstop_buffer().
+		// open_backstop_buffer(). VERIFIED: FormBuilder::render() itself wraps
+		// its own body in ob_start()/ob_get_clean() with both of these actions
+		// fired inside that buffer and always paired, which is why the
+		// nesting-level guard in close_backstop_buffer() has held.
 		add_action( 'fluentform/before_form_render', array( $this, 'open_backstop_buffer' ), 1, 1 );
 		add_action( 'fluentform/after_form_render', array( $this, 'close_backstop_buffer' ), 999, 1 );
 
-		// PARTIAL hook choice: fluentform/validation_errors is Fluent Forms'
-		// canonical validation filter, documented as living in
-		// FormValidationService::validateSubmission().
+		// VERIFIED: fluentform/validation_errors is Fluent Forms' canonical
+		// validation filter (FormValidationService::validateSubmission()),
+		// firing unconditionally as ($errors, $formData, $form, $fields).
 		add_filter( 'fluentform/validation_errors', array( $this, 'validate_submission' ), 20, 4 );
+
+		// Register our token field on Fluent Forms' own submission allow-list.
+		// See whitelist_token_field() for why this is required, not optional.
+		add_filter( 'fluentform/white_listed_fields', array( $this, 'whitelist_token_field' ), 10, 2 );
 
 		// Persist the assessment name and any fail-open flag onto the entry.
 		add_action( 'fluentform/submission_inserted', array( $this, 'store_submission_meta' ), 10, 3 );
 
 		// Payment lifecycle -> Transaction Defense annotation. One hook covers
 		// both directions, unlike Gravity Forms' pair.
-		add_action( 'fluentform/after_payment_status_change', array( $this, 'on_payment_status_change' ), 10, 5 );
+		//
+		// VERIFIED against BaseProcessor::changeSubmissionPaymentStatus() in
+		// both Fluent Forms and Fluent Forms Pro: TWO arguments, status FIRST
+		// — do_action('fluentform/after_payment_status_change', $newStatus,
+		// $this->getSubmission()). A prior version registered this with 5
+		// arguments in Gravity-Forms order ($submission, $transaction,
+		// $form_id, $old_status, $new_status), so $submission received the
+		// status string and $new_status was always '' — annotate() was never
+		// once entered and nothing about it crashed to say so.
+		add_action( 'fluentform/after_payment_status_change', array( $this, 'on_payment_status_change' ), 10, 2 );
 	}
 
 	/**
@@ -1327,14 +1469,58 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	}
 
 	/**
+	 * Add our token field to Fluent Forms' own submission allow-list.
+	 *
+	 * VERIFIED: SubmissionHandlerService::prepareHandler() ends with
+	 * `array_intersect_key($formData, $fields + array_flip(Helper::
+	 * getWhiteListedFields($formId)))` — $formData is filtered down to
+	 * REGISTERED FIELDS plus this fixed allow-list, and nothing else
+	 * survives. A prior version of submitted_token() claimed our field
+	 * arrived in $formData unfiltered, reasoning from two allow-listed keys
+	 * (`_wp_http_referer`, the per-form nonce) observed in a capture — those
+	 * are the two NAMED exceptions, not evidence that unregistered keys
+	 * survive. gswp_ff_token has never once reached transport 1 through this
+	 * filter; only registering it here makes that transport genuinely true.
+	 *
+	 * This is a read-path filter, not a settings write: nothing is persisted
+	 * into Fluent Forms' own options or tables, so the "never write to
+	 * another plugin's settings" rule is untouched. Fluent Forms Pro uses
+	 * this exact filter for its own submitted keys
+	 * (UserUpdateFormHandler::addWhiteListedFields()), which is the closest
+	 * thing to a vendor endorsement of the approach available from source.
+	 *
+	 * Only whitelisted on an eligible form. Whitelisting unconditionally
+	 * would register the field on a form we have declared out of scope (a v2
+	 * checkbox form, a conversational form), which is pointless and, for a
+	 * conversational form, would whitelist a field that is never rendered.
+	 *
+	 * Cost, stated rather than discovered later: a whitelisted key is
+	 * included in $formData, which prepareInsertData() JSON-encodes into
+	 * fluentform_submissions.response. The spent token is therefore stored
+	 * on the entry — not displayed (SubmissionService::getSubmission()
+	 * strips whitelisted fields before display) and inert: a v3 token is
+	 * single-use and expires in 120 seconds. A deliberate trade for
+	 * determinism over the private shape of $_POST['data'].
+	 *
+	 * @param mixed      $fields  Current whitelist.
+	 * @param int|string $form_id Form identifier.
+	 * @return array Filtered whitelist.
+	 */
+	public function whitelist_token_field( $fields, $form_id ) {
+		$fields = is_array( $fields ) ? $fields : array();
+
+		if ( $this->form_is_eligible( $form_id ) ) {
+			$fields[] = self::TOKEN_FIELD;
+		}
+
+		return $fields;
+	}
+
+	/**
 	 * The submitted reCAPTCHA token, from whichever transport carried it.
 	 *
-	 * Fluent Forms submits over AJAX and serialises the form into a single
-	 * request parameter, so $_POST[ TOKEN_FIELD ] is empty. Three transports are
-	 * tried, and a resolver that tries all three is correct under any of them —
-	 * the same reasoning as the candidate lists used for option names.
-	 *
-	 * VERIFIED on Fluent Forms 6.2.9 by capturing a real submission (chunk 22):
+	 * VERIFIED on Fluent Forms 6.2.9 by capturing a real submission
+	 * (chunk 22):
 	 *
 	 *   $_POST keys    : fluent_forms_admin_nonce, data, action, form_id
 	 *   parsed $formData: __fluent_form_embded_post_id,
@@ -1342,19 +1528,26 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 *                     name_1, email_2, phone_5, comments_3,
 	 *                     newsletter_signup_4
 	 *
-	 * Two things follow, and both matter.
+	 * Transport 1 — $form_data[TOKEN_FIELD] — is now the live one, because
+	 * register_hooks() whitelists our field via
+	 * fluentform/white_listed_fields (see whitelist_token_field()).
 	 *
-	 * Transport 2 is the live one: the form arrives serialised inside
-	 * $_POST['data']. Transport 3 would have found nothing, which is exactly the
-	 * failure this method was written to avoid — a direct port of the Gravity
-	 * Forms provider would have read an empty token on every submission of every
-	 * form, and failed every payment and account form closed, permanently.
+	 * RETRACTED, and recorded rather than deleted: this method previously
+	 * claimed transport 1 already worked, reasoning that $formData carried
+	 * two keys ($_wp_http_referer, the per-form nonce) that are not
+	 * registered fields, and concluding the whole payload survives
+	 * unfiltered. It does not — those two keys are on Fluent Forms' own
+	 * allow-list by name (Helper::getWhiteListedFields()), and our field was
+	 * never on it. Transport 1 returned empty on every submission, every
+	 * form, from the day it was written; transport 2 caught it one line
+	 * later, which is why nothing surfaced. The observation "the payload
+	 * contains keys that are not fields" is not proof that ALL non-field
+	 * keys survive — it is proof that the two enumerated ones do.
 	 *
-	 * Transport 1 also works. $formData carries `_wp_http_referer` and Fluent
-	 * Forms' own nonce — neither of which is a registered form field — so it is
-	 * the whole serialised payload and NOT a list filtered to known fields. Our
-	 * hidden input therefore survives into it. That was the open question when
-	 * this was written, and the answer is the permissive one.
+	 * Transports 2 and 3 are kept as a backstop for a request shape this has
+	 * not been observed under (a future Fluent Forms release, a third-party
+	 * submission path that bypasses the whitelist filter), not because they
+	 * are expected to fire on 6.2.9.
 	 *
 	 * Returning '' routes the caller into the coverage-assertion branch, not
 	 * into a rejection.
@@ -1550,15 +1743,12 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 					$threshold = floatval( get_option( 'gswp_threshold_txn', '0.8' ) );
 
 					if ( $risk >= $threshold && ! $this->may_block_payment() ) {
-						// Scored, above threshold, and deliberately not blocked.
-						// Whether Fluent Forms authorises the card in the browser
-						// before submission is unsettled (chunk 25). If it does, a
-						// rejection here stops the submission but not the hold on
-						// the customer's card, and telling the operator we blocked
-						// a payment we did not block is worse than not claiming it.
+						// Scored, above threshold, and deliberately not blocked
+						// — because a site has explicitly opted out via
+						// gswp_ff_txn_block_allowed. See may_block_payment().
 						$this->log_error(
 							sprintf(
-								'Fluent Forms #%d scored transaction risk %.2f (>= %.2f) but was NOT blocked. Blocking is disabled for Fluent Forms until the payment authorisation timing is confirmed on this install — a server-side block may not reverse a card authorisation already taken in the browser. Enable with the gswp_ff_txn_block_allowed filter once confirmed.',
+								'Fluent Forms #%d scored transaction risk %.2f (>= %.2f) but was NOT blocked: blocking is disabled for Fluent Forms on this site via the gswp_ff_txn_block_allowed filter.',
 								$form_id,
 								$risk,
 								$threshold
@@ -1596,38 +1786,74 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * Whether high-risk transaction blocking is permitted on Fluent Forms.
 	 *
-	 * Defaults to false, and deliberately so. The Gravity Forms provider
-	 * carries the same unknown as an open question in its docblock; here it is
-	 * closed by default until chunk 25 answers it on a real install, because
-	 * the failure mode costs a customer money rather than an entry.
+	 * Defaults to TRUE. This inverts the answer this method carried before
+	 * Fluent Forms Pro's gateway source was read. The open question was
+	 * whether any gateway authorises a card in the browser before this
+	 * plugin's validation runs — if one did, a server-side rejection here
+	 * would stop the order but leave a hold standing on the customer's card.
+	 *
+	 * VERIFIED against every gateway shipped by Fluent Forms and Fluent
+	 * Forms Pro 6.2.7: none does.
+	 *  - Server side, every gateway charges from
+	 *    fluentform/process_payment_{method}, dispatched by
+	 *    PaymentHandler::maybeHandlePayment() on
+	 *    fluentform/before_insert_payment_form — which runs AFTER
+	 *    SubmissionHandlerService::handleValidation(). There is no charge
+	 *    path that precedes this filter.
+	 *  - Stripe Inline and Square Inline tokenise client-side
+	 *    (createPaymentMethod / card.tokenize()); Square's follow-on
+	 *    verifyBuyer() is a 3-D Secure CHALLENGE that yields a verification
+	 *    token, not a charge or a hold.
+	 *  - Authorize.Net's card-entry modal, and Paddle/Paystack/RazorPay's
+	 *    equivalents, carry a submission_id/transaction_hash in their
+	 *    config and so cannot open until the submission is already
+	 *    accepted.
+	 *  - PayPal Inline's button submits our form FIRST — its onClick handler
+	 *    calls $form.trigger('submit') and does not call createOrder until
+	 *    that promise resolves — and explicitly REJECTS that promise on
+	 *    fluentform_validation_failed, so a rejection here means no PayPal
+	 *    order is ever created.
+	 *
+	 * Leaving this false now would be the wrong default: gswp_txn_block is a
+	 * switch an operator sets deliberately, on a site that also has
+	 * Enterprise keys and Transaction Defense on, and silently vetoing it
+	 * while logging that nothing was blocked is the plugin doing less than
+	 * asked while reporting that it complied.
+	 *
+	 * Two residuals worth naming rather than hiding behind "false is safer":
+	 * on Square Inline the buyer may complete a 3-D Secure challenge before
+	 * we reject — an annoyance, not a charge, since the verification token
+	 * simply goes unused; and a gateway added by a third-party add-on is
+	 * outside everything read here. gswp_ff_txn_block_allowed is now the
+	 * escape hatch for turning blocking back OFF on a site whose gateway is
+	 * not one of the above.
 	 *
 	 * @return bool
 	 */
 	private function may_block_payment() {
 		/**
-		 * Allow this plugin to block a high-risk Fluent Forms payment.
+		 * Permit or withhold high-risk Fluent Forms payment blocking.
 		 *
-		 * Turn this on only once you have confirmed that a rejected submission
-		 * leaves no authorisation on the customer's card.
+		 * Defaults to true (see docblock above). Return false on a site using
+		 * a payment gateway not covered by that verification — a third-party
+		 * add-on, or a Fluent Forms release newer than 6.2.9/Pro 6.2.7 whose
+		 * charge timing has not been re-checked.
 		 *
 		 * @param bool $allowed Whether blocking is permitted.
 		 */
-		return (bool) apply_filters( 'gswp_ff_txn_block_allowed', false );
+		return (bool) apply_filters( 'gswp_ff_txn_block_allowed', true );
 	}
 
 	/**
 	 * Attach a rejection message to the errors array.
 	 *
-	 * Fluent Forms renders validation errors against fields. Our token field is
-	 * not one of its registered fields, so an error keyed to it may be
-	 * delivered to the browser and then dropped for want of a DOM node to
-	 * attach it to — leaving the visitor watching the submit button spin and
-	 * stop, with nothing on screen to explain it.
-	 *
-	 * This plugin must have no branch that hangs a submission, so the message
-	 * is attached to a real field on the form. It reads oddly under the first
-	 * field, which is why the target is filterable, but odd and visible beats
-	 * correct and invisible.
+	 * VERIFIED: an errors key that matches no field is delivered visibly
+	 * under both Fluent Forms `errorMessagePlacement` settings — see
+	 * ERROR_KEY. A prior version attached the message to the first real
+	 * field on the form instead, and admitted the submission unrejected when
+	 * no field could be resolved. Both are unnecessary now that a channel
+	 * exists that always resolves and is always visible, so reject() is
+	 * unconditional.
 	 *
 	 * @param array  $errors  Errors so far.
 	 * @param string $message Customer-facing message.
@@ -1635,63 +1861,18 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * @return array
 	 */
 	private function reject( $errors, $message, $form_id ) {
-		$field = $this->error_field_for( $form_id );
+		$key = (string) apply_filters( 'gswp_ff_error_field', self::ERROR_KEY, (int) $form_id );
 
-		if ( '' === $field ) {
-			// No field to hang it on. Rejecting anyway would produce exactly
-			// the silent spinner described above, so admit the submission,
-			// flag it, and make the reason loud in the log instead.
-			$this->pending_unverified[ $form_id ] = true;
-
-			$this->log_error(
-				sprintf(
-					'Fluent Forms #%d: this plugin wanted to reject a submission ("%s") but could not resolve a field to display the message on, so the submission was ADMITTED and flagged unverified. A rejection the visitor cannot see is indistinguishable from an outage. Set a target with the gswp_ff_error_field filter.',
-					$form_id,
-					$message
-				)
-			);
-
-			return $errors;
+		// A site-supplied field name is honoured, but never our own token
+		// field — see ERROR_KEY for why that specific name is the one that
+		// renders nowhere.
+		if ( '' === $key || self::TOKEN_FIELD === $key ) {
+			$key = self::ERROR_KEY;
 		}
 
-		$errors[ $field ] = array( $message );
+		$errors[ $key ] = array( $message );
 
 		return $errors;
-	}
-
-	/**
-	 * Which field a rejection message is displayed against.
-	 *
-	 * @param int $form_id Form id.
-	 * @return string Field name, or '' when none can be resolved.
-	 */
-	private function error_field_for( $form_id ) {
-		$form  = $this->form( $form_id );
-		$field = '';
-
-		if ( null !== $form ) {
-			foreach ( $form['fields'] as $candidate ) {
-				// Skip our own field and any captcha widget: neither is a place
-				// a visitor would look for an error.
-				if ( '' === $candidate['name'] || self::TOKEN_FIELD === $candidate['name'] ) {
-					continue;
-				}
-				if ( isset( self::$captcha_elements[ $candidate['element'] ] ) ) {
-					continue;
-				}
-
-				$field = $candidate['name'];
-				break;
-			}
-		}
-
-		/**
-		 * Filter the field a Fluent Forms rejection message is shown against.
-		 *
-		 * @param string $field   Field name.
-		 * @param int    $form_id Form identifier.
-		 */
-		return (string) apply_filters( 'gswp_ff_error_field', $field, (int) $form_id );
 	}
 
 	/**
@@ -1776,10 +1957,11 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * Build transactionData for a payment form.
 	 *
-	 * UNVERIFIED: Fluent Forms' billing field mapping is inferred from its
-	 * address field element. Returning an empty array is safe — GSWP_Verifier
-	 * enforces Google's documented minimum (billing region + postal code +
-	 * payment method) and omits transaction data entirely when it is unmet,
+	 * Billing field mapping is now VERIFIED — see submitted_address().
+	 * Returning an empty array is still the safe outcome for a form that
+	 * genuinely does not carry enough billing data: GSWP_Verifier enforces
+	 * Google's documented minimum (billing region + postal code + payment
+	 * method) and omits transaction data entirely when it is unmet,
 	 * degrading to a plain score rather than an API error.
 	 *
 	 * @param int   $form_id   Form id.
@@ -1846,10 +2028,15 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * Pull billing details out of a submission using the form's field types.
 	 *
-	 * UNVERIFIED. Fluent Forms' address field submits a nested array keyed by
-	 * component ('address_line_1', 'city', 'state', 'zip', 'country'). Anything
-	 * that does not match yields no components, which routes payment_context()
-	 * to its empty return.
+	 * VERIFIED: Fluent Forms' address field submits a nested array keyed by
+	 * component ('address_line_1', 'city', 'state', 'zip', 'country'), under
+	 * the field's own submitted name — confirmed against the field's default
+	 * definition (Services/FormBuilder/DefaultElements.php) and a real
+	 * predefined form's stored JSON (Models/Traits/PredefinedForms.php). The
+	 * name-field sub-keys ('first_name', 'middle_name', 'last_name') are
+	 * nested the same way and confirmed against the same source. Anything
+	 * that does not match yields no components, which routes
+	 * payment_context() to its empty return.
 	 *
 	 * @param array $form      Form row.
 	 * @param array $form_data Submitted data.
@@ -1906,14 +2093,31 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	/**
 	 * A form's payment currency.
 	 *
-	 * UNVERIFIED: read from the form's stored payment settings when present.
-	 * An empty string is acceptable to the assessment API path, which omits
-	 * fields it cannot fill.
+	 * VERIFIED against PaymentHelper::getFormCurrency() / getFormSettings() /
+	 * getPaymentSettings() in Fluent Forms 6.2.9: the form-level currency
+	 * lives at fluentform_form_meta meta_key `_payment_settings`, key
+	 * `currency`; when absent it falls back to the site-wide option
+	 * `__fluentform_payment_module_settings`, same key; when that is also
+	 * absent the vendor's own default is `'USD'`. Both are available at
+	 * validation time, unlike `fluentform_transactions.currency` — that row
+	 * is written only once a payment is TAKEN, after this method's caller
+	 * has already needed the answer.
+	 *
+	 * The broader meta-key scan this method used before source was read is
+	 * kept as a second-tier fallback, for a `_payment_settings` row that
+	 * exists but does not decode, or a currency key this class does not yet
+	 * know the vendor uses.
 	 *
 	 * @param array $form Form row.
-	 * @return string Currency code, or ''.
+	 * @return string Currency code. Never '' — 'USD' is the vendor's own
+	 *                default and is returned as a real answer, not a punt.
 	 */
 	private function form_currency( $form ) {
+		$primary = json_decode( $this->form_meta_value( $form['id'], '_payment_settings' ), true );
+		if ( is_array( $primary ) && ! empty( $primary['currency'] ) && is_scalar( $primary['currency'] ) ) {
+			return strtoupper( sanitize_text_field( (string) $primary['currency'] ) );
+		}
+
 		foreach ( $this->form_meta_rows( $form['id'] ) as $row ) {
 			$key = isset( $row['meta_key'] ) ? strtolower( (string) $row['meta_key'] ) : '';
 			if ( false === strpos( $key, 'payment' ) && false === strpos( $key, 'currency' ) ) {
@@ -1932,20 +2136,6 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			}
 		}
 
-		// Fall back to the site-wide payment settings. Currency in Fluent Forms
-		// is configured globally far more often than per form, so the per-form
-		// scan above finds nothing on a typical install.
-		//
-		// VERIFIED to exist on 6.2.9 (chunk 23):
-		// `__fluentform_payment_module_settings`. Its internal key names are
-		// still UNVERIFIED — chunk 23 crashed before printing them, on the very
-		// object-typed option this one turned out to be.
-		//
-		// Deliberately NOT read from `fluentform_transactions.currency`, which
-		// chunk 25 confirmed exists and looks like the better binding: that row
-		// is written when the payment is taken, and this runs during validation,
-		// before any transaction exists. The better-looking column is unusable
-		// at the only moment we need the answer.
 		$settings = $this->raw_option( '__fluentform_payment_module_settings' );
 
 		if ( is_array( $settings ) ) {
@@ -1956,18 +2146,21 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			}
 		}
 
-		return '';
+		return 'USD';
 	}
 
 	/**
 	 * Persist the assessment name and any fail-open flag onto the new submission.
 	 *
-	 * PARTIAL: fluentform/submission_inserted is documented as firing after a
-	 * submission is stored, with the new id first. Helper::setSubmissionMeta is
-	 * documented on the Helper Classes page. When neither is available the meta
-	 * is simply not written — which costs the Transaction Defense annotation
-	 * and nothing else, and is preferable to writing into another plugin's
-	 * tables by hand.
+	 * VERIFIED against SubmissionHandlerService::processSubmissionData() and
+	 * Helper::setSubmissionMeta() in Fluent Forms 6.2.9:
+	 * fluentform/submission_inserted fires as ($insertId, $formData, $form)
+	 * after the submission is stored, and setSubmissionMeta() takes
+	 * ($submissionId, $metaKey, $value, $formId = false). When
+	 * class_exists()/method_exists() still fails (a version this was not
+	 * verified against) the meta is simply not written — which costs the
+	 * Transaction Defense annotation and nothing else, and is preferable to
+	 * writing into another plugin's tables by hand.
 	 *
 	 * @param int          $submission_id New submission id.
 	 * @param array        $form_data     Submitted data.
@@ -2039,13 +2232,10 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * (pending, processing) is left alone, because annotating an assessment
 	 * with a verdict that has not been reached teaches Google the wrong thing.
 	 *
-	 * @param object|array $submission  Submission.
-	 * @param object|array $transaction Transaction.
-	 * @param int          $form_id     Form id.
-	 * @param string       $old_status  Previous status.
-	 * @param string       $new_status  New status.
+	 * @param string       $new_status New payment status.
+	 * @param object|array $submission Submission.
 	 */
-	public function on_payment_status_change( $submission, $transaction = null, $form_id = 0, $old_status = '', $new_status = '' ) {
+	public function on_payment_status_change( $new_status = '', $submission = null ) {
 		$status = strtolower( (string) $new_status );
 
 		if ( 'paid' === $status ) {

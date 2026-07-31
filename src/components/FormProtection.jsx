@@ -17,6 +17,15 @@ function nativeLabel( state ) {
 				'hCaptcha / Turnstile',
 				'google-security-for-wordpress'
 			);
+		// Fluent Forms only: a conversational form renders through a separate
+		// Vue view that fires none of the hooks this provider injects into,
+		// so it can never be covered. Distinct from 'unknown' so the operator
+		// sees an explanation rather than a permanent coverage alarm.
+		case 'unsupported':
+			return __(
+				'conversational form — not supported',
+				'google-security-for-wordpress'
+			);
 		default:
 			return __( 'unknown', 'google-security-for-wordpress' );
 	}
