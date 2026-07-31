@@ -94,6 +94,31 @@ Every fix below is a source-verified correction, not a guess corrected by anothe
 - Fluent Forms Pro's non-Stripe/Square gateways beyond what was read for D8 (Mollie, Paddle, Paystack, RazorPay, Offline, AuthorizeNet) were read for charge *timing* only; nothing else about them was exercised.
 - A testing ZIP was built and delivered to the operator. It has not been installed anywhere.
 
+### Phase 50 addendum 4 (v2.23.2) — live run on test.onedog.solutions, and the toggle that would not stick
+
+The extended suite was run on the reporting site (Fluent Forms 6.2.9, Pro 6.2.7, PHP 8.3, Enterprise keys, **no WooCommerce**). Chunks 20, 21, 23, 24, 25 and 26 came back clean; 26 reports **20/20**.
+
+**D1 is now OBSERVED, not merely source-verified — on a payment form, which is the highest-stakes path.** Two captures of the same Fluent Form #4 (Stripe inline, STRICT):
+
+```
+19:20:07  formData keys: __fluent_form_embded_post_id,_fluentform_4_...,names,email,custom-payment-amount,payment_method,__stripe_payment_method_id
+          token in formData: no
+21:00:48  formData keys: gswp_ff_token,__fluent_form_embded_post_id,_fluentform_4_...,names,email,custom-payment-amount,payment_method,__stripe_payment_method_id
+          token in formData: yes
+```
+
+The operator labelled these "valid test card" and "random card number", but **the card is not the variable and the difference is not about Stripe at all.** Both runs carry `__stripe_payment_method_id`, so Stripe tokenised both; our hidden field is filled by the reCAPTCHA bootstrap and never touches the gateway. Decisively: a field that is present-but-unfilled still serialises as `gswp_ff_token=`, and `parse_str` creates that key with an empty string, so `isset()` would report **yes**. A `no` therefore means the field was absent from the DOM entirely — not merely empty. The real variable is the provider's state: 19:20 predates both the toggle fix and chunk 22's own confirmation that the provider was ON (20:50), and 21:00 postdates both. **Run 1 is a provider-off render; run 2 is the confirmation.** Recorded because the operator's framing was a plausible and wrong causal story, and the empty-vs-absent distinction is what rules it out.
+
+`gswp_ff_token` arriving **first** in the key list is a second, independent confirmation: `form_element_start` fires before Fluent Forms echoes `__fluent_form_embded_post_id` and its nonce, so DOM order puts our field ahead of both. The transport is doing exactly what the source read predicted.
+
+**The Form Protection toggle could not be switched on, and that was our bug, not Fluent Forms'.** `FormProtection.jsx` read provider state and the whole coverage table from `window.gswpAdminData.formProviders` — a `wp_localize_script()` snapshot taken once at page load and never refreshed. `update_settings()` persisted the change correctly and returned a recomputed audit, but that landed in `settings.form_providers`, which the component never read; every save fell back to the stale snapshot, so the toggle appeared to flip itself back off. Fixed to prefer `settings.form_providers`. **Not Fluent Forms specific and not introduced this session** — it affected Gravity Forms identically and every coverage column (Token seen, last rejection, "Its own reCAPTCHA") equally, which is why nobody had isolated it before: it reads as staleness, not as a defect.
+
+**Still unexercised on this site: the account binding.** All four forms report zero `user_registration_feeds` rows and absent `_has_user_*` flags, so `account_feed_type()` never left its empty branch. D2 remains confirmed **synthetically only** (chunk 26 section F, 6/6, including the pure-User-Update case and the login-state tie-break in both directions). Closing it live still needs a real User Registration form and a real User Update form on the site.
+
+**New finding — a payment form's threshold dial is unreachable on a site without WooCommerce.** `context_for()` returns `checkout` for any payment form, in **both** providers (`class-gswp-provider-gravity-forms.php:624`), so Fluent Form #4 scores against `gswp_threshold_checkout`. That dial is rendered only inside `{ woocommerceActive && ... }` (`PageToggles.jsx`), and this site has no WooCommerce — so the form's threshold sits at its 0.5 default with no way to change it from the admin screen. Meanwhile the Form Protection panel displays four Fluent Forms dials (ordinary / creates account / updates account / changes password), **none of which apply to the site's only payment form.** An operator tuning those would reasonably believe otherwise. Pre-existing, shared with Gravity Forms, and not a regression — but newly visible, because this is the first time a payment form has been classified under a form provider on a WooCommerce-free site. Not fixed here: the minimal correction is to surface the checkout dial inside the Form Protection panel whenever a provider reports a payment form, which is additive and changes no scoring.
+
+**Cutover hazard worth naming.** Chunk 21 attaches the render hooks itself and therefore writes `gswp_ff_injection_log` **even with the provider switched off**. That disarms the never-injected fail-open for those forms in advance, so a visitor holding a page rendered *before* the operator flips the switch, submitting *after*, gets no token on a form the log says we do inject into — and on a STRICT payment form that is a rejection. The window is narrow and self-healing on reload, and it is arguably correct enforcement, but it means the runbook's "load every form once after switching on" step is load-bearing rather than cosmetic.
+
 ### Phase 50 Modifications (v2.23.0)
 
 `GSWP_Provider_Fluent_Forms`, implementing the same `GSWP_Form_Provider` contract as the Gravity Forms provider, reaching the 2.22.0 feature surface: enumeration, injection, coverage recording, scoring, classification (payment / creates account / updates account / changes password), per-class thresholds, asymmetric enforcement, the coverage assertion, the "Not public" declaration, per-form rejection reasons, native-captcha detection, Transaction Defense and submission meta.
