@@ -69,8 +69,17 @@ foreach ( $provider->forms() as $form_id => $title ) {
 	}
 }
 
+echo "  SCOPE: this chunk covers PAYMENT forms only. An account form (User\n";
+echo "  Registration / User Update) is not shown here at all, whatever it does\n";
+echo "  — chunk 24 is the one that classifies those and dumps their feed rows.\n";
+echo "  Running this chunk after creating an account form will report on the\n";
+echo "  payment forms and say nothing about the new one.\n\n";
+
+printf( "  Payment forms on this site: %d of %d total\n\n", count( $payment_forms ), count( $provider->forms() ) );
+
 if ( empty( $payment_forms ) ) {
-	echo "No Fluent Forms form takes payment on this site. Nothing to test.\n";
+	echo "No Fluent Forms form takes payment on this site. Nothing to test here;\n";
+	echo "if you came looking for an account form, run chunk 24.\n";
 	return;
 }
 

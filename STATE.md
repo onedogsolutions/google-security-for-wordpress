@@ -142,6 +142,18 @@ The `21:28:11` capture quoted in the previous round as evidence was submission 1
 
 **Minor open observation.** Submission 8 (failed payment) has no `gswp_assessment_name` while 9 and 10 do. Most likely the request short-circuits inside the payment handler before `fluentform/submission_inserted` fires, so `store_submission_meta()` never runs and `pending_assessment` dies with the request. Bounded — a payment that never succeeded has nothing worth annotating — but it means Transaction Defense annotation may be unreachable for failed payments. Not chased; the successful path demonstrably works.
 
+### Phase 50 addendum 6 (v2.23.2) — D8 confirmed on a live gateway
+
+**The 2.16.0 question is now closed by observation, not only by source.** A forced missing-token rejection on Fluent Form #4 (STRICT, Stripe inline, test mode) at 21:27:26 UTC produced **nothing whatsoever in Stripe** — no charge, no hold, no authorisation, no incomplete or uncaptured PaymentIntent — confirmed by the operator reading the dashboard at the corresponding local minute (4:27 PM, UTC−5). Result (a).
+
+A second rejection at 22:14:58 UTC corroborates it from the Fluent Forms side: `fluentform_transactions` still holds only four rows, the latest at 21:28:12, so neither rejection produced a transaction.
+
+**The control that makes this conclusive is submission 8.** That payment reached Stripe and was *declined*, and Fluent Forms still wrote a transactions row for it (`status=failed`, empty `charge_id`). So a row is written whenever the payment stage is reached **at all**, including when the gateway refuses. The absence of any row at either rejection therefore proves validation stopped the submission before `fluentform/before_insert_payment_form` ever fired — which is exactly the ordering the source read predicted, now demonstrated on a real gateway rather than inferred from code.
+
+`may_block_payment()` defaulting to true is confirmed correct for Stripe on this install. The other gateways Fluent Forms Pro ships remain source-verified only; `gswp_ff_txn_block_allowed` is still the per-site escape hatch for a third-party gateway.
+
+**Scope pointer added to chunk 27.** It filters to payment forms, so an account form created for D2 does not appear in it at all — the chunk was run after a User Update form was added and reported only on the payment form, saying nothing about the new one. It now prints its scope and the payment-form count up front and points at chunk 24.
+
 ### Phase 50 Modifications (v2.23.0)
 
 `GSWP_Provider_Fluent_Forms`, implementing the same `GSWP_Form_Provider` contract as the Gravity Forms provider, reaching the 2.22.0 feature surface: enumeration, injection, coverage recording, scoring, classification (payment / creates account / updates account / changes password), per-class thresholds, asymmetric enforcement, the coverage assertion, the "Not public" declaration, per-form rejection reasons, native-captcha detection, Transaction Defense and submission meta.
