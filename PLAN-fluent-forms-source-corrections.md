@@ -2,26 +2,40 @@
 
 **Target release:** 2.23.2
 **Predecessor:** `PLAN-fluent-forms-provider.md` (2.23.0), Phase 50 addendum in `STATE.md` (2.23.1)
-**Evidence base:** Fluent Forms **6.2.9** free plugin source, read in full for every
-binding below. Fluent Forms **Pro 6.2.7** was NOT available and its absence is
-marked explicitly wherever it matters.
+**Evidence base:** Fluent Forms **6.2.9** free **and Fluent Forms Pro 6.2.7**,
+both read directly. Every binding below cites the file and line it was read from.
 **Status: PLANNED. No code changed yet.**
+
+*Revision 2 — Pro 6.2.7 obtained after revision 1 was written. It changed two
+conclusions and made a third worse. D2 was understated: the defect is not
+confined to forms carrying both feed kinds, it hits **every** User Update form
+deterministically. D8 inverts: no Fluent Forms gateway authorises a card before
+our validation runs, so blocking is safe and the default should change. The last
+render path (modal) is settled. Revision 1's reasoning is superseded where the
+two disagree; nothing from revision 1 is left standing unmarked.*
 
 ---
 
 ## 0. What this document is, and what changed
 
 The Phase 50 addendum listed nine open bindings (§5 of the handoff) that could
-not be settled from documentation or from the live install. The Fluent Forms
-plugin source has now been read. **Eight of the nine are settled.** The ninth
-(charge timing for non-Stripe gateways) is settled for Stripe and cannot be
-settled for the Pro-only gateways from this artefact.
+not be settled from documentation or from the live install. Fluent Forms 6.2.9
+and Fluent Forms Pro 6.2.7 have now both been read. **All nine are settled.**
 
-The review also found **six defects in the shipped provider**, three of which are
-in a request path and two of which are the exact failure shapes this project has
-already been burned by. It also found **one claim recorded as settled that is
-false**, which matters more than any single defect because it is the mechanism by
-which the others get missed.
+The review found **eight defects in the shipped provider**, three of which are in
+a request path. It also found **one claim recorded as settled that is false**,
+which matters more than any single defect because it is the mechanism by which
+the others get missed.
+
+**The headline is D2.** Every Fluent Forms **User Update** form — a profile-edit
+form for signed-in users — is classified by the shipped provider as an account
+**creation** form, and is therefore STRICT, and therefore rejects a submission
+with a missing or stale token. Not "a form configured a certain way", and not
+half the time: deterministically, on every User Update form, because both feed
+kinds share one `meta_key` and the provider's discriminator looks for four key
+names that Fluent Forms does not use. This is the Phase 48 incident reproduced in
+shipped code, on the same class of form, with the same message shown to the same
+kind of person. It is the reason this release exists.
 
 ### 0.1 The retraction
 
@@ -63,17 +77,20 @@ That is the same shape as the 2.23.1 root cause — a binding verified along one
 axis and assumed along another — recurring one release later, on the very run
 that was written to catch it.
 
-The fix (§2.1) makes transport 1 true rather than deleting it, because the
+The fix (D1) makes transport 1 true rather than deleting it, because the
 mechanism Fluent Forms provides for exactly this is a filter, and using it is
-cheaper and more durable than re-parsing a request envelope.
+cheaper and more durable than re-parsing a request envelope. Pro uses that same
+filter for its own submitted keys (`UserUpdateFormHandler::addWhiteListedFields`),
+which is as close to a vendor endorsement of the approach as source gets.
 
 ---
 
 ## 1. Bindings settled by the source read
 
 Everything in this table is now **VERIFIED against installed source** at the
-stated file and line. The version axis is Fluent Forms 6.2.9 free; nothing here
-should be treated as verified for a different major version.
+stated file and line. The version axis is Fluent Forms 6.2.9 / Pro 6.2.7; nothing
+here should be treated as verified for a different major version. Paths without a
+`Pro:` prefix are in the free plugin.
 
 | # | Binding | Answer | Source |
 |---|---|---|---|
@@ -82,8 +99,10 @@ should be treated as verified for a different major version.
 | 3 | Whitelist extension point | `apply_filters('fluentform/white_listed_fields', $fields, $formId)` | `Helper.php:1443` |
 | 4 | `fluentform/validation_errors` | `($errors, $formData, $form, $fields)`, fired **unconditionally** (not only when errors exist). Our 4-arg / priority-20 registration is correct. | `FormValidationService.php:170` |
 | 5 | Error delivery shape | `throw new ValidationException('', 423, null, ['errors' => $errors])` → `wp_send_json($e->errors(), 423)`. | `FormValidationService.php:212`, `SubmissionHandler.php:26` |
-| 6 | **Account creates vs updates** | Core reads form meta **`_has_user_registration` == 'yes'** and **`_has_user_update` == 'yes'**, and gates them on login state: registration only when `!get_current_user_id()`, update only when `get_current_user_id()`. | `FormValidationService.php:178,193` |
-| 7 | Account feed rows | `fluentform_form_meta.meta_key = 'user_registration_feeds'`; value is JSON; enabled flag is `enabled`, read with `ArrayHelper::isTrue()`. | `GlobalNotificationManager.php:262-272` |
+| 6 | **Account creates vs updates — the discriminator** | **Both** feed kinds live under **one** `meta_key`, `user_registration_feeds`. The discriminator is **`list_id`** inside the feed JSON, and the vendor's own test is `Arr::isTrue($feed,'enabled') && Arr::get($feed,'list_id') === 'user_update'`. Registration is the default branch: everything that is *not* `'user_update'` registers. | Pro: `UserRegistration/UserUpdateFormHandler.php:109-113`, `UserRegistrationApi.php:57-63`, `Getter.php:52-60` |
+| 7 | Account feed row shape | `value` = `json_encode()` of a flat object; `enabled` is a **bool**; the status toggle writes `$metaValue['enabled'] = $status`; `conditionals` may gate a feed **at runtime**. | `FormIntegrationService.php:100-152`, `GlobalNotificationManager.php:262` |
+| 7b | **`_has_user_registration` / `_has_user_update` are sticky** | Written by `handleValidate()` when a feed is **saved**, regardless of whether it is enabled, and **never deleted**. A form that once had a registration feed reports `_has_user_registration = 'yes'` forever. Usable as a fallback, not as current state. | Pro: `UserRegistration/Bootstrap.php:284-289` |
+| 7c | Core's own gate on those flags | Registration errors fire only when `!get_current_user_id()`; update errors only when `get_current_user_id()`. A form may legitimately carry both. | `FormValidationService.php:178,193` |
 | 8 | reCAPTCHA option | `_fluentform_reCaptcha_details`, stored as a **PHP array**, keys `siteKey`, `secretKey`, `api_version`. | `GlobalSettingsHelper.php:41-48` |
 | 9 | reCAPTCHA version key/values | `api_version` ∈ `'v2_visible'` \| `'v3_invisible'`. | `GlobalSettingsHelper.php:36`, `filters.php:415-420` |
 | 10 | hCaptcha option | `_fluentform_hCaptcha_details`, array, `siteKey`/`secretKey`, **no version key**. | `GlobalSettingsHelper.php:112` |
@@ -92,7 +111,7 @@ should be treated as verified for a different major version.
 | 13 | Captcha field elements | `recaptcha`, `hcaptcha`, `turnstile` — matched with `FormFieldsParser::hasElement($form, '<name>')`. Our map is correct. | `FormValidationService.php:568,613,653` |
 | 14 | **Captcha is per-form, plus a global override** | FF validates a captcha iff the form has the field **OR** `apply_filters('fluentform/has_recaptcha'\|`has_hcaptcha`\|`has_turnstile`, false)` returns true. | `FormValidationService.php:568` etc. |
 | 15 | Host captcha can be suppressed by filter | `apply_filters('fluentform/disable_captcha', false, $form, 'recaptcha'\|'hcaptcha'\|'turnstile')` | `FormValidationService.php:567` |
-| 16 | Payment field elements | `payment_method`, `custom_payment_component`, `multi_payment_component`, `subscription_payment_component`, `item_quantity_component`, `payment_summary_component`, **`stripe_inline`**, and (Pro-registered, free-declared) **`payment_coupon`**. | component constructors under `app/Modules/Payments/Components/`, `Stripe/Components/StripeInline.php:22`, `PaymentHandler.php:62` |
+| 16 | Payment field elements | `payment_method`, `custom_payment_component`, `multi_payment_component`, `subscription_payment_component`, `item_quantity_component`, `payment_summary_component`, **`stripe_inline`**, **`square_inline`**, **`payment_coupon`**. | component constructors under `app/Modules/Payments/Components/`; Pro: `Square/Components/SquareInline.php:22`, `Stripe/Components/StripeInline.php:22`, `Payments/Components/Coupon.php:17` |
 | 17 | Password element | `input_password` — named in the core sanitiser. | `boot/globals.php:98` |
 | 18 | Address sub-keys | Element `address`, submitted **nested under the field's own name**: `$formData['address_1']['address_line_1'\|'address_line_2'\|'city'\|'state'\|'zip'\|'country']`. | `DefaultElements.php:376-620` |
 | 19 | Name sub-keys | `first_name`, `middle_name`, `last_name`, nested the same way. | `PredefinedForms.php` (blank-form JSON) |
@@ -102,12 +121,14 @@ should be treated as verified for a different major version.
 | 23 | `Helper::getSubmissionMeta` | `($submissionId, $metaKey, $default = false)` | `Helper.php` |
 | 24 | **`fluentform/after_payment_status_change`** | **`($newStatus, $submission)` — two args, status FIRST.** | `BaseProcessor.php:157` |
 | 25 | Payment status strings | `'paid'`, `'failed'`, plus gateway-supplied values passed straight through. `'refunded'` is not emitted by the free core. | `BaseProcessor.php:250,738` |
-| 26 | Render paths | Gutenberg block → `do_shortcode('[fluentform …]')`; Elementor widget → `do_shortcode('[fluentform …]')`. **Both route through `FormBuilder::render()`**, so both fire `form_element_start` / `before_form_render` / `after_form_render`. | `GutenbergBlock.php:69`, `FluentFormWidget.php:2540` |
-| 27 | **Conversational forms do not** | Marked by form meta `is_conversion_form == 'yes'`; rendered by `FluentConversational\Classes\Form::renderFormHtml()` into a Vue view. Fires **none** of the three render actions and emits **no** `.ff-errors-in-stack` container. | `Form.php:197+`, `app/Views/public/conversational-form.php` |
+| 26 | Render paths | Gutenberg block, Elementor widget **and the Pro form modal** all emit `do_shortcode('[fluentform …]')`. **All route through `FormBuilder::render()`**, so all fire `form_element_start` / `before_form_render` / `after_form_render`. This closes the last render-path unknown in the handoff's §5.9. | `GutenbergBlock.php:69`, `FluentFormWidget.php:2540`; Pro: `classes/FormModal.php:43` |
+| 27 | **Conversational forms do not** | Marked by form meta `is_conversion_form == 'yes'`; rendered by `FluentConversational\Classes\Form::renderFormHtml()` into a Vue view — reached both from core and from Pro's share-page. Fires **none** of the three render actions and emits **no** `.ff-errors-in-stack` container. | `Form.php:197+`, `app/Views/public/conversational-form.php`; Pro: `classes/SharePage/SharePage.php:219` |
 | 28 | Buffer balance | `FormBuilder::render()` is itself wrapped in `ob_start()` … `ob_get_clean()`, with `before_form_render` and `after_form_render` both **inside** it and always paired. The buffered backstop nests safely. | `FormBuilder.php:152,219,221` |
 | 29 | Error stack container | `<div id="fluentform_{id}_errors" class="ff-errors-in-stack …"></div>`, emitted immediately after `</form>` on every `FormBuilder::render()` path. | `FormBuilder.php:206` |
 | 30 | Default error placement | **`'inline'`**, not `stackToBottom`. | `app/Models/Form.php:198` |
-| 31 | **Stripe charge timing** | Client-side, pre-submit: `stripe.createPaymentMethod('card', …)` — **tokenisation only, no charge, no authorisation, no hold.** The PaymentIntent is created server-side on `fluentform/before_insert_payment_form`, which runs **after** `handleValidation()`. 3-D Secure (`handleCardAction` / `confirmCardPayment`) runs only after that server response. | `assets/js/payment_handler.js`, `SubmissionHandlerService.php:44-50`, `PaymentHandler.php:77` |
+| 31 | **Charge timing — the server side, all gateways** | Every gateway without exception charges from `fluentform/process_payment_{method}`, dispatched by `PaymentHandler::maybeHandlePayment()` on `fluentform/before_insert_payment_form` — which runs **after** `handleValidation()`. There is no server-side charge path that precedes our filter. | `PaymentHandler.php:77`, `SubmissionHandlerService.php:44-50`; Pro: every `*Processor.php::init()` |
+| 31b | **Charge timing — the client side, all gateways** | **No gateway authorises a card before the submission reaches us.** Stripe Inline: `createPaymentMethod` — tokenisation. Square Inline: `card.tokenize()` then `verifyBuyer(…, {intent:'CHARGE'})` — a 3-D Secure *challenge* producing a verification token; no payment, no hold. Authorize.Net: `Accept.dispatchData` → opaque nonce, and it runs in a **post-submission modal** (its config carries `submission_id` and `transaction_hash`). PayPal Inline: the button's `onClick` **submits our form first** and returns a promise; `createOrder` cannot run until the server answers, and a validation failure **rejects** that promise so no PayPal order is ever created. Mollie, Paddle, Paystack, RazorPay, Square-hosted, Stripe-hosted, Offline: server-side redirect or post-submission modal. | `assets/js/payment_handler.js`; Pro: `public/js/payment_handler_pro.js`, `public/js/ff_paypal_inline.js`, `public/js/authorizenet_accept_handler.js` |
+| 32 | **Fluent Forms itself uses a non-field errors key** | Pro's user-registration guard returns `$errors['restricted'][] = …`, and core's rate limiter throws `['errors' => ['restricted' => [...]]]`. `restricted` is not a form field. The vendor relies on the same unresolvable-key → error-stack path D4 proposes. | `FormValidationService.php:147-152`; Pro: `UserRegistration/Getter.php:42-50` |
 
 ---
 
@@ -164,85 +185,156 @@ must be written into the docblock so the next reader does not "fix" it.
 **Proof:** chunk 22 re-run with the provider ON, printing which transport
 returned the token. Transport 1 must be the one that fires.
 
-### D2 — Account create/update is misbound, and it is the Phase 48 shape
+### D2 — Every User Update form is classified as an account-creation form
 
 **File:** `account_feed_type()` (~567), `feed_is_update()` (~615).
 
-**Now:** scans every `fluentform_form_meta` row for a `meta_key` *containing*
-`user_registration` or `user_update`, decodes the value as JSON, and guesses the
-create/update distinction from four candidate keys. A row it cannot classify
-returns `'create'` **immediately**, before any later row can claim `'update'`.
+**Severity: this is Phase 48, in shipped code, reachable by any site that turns
+the provider on and has a profile-edit form.**
 
-**What the source says:** Fluent Forms core does not guess. It reads two form
-meta flags and gates each on login state
-(`FormValidationService.php:178,193`):
+**Now:** the provider scans every `fluentform_form_meta` row whose `meta_key`
+*contains* `user_registration` or `user_update`, decodes the value as JSON, and
+decides create-vs-update from four candidate keys — `feedType`, `feed_type`,
+`userRegistrationType`, `type`.
+
+**What Pro actually stores.** Both feed kinds are written under **one**
+`meta_key`, `user_registration_feeds` (`FormIntegrationService.php:143`,
+`$metaKey = $integrationName . '_feeds'`; confirmed by Pro's own query in
+`Getter.php:52-60`). The discriminator is **`list_id`**, and the vendor's test is
+a single line (`UserUpdateFormHandler.php:109-113`):
 
 ```php
-if ('yes' == Helper::getFormMeta($this->form->id, '_has_user_registration') && !get_current_user_id()) { … }
-if ('yes' == Helper::getFormMeta($this->form->id, '_has_user_update')       &&  get_current_user_id()) { … }
+protected function isValidFeed($feed) {
+    return Arr::isTrue($feed, 'enabled') && Arr::get($feed, 'list_id') === 'user_update';
+}
 ```
 
-Two consequences, and the second is the dangerous one:
+**None of the four candidate keys exists.** `feed_is_update()` therefore returns
+false for every real feed row, and the `strpos($key, 'user_update')` test never
+matches a feed row either, because update feeds are stored under a key containing
+`user_registration`.
 
-1. The authoritative flags are `_has_user_registration` and `_has_user_update`.
-   They are maintained by Pro but consumed by core, so they are stable and cheap
-   and we do not have to parse a Pro feed we cannot see.
-2. **A form may carry both, and which one fires depends on whether the visitor is
-   logged in.** A single form that registers anonymous visitors and updates
-   signed-in ones is a normal, supported Fluent Forms configuration.
+**Trace it on a pure User Update form.** Two meta rows exist. Pro writes
+`_has_user_update` first — `handleValidate()` runs on the
+`fluentform/save_integration_value_*` filter, which fires *inside*
+`FormIntegrationService::update()` **before** the feed row is written
+(`Bootstrap.php:284-289`, `FormIntegrationService.php:130-152`) — so it is the
+lower id and comes back first from an unordered `SELECT`.
 
-Under the current code that form resolves to `'create'` → `form_is_strict()` true
-→ a signed-in customer editing her profile with a missing token is **rejected**
-and told the submission could not be verified. That is Phase 48 reproduced
-exactly: a real customer, already authenticated by WordPress, refused from her
-own account page on a classification error.
+1. Row `_has_user_update` = `'yes'`. `strpos($key,'user_update')` matches →
+   `feed_is_update()` true → `$type = 'update'` → `continue`.
+2. Row `user_registration_feeds`. `strpos($key,'user_registration')` matches.
+   `json_decode` succeeds. `enabled` is `true`, so it is not skipped.
+   `feed_is_update()` looks for four keys that are not there → false →
+   **`return 'create'`**, immediately, discarding the `'update'` already found.
 
-**Correct to:**
+`form_is_strict()` → true. A signed-in customer submitting her profile-edit form
+without a token — a stale single-use token, a cached page, a slow bootstrap — is
+**rejected** and told the submission could not be verified.
+
+Revision 1 of this document described this as a hazard for forms carrying both
+feed kinds. That was too narrow, and it was too narrow for an instructive reason:
+it was reasoned from the *core* flags, which are the thing core reads, without
+checking what Pro writes alongside them. **The flags are not the feed.** One more
+step of the same mistake this document opens by retracting — a binding checked on
+the axis that was convenient rather than the axis that decides.
+
+**Correct to** — feed rows primary, flags as fallback:
 
 ```php
 private function account_feed_type( $form_id ) {
-    // … memo …
-    $creates = 'yes' === $this->form_meta_value( $form_id, '_has_user_registration' );
-    $updates = 'yes' === $this->form_meta_value( $form_id, '_has_user_update' );
+    // … memo (see note on the memo key below) …
 
-    // Mirror Fluent Forms' own gate. This is not request data in the 2.17.0
-    // sense: it is WordPress's authenticated identity from a verified auth
-    // cookie, not a value the submitter can set. Diverging from the host's
-    // rule here is what produces a false rejection.
+    $creates = false;
+    $updates = false;
+    $saw_feed = false;
+
+    foreach ( $this->form_meta_rows( $form_id ) as $row ) {
+        if ( 'user_registration_feeds' !== (string) $row['meta_key'] ) {
+            continue;
+        }
+
+        $feed = json_decode( (string) $row['value'], true );
+        if ( ! is_array( $feed ) ) {
+            // A feed row we cannot read is a feed we must assume creates.
+            $saw_feed = true;
+            $creates  = true;
+            continue;
+        }
+
+        $saw_feed = true;
+
+        // 'enabled' is a real bool here, written by the status toggle.
+        // Absent is treated as enabled: the stricter reading.
+        if ( array_key_exists( 'enabled', $feed ) && ! $feed['enabled'] ) {
+            continue;
+        }
+
+        // VERIFIED against FluentFormPro\Integrations\UserRegistration\
+        // UserUpdateFormHandler::isValidFeed(). 'user_update' is the only
+        // special value; everything else registers. Matching the vendor's
+        // direction matters: an unrecognised future value must fall to
+        // 'creates', which is the stricter answer, not to 'updates'.
+        //
+        // Feed 'conditionals' are deliberately NOT evaluated. They are
+        // resolved against submitted data, and the enforcement decision may
+        // not be read from the request (the 2.17.0 rule). A conditional feed
+        // counts as active.
+        if ( 'user_update' === ( isset( $feed['list_id'] ) ? $feed['list_id'] : '' ) ) {
+            $updates = true;
+        } else {
+            $creates = true;
+        }
+    }
+
+    if ( ! $saw_feed ) {
+        // No readable feed rows. Fall back to the flags core itself reads.
+        // They are STICKY — written when a feed is saved and never deleted
+        // (Pro Bootstrap.php:284-289) — so they over-report, which is the
+        // safe direction for a fallback and the wrong direction for a
+        // primary. That is why they are down here.
+        $creates = 'yes' === $this->form_meta_value( $form_id, '_has_user_registration' );
+        $updates = 'yes' === $this->form_meta_value( $form_id, '_has_user_update' );
+    }
+
     if ( $creates && $updates ) {
+        // Mirror Fluent Forms' own gate (FormValidationService.php:178,193):
+        // registration only fires for a logged-out visitor, update only for a
+        // logged-in one. A form carrying both is a supported configuration.
+        //
+        // is_user_logged_in() is not request data in the 2.17.0 sense. It is
+        // WordPress's authenticated identity from a verified auth cookie, not
+        // a value the submitter can assert. Diverging from the host's own rule
+        // is what produces the false rejection.
         $type = is_user_logged_in() ? 'update' : 'create';
     } elseif ( $creates ) {
         $type = 'create';
     } elseif ( $updates ) {
         $type = 'update';
     } else {
-        $type = $this->account_type_from_feed_rows( $form_id ); // legacy scan, unchanged
+        $type = '';
     }
 
     return $this->memo_set( … , $this->filter_account_type( $type, $form_id ) );
 }
 ```
 
-Notes on the shape:
+`feed_is_update()` is deleted. Its four candidate keys were a guess, the guess was
+wrong, and keeping them as "tolerance" would only make a future wrong value look
+handled.
 
-- The existing feed-row scan is **kept**, demoted to a fallback for an install
-  where the `_has_*` flags are absent (an older Pro, or a form built before Pro
-  started writing them). It keeps its fail-to-`create` behaviour, which is right
-  when nothing better is known.
-- `is_user_logged_in()` is consulted **only** to break the both-flags tie, never
-  to weaken a form that only registers. A logged-out visitor on a both-flags form
-  still gets `'create'` and still gets STRICT.
-- The memo key must include the login state, or a persistent object cache across
-  a logged-out and a logged-in request would serve the wrong answer.
-- `gswp_ff_account_feed_type` still wraps every return path. Its docblock should
-  now say the binding is verified for the flags and unverified for the feed-row
-  fallback, rather than unverified across the board.
+**The memo key must include the login state.** `account_feed_type()` is memoised
+per form id. On a persistent object cache the same key would otherwise serve a
+logged-out answer to a logged-in request. The memo is per-request today, but the
+tie-break makes the value login-dependent and the key must say so.
 
-**Proof:** chunk 24, extended to print `_has_user_registration` /
-`_has_user_update` per form, run against a real User Registration form and a real
-User Update form, and against one form carrying both, submitted once logged out
-and once logged in.
-
+**Proof:** chunk 24, extended to dump every `user_registration_feeds` row
+verbatim — `list_id`, `enabled`, and whether `conditionals.status` is set — plus
+both `_has_*` flags. Fixtures needed: a User Registration form, a User Update
+form, one carrying both feeds, and one whose update feed is **disabled**. Assert:
+the pure update form is `update` (this is the regression that matters); the
+both-feeds form is `create` logged out and `update` logged in; the disabled-feed
+form ignores it.
 ### D3 — `after_payment_status_change` is bound backwards, so Transaction Defense never annotates
 
 **File:** `register_hooks()` (~1136), `on_payment_status_change()` (~2048).
@@ -372,6 +464,14 @@ private function reject( $errors, $message, $form_id ) {
 *wants* the message on a named field can still say so — but it now defaults to
 the global channel and refuses `TOKEN_FIELD` outright.
 
+**Fluent Forms does this itself, which is the strongest evidence available short
+of watching it render.** Core's rate limiter throws
+`['errors' => ['restricted' => […]]]` (`FormValidationService.php:147`) and Pro's
+user-registration guard appends to the same `restricted` key
+(`UserRegistration/Getter.php:42-50`). `restricted` is not a field on any form.
+The vendor is relying on precisely the unresolvable-key → error-stack path
+proposed here, for its own form-level messages, on both sides of the paywall.
+
 **One live check is still required, and it is not optional.** The stack container
 is emitted by `FormBuilder::render()` (`:206`) on every path we cover, so it is
 present. But a theme or a page builder that reorders the wrapper could move it
@@ -379,6 +479,16 @@ out of `t.parent()`. Chunk 22 must be extended to submit an eligible strict form
 with the token stripped and confirm the message is **on screen**, under both
 `errorMessagePlacement` settings. Until that is observed, this is a source-backed
 prediction, not a verified binding.
+
+**One gateway renders it differently.** On a PayPal-inline form the message the
+buyer sees comes from the handler's own failure branch, which takes
+`responseJSON.message || responseJSON.errors` and then `Object.values(e)[0]` —
+the *first value* of the errors object, key ignored, written into
+`.ff_paypal_card-errors` (`Pro: public/js/ff_paypal_inline.js`). Our key is
+irrelevant there, but our value must survive `Object.values(…)[0]` and land in
+`.text()`. `array( $message )` renders as the bare string for a one-element
+array, so it works — and it works by accident, so the chunk-22 assertion must
+cover a PayPal-inline form rather than assuming the stack path is the only one.
 
 ### D5 — Global v2 keys make every form ineligible, silently
 
@@ -445,48 +555,76 @@ operator sees an answer rather than an alarm. Detection is one form-meta read.
 If conversational support is wanted later it is a separate piece of work with its
 own render and error-display bindings; it is not a variant of this one.
 
-### D7 — Two payment elements are missing from the fallback scan
+### D7 — Three payment elements are missing from the fallback scan
 
 **File:** `$payment_elements` (~137).
 
-Missing: **`stripe_inline`** (`Stripe/Components/StripeInline.php:22`) and
-**`payment_coupon`** (`PaymentHandler.php:62`). Add both.
+Missing: **`stripe_inline`** (Pro: `Stripe/Components/StripeInline.php:22`),
+**`square_inline`** (Pro: `Square/Components/SquareInline.php:22`) and
+**`payment_coupon`** (Pro: `Payments/Components/Coupon.php:17`). Add all three.
 
 Low severity — `has_payment` is the authoritative signal and the field scan is
 the fallback for it being unreadable — but the fallback exists precisely for the
-case where the column is wrong, and a coupon-plus-inline-Stripe form is a real
+case where the column is wrong, and coupon-plus-inline-card is an ordinary
 configuration.
 
 While here, correct the docblock: the element names are no longer "documented,
-not confirmed". They are read from the component constructors.
+not confirmed". They are read from the component constructors in both plugins.
 
-### D8 — Payment blocking is disabled for a risk that does not exist on Stripe
+### D8 — Payment blocking is disabled for a risk that does not exist
 
-**File:** `may_block_payment()` (~1606).
+**File:** `may_block_payment()` (~1606). **This is the one conclusion that
+inverts on the Pro source.**
 
 `may_block_payment()` returns false because it was unknown whether Fluent Forms
-authorises the card in the browser before submission. For **Stripe it does not**
-(§1 row 31): the pre-submit call is `stripe.createPaymentMethod`, which
-tokenises and nothing more. The PaymentIntent is created server-side on
-`fluentform/before_insert_payment_form`, which runs after `handleValidation()`.
-A rejection at `fluentform/validation_errors` therefore happens **before any
-authorisation exists**, and leaves no hold on a real customer's card.
+authorises the card in the browser before the submission reaches us. If it did, a
+server-side rejection would stop the order and leave a hold standing on a real
+customer's card. That question has been open since 2.16.0 and is the reason the
+whole Transaction Defense path on this provider is inert.
 
-This cannot be extended to PayPal, Square, Mollie, Razorpay or Paystack — they
-live in Fluent Forms Pro, which was not available for this review.
+**It is now answered, for every gateway Fluent Forms ships, and the answer is
+no.** §1 rows 31 and 31b give the citations. In summary:
 
-**Correct to:** keep `may_block_payment()` false as the shipped default, and
-change only the log message, which currently states the risk as unresolved for
-all gateways. It should now say: blocking is safe for Stripe on the evidence of
-the 6.2.9 source; unresolved for the Pro gateways; enable per site with
-`gswp_ff_txn_block_allowed` once you have confirmed your own gateway.
+- **Server side** — every gateway charges from `fluentform/process_payment_{method}`,
+  dispatched on `fluentform/before_insert_payment_form`, which runs *after*
+  `handleValidation()`. There is no charge path that precedes our filter.
+- **Client side, pre-submit** — Stripe Inline tokenises (`createPaymentMethod`).
+  Square Inline tokenises and then runs a 3-D Secure *challenge*
+  (`verifyBuyer`), which yields a verification token and creates no payment and
+  no hold. Neither authorises.
+- **Client side, post-submit** — Authorize.Net's card modal carries a
+  `submission_id` and a `transaction_hash` in its config, so it cannot open until
+  the submission has already been accepted. Paddle, Paystack and RazorPay use the
+  same post-submission modal shape; Mollie, PayPal-standard, Square-hosted and
+  Stripe-hosted redirect from the server.
+- **PayPal Inline** is the interesting one, and it is the best-behaved of the
+  set. The button's `onClick` calls `this.$form.trigger("submit")` and returns a
+  promise; the PayPal SDK will not call `createOrder` until that promise
+  resolves, and the handler binds `fluentform_validation_failed` and
+  `fluentform_submission_failed` to **reject** it. A validation rejection
+  therefore means no PayPal order is ever created — the gateway is explicitly
+  built to let server-side validation veto the order.
 
-Deliberately **not** auto-enabling for Stripe-only forms. Detecting "this form
-can only ever be paid by Stripe" means reading the `payment_method` field's
-enabled-methods settings — a Pro-shaped binding, unverified, on the one path
-where being wrong costs a customer money. A filter the operator sets after
-looking at their own gateway dashboard is a better instrument than an inference
-we cannot check.
+**Correct to:** `may_block_payment()` returns **true** by default.
+`gswp_ff_txn_block_allowed` is kept and inverted in role — it becomes the escape
+hatch for turning blocking back off, not the switch for turning it on.
+
+Leaving it false would now be the worse error, and not only because it is
+over-cautious. `gswp_txn_block` is an option the operator sets deliberately, on a
+site that also has Enterprise keys and Transaction Defense on. A hidden filter
+that silently vetoes that switch and writes "was NOT blocked" to a log nobody
+reads is the plugin doing less than the operator asked while reporting that it
+did — the exact failure the 2.23.0 notes criticise elsewhere. Once the harm it
+was guarding against is proven not to exist, the guard is just a lie about our
+own behaviour.
+
+Two residuals, both to be written into the docblock rather than left implicit:
+
+- On **Square Inline** the buyer may complete a 3-D Secure challenge before we
+  reject. That is an annoyance, not a charge: the verification token expires
+  unused. Worth naming so nobody reads "no hold" as "no visible effect".
+- A gateway added by a **third-party add-on** is outside everything read here.
+  `gswp_ff_txn_block_allowed` is what such a site turns off.
 
 ---
 
@@ -515,15 +653,19 @@ overstate what is known. They matter because the 2.23.1 root cause was a
 7. `store_submission_meta()` — `fluentform/submission_inserted` and the two
    `Helper` signatures are verified. Downgrade PARTIAL to VERIFIED.
 8. `register_hooks()` — the `form_element_start` comment should record that
-   Gutenberg and Elementor both reach it through `do_shortcode()`, and that
-   conversational forms do not reach it at all (D6).
+   Gutenberg, Elementor **and Pro's form modal** all reach it through
+   `do_shortcode()`, and that conversational forms do not reach it at all (D6).
 9. `close_backstop_buffer()` — record that `FormBuilder::render()` is itself
    buffered and that the two render actions are always paired inside it, which is
    *why* the nesting-level guard has held. It is still the right guard; it is now
    guarding a known shape rather than an unknown one.
 10. **Add a source-provenance block at the top of the class** naming Fluent Forms
-    6.2.9 free as the version every binding was read against, and stating that
-    `FormHandler::onSubmit()` is dead code so nobody re-derives a binding from it.
+    6.2.9 and Pro 6.2.7 as the versions every binding was read against, and
+    stating that `FormHandler::onSubmit()` is dead code so nobody re-derives a
+    binding from it.
+11. `account_feed_type()` — the surviving feed-row reader is now VERIFIED against
+    Pro, not a guess. Say so, and say that `_has_user_*` is a **sticky** fallback
+    rather than current state, or the next reader will promote it back.
 
 ---
 
@@ -559,43 +701,53 @@ on a live install.
 
 ## 5. Order of work
 
-The order is chosen so that each step's proof does not depend on a later step.
+Revision 1 put D2 last, on the grounds that it needed fixtures the test site does
+not have. That was right when the binding was a guess and wrong now that it is
+read from the vendor's own `isValidFeed()`: the implementation no longer depends
+on the fixtures, only the confirmation does, and it is the defect that rejects
+real customers. It goes first.
 
-1. **D3** (payment hook signature) — isolated, two lines, no interaction with
-   anything else.
-2. **D7** (payment elements) — isolated, one array.
-3. **D6** (conversational ineligible) — isolated, narrows the covered set.
-4. **D5** (captcha state / eligibility) — widens the covered set. Must land after
+1. **D2** (account classification) — the reason for the release. It can be
+   written and unit-guarded against synthetic meta rows today; the live fixtures
+   confirm it, they do not gate it.
+2. **D3** (payment hook signature) — isolated, two lines.
+3. **D7** (payment elements) — isolated, one array.
+4. **D6** (conversational ineligible) — isolated, narrows the covered set.
+5. **D5** (captcha state / eligibility) — widens the covered set. Must land after
    D6 so the two changes to eligibility can be read apart in the coverage table.
-5. **D1** (whitelist the token) — changes the submission path. Land alone.
-6. **D4** (error key) — changes the rejection path. Land alone, immediately
+6. **D1** (whitelist the token) — changes the submission path. Land alone.
+7. **D4** (error key) — changes the rejection path. Land alone, immediately
    before the live rejection test, because it is the change whose proof is
    "a human saw the message on screen".
-7. **D2** (account classification) — land last. It is the highest-consequence
-   change and it needs a purpose-built form on the test site that does not exist
-   yet, so it should not block the other six.
-8. §3 documentation corrections — with the change each describes, not batched.
+8. **D8** (payment blocking default) — land **last, and only after D4 is
+   confirmed visible**. It is the only change here that can stop a real
+   transaction, and a block the customer cannot see is worse than no block.
+9. §3 documentation corrections — with the change each describes, not batched.
 
 Version: **2.23.2**. `migrates_by_default()` keeps `fluent-forms` in the holdback
-list. Nothing here is grounds for auto-enabling: six defects in a provider nobody
-has run in anger is an argument for more field evidence, not less.
+list. Nothing here is grounds for auto-enabling — eight defects in a provider
+nobody has run in anger is an argument for more field evidence, not less. D8
+notwithstanding: it makes an operator-chosen switch honest, it does not make the
+provider switch itself on.
 
 ---
 
 ## 6. Verification suite changes
 
 The suite found the 2.23.1 defect and is the reason this review had a live
-install to argue with. It needs six changes, all of them because a chunk asserted
-something weaker than it appeared to.
+install to argue with. It needs the changes below, all of them because a chunk
+asserted something weaker than it appeared to.
 
 | Chunk | Change |
 |---|---|
 | 21 `ff-render-coverage` | Add a conversational form to the fixtures and assert it is reported **ineligible with a reason**, not "eligible, never injected". |
 | 22 `ff-submission-shape` | Print **which transport** returned the token, not just whether one did. The current output cannot distinguish "transport 1 works" from "transport 2 rescued it" — which is precisely how the false claim in §0.1 survived. Add the token-stripped submission and record whether the rejection message was **visible**, under both `errorMessagePlacement` values. |
 | 23 `ff-native-captcha` | Print `api_version` verbatim, the three `_keys_status` flags, and the return of the three `fluentform/has_*` auto-include filters. Assert `native_captcha_state()` returns `off` for a form with no captcha field on a site that has global keys stored — the D5 case. |
-| 24 `ff-classification` | Print `_has_user_registration` and `_has_user_update` per form. Requires three new fixtures: a registration form, an update form, and one carrying both. Assert the both-flags form classifies `create` logged out and `update` logged in. |
+| 24 `ff-classification` | Dump every `user_registration_feeds` row verbatim — `list_id`, `enabled`, whether `conditionals.status` is set — alongside both `_has_user_*` flags. Four fixtures: a registration form, **a User Update form**, one carrying both feeds, and one whose update feed is disabled. The assertion that matters is the **pure update form classifying as `update`** — that is the shipped regression. Then: both-feeds form is `create` logged out and `update` logged in; disabled feed is ignored. |
 | 25 `ff-payment-lifecycle` | Fire `fluentform/after_payment_status_change` with the **real** argument order and assert `annotate()` is entered. Do this before any gateway is configured — it is the defect D3 that a listener-count check could never have found. |
 | 26 `ff-enforcement` | Add a regression guard: `reject()` must never emit `TOKEN_FIELD` as an errors key, under any filter value. That is the one key that produces an invisible rejection (D4), and it is the key a well-meaning future edit would reach for first. |
+| 22 `ff-submission-shape` (2) | Separately assert the rejection is visible on a **PayPal-inline** form, whose handler renders `Object.values(errors)[0]` into its own error node and ignores the key entirely. The stack path and this path are different code; passing one says nothing about the other. |
+| 27 `ff-payment-authorisation` (**new**) | The D8 evidence is a source read, and D8 is the change that can stop a customer's transaction. One chunk per configured gateway: submit a form that our verifier is forced to reject, then check the gateway dashboard for **any** authorisation, hold, or pending payment against that attempt. Expected: none. This is the chunk that has to exist before an operator is told blocking is safe. |
 
 Add to `README-ff-replacement.md`: **a chunk that can be run correctly and read
 as a pass is as defective as one that can be read as a failure.** Chunk 22 was
@@ -607,14 +759,23 @@ already fixed once for the second failure mode; §0.1 is the first.
 
 Stated plainly, so the next reader does not mistake this document for closure.
 
-- **Fluent Forms Pro 6.2.7 has not been read.** User Registration and User Update
-  feeds, and every gateway except Stripe, live there. D2 is bound to flags that
-  core consumes, which is why it is safe without Pro — but the feed-row fallback
-  is still unverified, and D8 stays disabled for the Pro gateways.
-- **Charge timing for PayPal, Square, Mollie, Razorpay, Paystack** — unknown.
+- **D8 is a source read, not an observation.** No card has been put through a
+  rejected Fluent Forms submission. Chunk 27 exists because "the code says no
+  authorisation happens" and "no authorisation happened" are different claims,
+  and this project has already shipped one release on the first kind.
 - **The D4 fix is source-backed, not observed.** A message rendering in
-  `.ff-errors-in-stack` under a real theme is a thing a person has to look at.
-- **Multi-site / object-cache behaviour of the D2 memo** — the login-state key is
-  reasoned, not tested.
-- **Fluent Forms 6.3+** — every binding in §1 is verified at 6.2.9 and nowhere
-  else. The version is part of the claim.
+  `.ff-errors-in-stack` under a real theme is a thing a person has to look at —
+  and on PayPal-inline it renders somewhere else entirely.
+- **Third-party payment add-ons** are outside everything read here. Only the
+  gateways shipped in Fluent Forms and Fluent Forms Pro were examined.
+- **Feed `conditionals` are deliberately not evaluated** (D2). A form whose
+  registration feed only fires on some conditions is treated as always
+  registering, which is stricter than the host. That is a choice, not an
+  oversight, and a site that finds it too strict has `gswp_ff_account_feed_type`.
+- **Object-cache behaviour of the D2 memo** — the login-state key is reasoned,
+  not tested.
+- **Conversational forms** are now honestly reported as unsupported rather than
+  alarming on every submission (D6). They are still unsupported.
+- **Fluent Forms 6.3+ / Pro 6.3+** — every binding in §1 is verified at 6.2.9 and
+  6.2.7 and nowhere else. The version is part of the claim, and 2.23.1 is the
+  release that proves what happens when that qualifier gets dropped.
