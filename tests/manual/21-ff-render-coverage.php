@@ -185,6 +185,13 @@ foreach ( $rows as $row ) {
 
 echo "\nRenders passed: {$passed}   failed: {$failed}\n";
 
+echo "\n  A result of 'skipped (not eligible: unsupported)' (2.23.2) is a Fluent\n";
+echo "  Forms CONVERSATIONAL form. It renders through a separate Vue view that\n";
+echo "  fires none of the hooks this provider injects into, so it is correctly\n";
+echo "  reported as unsupported rather than left eligible and permanently\n";
+echo "  logging a coverage gap on every submission. This is expected, not a\n";
+echo "  failure — do not chase it.\n";
+
 echo "\n=== HOOK OBSERVATION (settles the injection binding) ===\n\n";
 if ( empty( $observed ) ) {
 	echo "  NOTHING FIRED. Every hook name in the provider is wrong for this\n";
@@ -215,11 +222,14 @@ if ( empty( $observed ) ) {
 }
 
 echo "\n=== WHAT THIS CHUNK CANNOT ANSWER ===\n";
-echo "  This renders through the shortcode only. Fluent Forms also renders via\n";
-echo "  a Gutenberg block, an Elementor widget, and inside modals. If this site\n";
-echo "  uses any of those, load one of each in a browser, then re-run chunk 20\n";
-echo "  and check the form shows a token as seen. A PASS here is not a PASS for\n";
-echo "  a render path this chunk never exercised.\n";
+echo "  This renders through the shortcode only. VERIFIED against source\n";
+echo "  (2.23.2): the Gutenberg block, the Elementor widget, and Fluent Forms\n";
+echo "  Pro's form modal all emit do_shortcode('[fluentform ...]') themselves,\n";
+echo "  so all three route through the same FormBuilder::render() call this\n";
+echo "  chunk exercises — that is a source-level fact, not yet an observation\n";
+echo "  on THIS site. If this site uses any of those, load one of each in a\n";
+echo "  browser, then re-run chunk 20 and check the form shows a token as\n";
+echo "  seen, to move it from verified to observed.\n";
 echo "\n  It also confirms only that the FIELD is present. Only a browser confirms\n";
 echo "  JavaScript fills it.\n";
 

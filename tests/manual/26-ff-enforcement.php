@@ -1,10 +1,13 @@
 <?php
 /**
- * Fluent Forms replacement verification — chunk 26: enforcement guards (v2.23.0)
+ * Fluent Forms replacement verification — chunk 26: enforcement guards (v2.23.2)
  *
  * The regression guards. Every assertion here runs offline: no network call, no
- * test submission, no entry created. Each one exists because the equivalent
- * defect has already shipped once on the Gravity Forms provider.
+ * test submission, no entry created, and — new in 2.23.2 — no write to any
+ * Fluent Forms table, including for the synthetic cases in section F (seeded
+ * straight into the provider's own per-request cache by reflection, never the
+ * database). Each one exists because the equivalent defect has already shipped
+ * once, either on the Gravity Forms provider or on this one.
  *
  *   A. ACTION PAIRING. The provider used to decide the reCAPTCHA action twice —
  *      once when rendering the token field, once when validating — and the two
@@ -28,6 +31,24 @@
  *
  *   D. PROVIDER ISOLATION. Enabling Fluent Forms must not alter any Gravity
  *      Forms option, threshold or coverage row.
+ *
+ *   E. REJECTION KEY NEVER TOKEN_FIELD (2.23.2). reject() must never emit our
+ *      own hidden field's name as the errors key, under ANY value of the
+ *      gswp_ff_error_field filter — that specific key is the one that renders
+ *      NOTHING to the visitor (Fluent Forms delivers the error into our own
+ *      <input>, which has no text node), and it is also the name a
+ *      well-meaning future edit would reach for first, since it looks like the
+ *      obviously-relevant field.
+ *
+ *   F. ACCOUNT CLASSIFICATION AGAINST THE VERIFIED FEED SHAPE (2.23.2). The
+ *      2.23.0/2.23.1 provider guessed the create-vs-update discriminator from
+ *      four key names that do not exist in Fluent Forms Pro, and because both
+ *      feed kinds share one meta_key, every User Update form was misread as a
+ *      registration feed — Phase 48, shipped. This exercises
+ *      account_feed_type() against the VERIFIED shape (list_id === 'user_update')
+ *      using synthetic form-meta seeded directly into the provider's own
+ *      per-request cache, so it runs on any site regardless of whether a real
+ *      User Registration or User Update form exists yet.
  *
  * @package Google_Security_For_WordPress
  */
@@ -285,6 +306,204 @@ $assert(
 );
 
 // ---------------------------------------------------------------------------
+// E. Rejection key is never TOKEN_FIELD, under any filter override.
+// ---------------------------------------------------------------------------
+echo "\n=== E. REJECTION KEY NEVER TOKEN_FIELD (2.23.2) ===\n\n";
+
+if ( ! $reflect->hasMethod( 'reject' ) || ! $reflect->hasConstant( 'ERROR_KEY' ) ) {
+	echo "  This provider version predates the ERROR_KEY mechanism (pre-2.23.2).\n";
+	echo "  Section E does not apply.\n";
+} else {
+	$reject_method = $reflect->getMethod( 'reject' );
+	$reject_method->setAccessible( true );
+
+	$token_field = GSWP_Provider_Fluent_Forms::TOKEN_FIELD;
+	$error_key   = GSWP_Provider_Fluent_Forms::ERROR_KEY;
+
+	$scenarios = array(
+		'no filter override'                   => null,
+		'filter returns TOKEN_FIELD directly'  => $token_field,
+		'filter returns empty string'          => '',
+		'filter returns a legitimate override' => 'some_other_field',
+	);
+
+	foreach ( $scenarios as $label => $filtered_value ) {
+		$hook = null;
+		if ( null !== $filtered_value ) {
+			$hook = function () use ( $filtered_value ) {
+				return $filtered_value;
+			};
+			add_filter( 'gswp_ff_error_field', $hook, 10, 2 );
+		}
+
+		$result = $reject_method->invokeArgs( $provider, array( array(), 'test message', 999999 ) );
+
+		if ( null !== $hook ) {
+			remove_filter( 'gswp_ff_error_field', $hook, 10 );
+		}
+
+		$keys           = is_array( $result ) ? array_keys( $result ) : array();
+		$used_token_key = in_array( $token_field, $keys, true );
+
+		$assert(
+			sprintf( 'reject() under "%s" avoids TOKEN_FIELD', $label ),
+			! $used_token_key,
+			$used_token_key ? 'used key: ' . $token_field . ' — THIS RENDERS NOTHING TO THE VISITOR' : 'used key: ' . implode( ',', $keys )
+		);
+	}
+
+	echo "\n  Every case above must PASS. A FAIL means a rejection can be attached\n";
+	echo "  to our own hidden field, which Fluent Forms renders inside an\n";
+	echo "  <input> element — nothing appears on screen, and the visitor is left\n";
+	echo "  with a stopped submit button and no explanation.\n";
+}
+
+// ---------------------------------------------------------------------------
+// F. Account classification against the verified feed shape, via synthetic
+// form-meta seeded into the provider's own cache. Touches no table.
+// ---------------------------------------------------------------------------
+echo "\n=== F. ACCOUNT CLASSIFICATION (2.23.2, synthetic — touches no table) ===\n\n";
+
+if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
+	echo "  This provider version has no account_feed_type() method to test.\n";
+} else {
+	$account_method = $reflect->getMethod( 'account_feed_type' );
+	$account_method->setAccessible( true );
+
+	$memo_prop = $reflect->hasProperty( 'memo' ) ? $reflect->getProperty( 'memo' ) : null;
+	if ( null !== $memo_prop ) {
+		$memo_prop->setAccessible( true );
+	}
+
+	/**
+	 * Seed form_meta_rows()'s cache for a fake form id so account_feed_type()
+	 * reads the synthetic rows below instead of touching the real database.
+	 * Nothing is written anywhere; this only pokes the provider's own
+	 * per-request array, which is discarded when the request ends.
+	 */
+	$seed = function ( $fake_form_id, $rows ) use ( $memo_prop, $provider ) {
+		if ( null === $memo_prop ) {
+			return false;
+		}
+		$memo                                     = $memo_prop->getValue( $provider );
+		$memo['form_meta'][ (int) $fake_form_id ] = $rows;
+		$memo_prop->setValue( $provider, $memo );
+
+		return true;
+	};
+
+	if ( null === $memo_prop ) {
+		echo "  Could not access the provider's memo cache by reflection — this\n";
+		echo "  provider version's internals have changed. Section F skipped.\n";
+	} else {
+		$feed_row = function ( $list_id, $enabled = true ) {
+			return array(
+				'meta_key' => 'user_registration_feeds',
+				'value'    => wp_json_encode(
+					array_filter(
+						array(
+							'list_id' => $list_id,
+							'enabled' => $enabled,
+						),
+						static function ( $v ) {
+							return null !== $v;
+						}
+					)
+				),
+			);
+		};
+
+		// Case 1: a pure User Update feed. THE regression this release fixes —
+		// must resolve to 'update', never 'create'.
+		$seed( 900001, array( $feed_row( 'user_update' ) ) );
+		$got = $account_method->invoke( $provider, 900001 );
+		$assert(
+			'pure User Update feed resolves to update',
+			'update' === $got,
+			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		);
+
+		// Case 2: a pure User Registration feed (list_id is anything other than
+		// 'user_update' — Fluent Forms' own default branch).
+		$seed( 900002, array( $feed_row( 'user_registration' ) ) );
+		$got = $account_method->invoke( $provider, 900002 );
+		$assert(
+			'pure User Registration feed resolves to create',
+			'create' === $got,
+			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		);
+
+		// Case 3: a disabled User Update feed and nothing else — touches no
+		// account.
+		$seed( 900003, array( $feed_row( 'user_update', false ) ) );
+		$got = $account_method->invoke( $provider, 900003 );
+		$assert(
+			'disabled feed, nothing else, resolves to empty (touches no account)',
+			'' === $got,
+			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		);
+
+		// Case 4: an undecodable feed row. Fails to the stricter reading.
+		$seed(
+			900004,
+			array(
+				array(
+					'meta_key' => 'user_registration_feeds',
+					'value'    => 'not json',
+				),
+			)
+		);
+		$got = $account_method->invoke( $provider, 900004 );
+		$assert(
+			'undecodable feed row resolves to create (stricter)',
+			'create' === $got,
+			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		);
+
+		// Case 5: both an active registration feed and an active update feed.
+		// Resolves by login state, mirroring Fluent Forms' own gate in
+		// FormValidationService::validateSubmission().
+		$seed( 900005, array( $feed_row( 'user_registration' ), $feed_row( 'user_update' ) ) );
+
+		$saved_user = get_current_user_id();
+		wp_set_current_user( 0 );
+		$logged_out_result = $account_method->invoke( $provider, 900005 );
+		$assert(
+			'both feeds active, logged OUT, resolves to create',
+			'create' === $logged_out_result,
+			'got: ' . var_export( $logged_out_result, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		);
+
+		$existing_users = get_users(
+			array(
+				'number' => 1,
+				'fields' => 'ID',
+			)
+		);
+		if ( empty( $existing_users ) ) {
+			echo "  (skipped: both feeds active, logged IN — no user on this site to\n";
+			echo "   switch into. Not a failure, just untested.)\n";
+		} else {
+			wp_set_current_user( (int) $existing_users[0] );
+			$logged_in_result = $account_method->invoke( $provider, 900005 );
+			$assert(
+				'both feeds active, logged IN, resolves to update',
+				'update' === $logged_in_result,
+				'got: ' . var_export( $logged_in_result, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			);
+		}
+
+		wp_set_current_user( $saved_user );
+
+		echo "\n  Case 1 is the one that matters: a prior version of this provider\n";
+		echo "  resolved it to 'create', which makes a pure profile-edit form\n";
+		echo "  STRICT and rejects a signed-in visitor on a missing token — the\n";
+		echo "  Phase 48 failure, reproduced. If case 1 fails here, DO NOT enable\n";
+		echo "  the provider.\n";
+	}
+}
+
+// ---------------------------------------------------------------------------
 echo "\n=== RESULT ===\n\n";
 echo "  passed: {$pass}   failed: {$fail}\n\n";
 
@@ -292,7 +511,10 @@ if ( $fail > 0 ) {
 	echo "  DO NOT ENABLE the Fluent Forms provider on a live site until every\n";
 	echo "  check above passes. Section A failing is the one that rejects every\n";
 	echo "  visitor on an account form; section B failing is the one that blocks\n";
-	echo "  people for our own coverage bug.\n";
+	echo "  people for our own coverage bug; section E failing is the one where a\n";
+	echo "  rejection is delivered and never seen; section F failing — case 1\n";
+	echo "  especially — is the one that rejects a real customer editing her own\n";
+	echo "  profile.\n";
 } else {
 	echo "  All guards passed. This does not replace chunks 21-25 — it asserts\n";
 	echo "  that the logic is self-consistent, not that the bindings are right.\n";

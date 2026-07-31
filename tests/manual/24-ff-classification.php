@@ -1,6 +1,6 @@
 <?php
 /**
- * Fluent Forms replacement verification — chunk 24: classification (v2.23.0)
+ * Fluent Forms replacement verification — chunk 24: classification (v2.23.2)
  *
  * Settles how each form is classified, and prints the raw evidence beside the
  * conclusion so a wrong conclusion is visible rather than merely wrong.
@@ -11,16 +11,29 @@
  *   - which reCAPTCHA action the token is minted with and checked against;
  *   - which score threshold applies.
  *
- * The account binding is the unverified one. Fluent Forms Pro stores
- * integration feeds as rows in fluentform_form_meta, and neither the meta_key
- * naming nor the key distinguishing "create a user" from "update a user" is
- * confirmed. Getting it wrong is not cosmetic: a profile-edit form mistaken for
- * a signup is scored under the stricter threshold and rejected outright when
- * its token is missing — which in 2.22.0, on Gravity Forms, is exactly how a
- * real customer came to be told she was spam.
+ * THE ACCOUNT BINDING IS THE ONE THIS RELEASE EXISTS TO FIX. Fluent Forms
+ * Pro stores BOTH User Registration and User Update feeds under a single
+ * fluentform_form_meta row, meta_key 'user_registration_feeds', and
+ * discriminates between them with the 'list_id' key inside the feed's JSON
+ * value ('user_update' vs. everything else) — VERIFIED against
+ * UserUpdateFormHandler::isValidFeed() in Fluent Forms Pro 6.2.7.
  *
- * So this chunk prints EVERY meta_key for every form verbatim. That is the
- * evidence; the classification is only the reading.
+ * A prior version of this provider scanned for a meta_key CONTAINING
+ * 'user_registration' or 'user_update' and guessed the discriminator from
+ * four key names that do not exist anywhere in Fluent Forms. Because both
+ * feed kinds share the same meta_key, that scan read a User Update feed's
+ * row as a registration feed on EVERY install: a signed-in visitor editing
+ * her own profile through a Fluent Forms User Update form was classified as
+ * account-CREATION, made STRICT, and rejected on a missing or stale token —
+ * word for word the Phase 48 incident this whole suite exists to prevent,
+ * shipped in the provider that was supposed to prevent it. This chunk is
+ * how that gets confirmed fixed.
+ *
+ * `_has_user_registration` / `_has_user_update` (which Fluent Forms core
+ * itself reads to gate its own validation) are printed too, and are used by
+ * the provider only as a fallback when no feed row can be decoded — they
+ * are STICKY (written when a feed is saved, never cleared) and blind to
+ * `enabled`, so they over-report and must not be the primary signal.
  *
  * Read-only.
  *
@@ -34,7 +47,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 echo "=== RUN CONTEXT ===\n";
 echo '  plugin version : ' . ( defined( 'GSWP_VERSION' ) ? GSWP_VERSION : 'NOT ACTIVE' ) . "\n";
 echo '  site           : ' . wp_parse_url( home_url(), PHP_URL_HOST ) . "\n";
-echo '  time (UTC)     : ' . gmdate( 'Y-m-d H:i:s' ) . "\n\n";
+echo '  time (UTC)     : ' . gmdate( 'Y-m-d H:i:s' ) . "\n";
+echo '  current user   : ' . ( is_user_logged_in() ? 'logged in (ID ' . get_current_user_id() . ')' : 'logged out' ) . "\n\n";
 
 if ( ! class_exists( 'GSWP_Provider_Fluent_Forms' ) ) {
 	echo "STOP: plugin not active or older than 2.23.0.\n";
@@ -52,6 +66,12 @@ $forms_table = $wpdb->prefix . 'fluentform_forms';
 $meta_table  = $wpdb->prefix . 'fluentform_form_meta';
 
 $has_meta_table = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $meta_table ) ) === $meta_table; // phpcs:ignore WordPress.DB
+
+echo "  NOTE: account_feed_type() resolves differently for a logged-in visitor\n";
+echo "  than a logged-out one, ONLY when a form carries both an active\n";
+echo "  registration feed and an active update feed. Run this chunk once\n";
+echo "  logged OUT and once logged IN (as any user) if such a form exists, and\n";
+echo "  compare the ACCOUNT column between the two runs.\n\n";
 
 // ---------------------------------------------------------------------------
 // The conclusions.
@@ -89,9 +109,16 @@ foreach ( $provider->forms() as $form_id => $title ) {
 echo "\n  STRICT = a submission with no token is REJECTED. Everything else is\n";
 echo "  admitted and flagged. Check every STRICT row is one you would want to\n";
 echo "  fail closed, and every non-STRICT row is one you would not.\n";
+echo "\n  *** THE REGRESSION CHECK: any form that is a pure profile-EDIT form\n";
+echo "  (a User Update feed, no User Registration feed) MUST show ACCOUNT =\n";
+echo "  update, not create. If it shows 'create', account_feed_type() has\n";
+echo "  regressed and a signed-in visitor editing her own profile will be\n";
+echo "  rejected as a spam signup on a missing token. ***\n";
 
 // ---------------------------------------------------------------------------
-// The evidence: has_payment, field elements, and every meta row.
+// The evidence: has_payment, field elements, and every meta row — with the
+// verified account-feed shape called out explicitly rather than left for the
+// reader to notice among the general meta dump.
 // ---------------------------------------------------------------------------
 echo "\n=== RAW EVIDENCE (this is what settles the bindings) ===\n";
 
@@ -107,8 +134,7 @@ foreach ( $provider->forms() as $form_id => $title ) {
 
 	echo '    has_payment column : ' . ( array_key_exists( 'has_payment', $row ) ? var_export( $row['has_payment'], true ) : 'COLUMN ABSENT' ) . "\n"; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 
-	// Field elements, in order, deduplicated with counts. This is what the
-	// payment and password fallbacks scan.
+	// Field elements, in order, deduplicated with counts.
 	$decoded  = json_decode( isset( $row['form_fields'] ) ? (string) $row['form_fields'] : '', true );
 	$elements = array();
 
@@ -153,20 +179,73 @@ foreach ( $provider->forms() as $form_id => $title ) {
 		}
 	}
 
-	// Every meta row. THE account binding evidence.
 	if ( ! $has_meta_table ) {
 		echo "    form meta          : table absent\n";
 		continue;
 	}
 
-	$meta_rows = $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, value FROM {$meta_table} WHERE form_id = %d", (int) $form_id ), ARRAY_A ); // phpcs:ignore WordPress.DB
+	// -------------------------------------------------------------------
+	// THE VERIFIED ACCOUNT-FEED SHAPE, called out on its own before the
+	// general meta dump. Every 'user_registration_feeds' row, decoded,
+	// with the discriminator printed explicitly.
+	// -------------------------------------------------------------------
+	$feed_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
+		$wpdb->prepare(
+			"SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = 'user_registration_feeds'",
+			(int) $form_id
+		),
+		ARRAY_A
+	);
+
+	echo "    user_registration_feeds rows (VERIFIED shape, list_id decides create vs update):\n";
+	if ( empty( $feed_rows ) ) {
+		echo "                         none\n";
+	} else {
+		foreach ( $feed_rows as $i => $feed_row ) {
+			$feed = json_decode( (string) $feed_row['value'], true );
+			if ( ! is_array( $feed ) ) {
+				echo '                         [' . $i . "] UNDECODABLE — treated as 'create' (stricter)\n";
+				continue;
+			}
+
+			$list_id      = isset( $feed['list_id'] ) ? $feed['list_id'] : '(absent)';
+			$enabled      = array_key_exists( 'enabled', $feed ) ? var_export( $feed['enabled'], true ) : '(absent, treated as enabled)'; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			$cond_status  = isset( $feed['conditionals']['status'] ) ? var_export( $feed['conditionals']['status'], true ) : '(none)'; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			$resolves_to  = ( isset( $feed['list_id'] ) && 'user_update' === $feed['list_id'] ) ? 'update' : 'create';
+
+			echo '                         [' . $i . '] list_id=' . var_export( $list_id, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				. '  enabled=' . $enabled
+				. '  conditionals.status=' . $cond_status
+				. '  -> resolves to: ' . $resolves_to . "\n";
+			echo '                             (conditionals are NOT evaluated — a conditional feed still counts as active, per the 2.17.0 rule against reading enforcement from request-shaped data)' . "\n";
+		}
+	}
+
+	// The sticky fallback flags, printed explicitly.
+	$has_reg = $wpdb->get_var( // phpcs:ignore WordPress.DB
+		$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = '_has_user_registration'", (int) $form_id )
+	);
+	$has_upd = $wpdb->get_var( // phpcs:ignore WordPress.DB
+		$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = '_has_user_update'", (int) $form_id )
+	);
+	echo '    _has_user_registration (sticky, fallback only) : ' . ( null === $has_reg ? '(absent)' : var_export( $has_reg, true ) ) . "\n"; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+	echo '    _has_user_update (sticky, fallback only)        : ' . ( null === $has_upd ? '(absent)' : var_export( $has_upd, true ) ) . "\n"; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+
+	if ( empty( $feed_rows ) && ( 'yes' === $has_reg || 'yes' === $has_upd ) ) {
+		echo "    *** no feed row could be read, so classification fell back to the\n";
+		echo "        sticky flags above. If a feed was later deleted, these flags may\n";
+		echo "        still say 'yes' for a form that no longer touches an account. ***\n";
+	}
+
+	// Every other meta row, for context.
+	$meta_rows = $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, value FROM {$meta_table} WHERE form_id = %d AND meta_key != 'user_registration_feeds'", (int) $form_id ), ARRAY_A ); // phpcs:ignore WordPress.DB
 
 	if ( empty( $meta_rows ) ) {
-		echo "    form meta          : none\n";
+		echo "    other form meta    : none\n";
 		continue;
 	}
 
-	echo "    form meta keys     : \n";
+	echo "    other form meta keys : \n";
 	foreach ( $meta_rows as $meta ) {
 		$key     = (string) $meta['meta_key'];
 		$decoded = json_decode( (string) $meta['value'], true );
@@ -174,19 +253,10 @@ foreach ( $provider->forms() as $form_id => $title ) {
 		echo '                         ' . str_pad( $key, 34 );
 
 		if ( is_array( $decoded ) ) {
-			// Inner keys only — the values are the site's configuration and may
-			// contain credentials for third-party integrations.
 			$inner = array_slice( array_keys( $decoded ), 0, 12 );
 			echo '{ ' . implode( ', ', array_map( 'sanitize_key', $inner ) ) . ( count( $decoded ) > 12 ? ', …' : '' ) . ' }';
-
-			// The two keys that decide create-vs-update, printed verbatim.
-			foreach ( array( 'feedType', 'feed_type', 'userRegistrationType', 'type', 'enabled' ) as $probe ) {
-				if ( isset( $decoded[ $probe ] ) && is_scalar( $decoded[ $probe ] ) ) {
-					echo "\n                         " . str_repeat( ' ', 34 ) . '  ' . $probe . ' = ' . var_export( $decoded[ $probe ], true ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-				}
-			}
 		} else {
-			echo '(not JSON, len ' . strlen( (string) $meta['value'] ) . ')';
+			echo '(scalar, len ' . strlen( (string) $meta['value'] ) . ')';
 		}
 
 		echo "\n";
@@ -194,15 +264,23 @@ foreach ( $provider->forms() as $form_id => $title ) {
 }
 
 echo "\n=== WHAT TO CHECK ===\n";
-echo "  1. Every form with a User Registration or User Update integration should\n";
-echo "     show a non-empty ACCOUNT column. If one shows '—', the meta_key does\n";
-echo "     not contain 'user_registration' or 'user_update' on this version and\n";
-echo "     the binding needs correcting — report the meta key verbatim.\n";
-echo "  2. A profile-edit form showing ACCOUNT = create is the dangerous\n";
-echo "     misreading: it becomes STRICT and rejects on a missing token. Correct\n";
-echo "     it immediately with the gswp_ff_account_feed_type filter and report\n";
-echo "     the meta keys so it can be fixed properly.\n";
-echo "  3. Any form showing PAY = yes that takes no money is safe but noisy; any\n";
-echo "     form showing PAY = '—' that DOES take money is a hole. Report either.\n";
+echo "  1. Every form with a 'user_registration_feeds' row should show a\n";
+echo "     non-empty ACCOUNT column in the CLASSIFICATION table. If one shows\n";
+echo "     '—' despite having feed rows above, report it.\n";
+echo "  2. *** THE ONE THAT MATTERS THIS RELEASE: any form whose ONLY active\n";
+echo "     feed has list_id = 'user_update' must classify ACCOUNT = update,\n";
+echo "     never 'create'. A profile-edit form showing ACCOUNT = create\n";
+echo "     becomes STRICT and rejects a signed-in visitor on a missing token —\n";
+echo "     this is the Phase 48 failure, reproduced. If you see it, this is a\n";
+echo "     regression and must be reported immediately; do not enable the\n";
+echo "     provider until it is fixed. ***\n";
+echo "  3. A form with BOTH an active registration feed and an active update\n";
+echo "     feed should classify 'create' when this chunk is run logged OUT and\n";
+echo "     'update' when run logged IN — see the note at the top of this\n";
+echo "     report. If it does not change, the login-state tie-break has not\n";
+echo "     taken effect.\n";
+echo "  4. Any form showing PAY = yes that takes no money is safe but noisy;\n";
+echo "     any form showing PAY = '—' that DOES take money is a hole. Report\n";
+echo "     either.\n";
 
 echo "\nReport the whole block above verbatim.\n";
