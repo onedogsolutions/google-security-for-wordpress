@@ -119,6 +119,29 @@ The operator labelled these "valid test card" and "random card number", but **th
 
 **Cutover hazard worth naming.** Chunk 21 attaches the render hooks itself and therefore writes `gswp_ff_injection_log` **even with the provider switched off**. That disarms the never-injected fail-open for those forms in advance, so a visitor holding a page rendered *before* the operator flips the switch, submitting *after*, gets no token on a form the log says we do inject into — and on a STRICT payment form that is a rejection. The window is narrow and self-healing on reload, and it is arguably correct enforcement, but it means the runbook's "load every form once after switching on" step is load-bearing rather than cosmetic.
 
+### Phase 50 addendum 5 (v2.23.2) — D4 observed on screen, and the rejection that had already happened
+
+**D4 is CONFIRMED LIVE.** A forced missing-token submission on Fluent Form #4 (STRICT, Stripe inline) was rejected, and the message *"We could not verify this submission. Please refresh the page and try again."* rendered **below the Submit button with a `×` dismiss control** — i.e. in `.ff-errors-in-stack`, the container Fluent Forms emits immediately after `</form>`, with the `error-clear` span its stack renderer builds. Chunk 22 reports that form's `errorMessagePlacement` as **`inline`**, which is the harder of the two cases: an errors key resolving to no DOM node *falling back* to the stack. The source read predicted exactly this; it is now observed rather than inferred. `gswp_ff_last_rejection` records it as `missing token` at 21:27:26 UTC.
+
+**The happy path is confirmed end to end on a payment form.** Submissions 9 and 10 carry real Enterprise assessment resource names (`assessments/db876ee1…`, `assessments/79dadee1…`), so every link holds: field injected, bootstrap populated it, transport 1 delivered it, the verifier reached Google, the score passed, the submission was admitted, Stripe charged, and `store_submission_meta()` persisted the name.
+
+**A prediction in the previous report was wrong, and the distinction matters.** It said chunk 27 section A would show no rejection had ever occurred. It showed one — the operator had already run the DOM-removal method described in that same report. The *diagnosis* underneath it was right: the devtools `recaptcha__en.js` block at 21:25:23 produced a scored, admitted, **paid** submission, not a rejection. Reconstructed timeline:
+
+```
+UTC       CDT      EVENT                                    SUB  TXN  ASSESSMENT
+19:20:07  2:20 PM  paid   (provider OFF, no token rendered)  7    1   none
+21:00:48  4:00 PM  FAILED (card declined at Stripe)          8    2   none
+21:25:23  4:25 PM  paid   (devtools recaptcha block)         9    3   db876ee1…
+21:27:26  4:27 PM  *** REJECTED: missing token ***           --   --  --
+21:28:12  4:28 PM  paid   (normal retry)                    10    4   79dadee1…
+```
+
+The `21:28:11` capture quoted in the previous round as evidence was submission 10 — the *successful retry* — not the rejected attempt one minute earlier. Two adjacent submissions, one rejected and one paid, and the log line belonged to the wrong one. Recorded because it is the same failure as the two-state `isset()` diagnostic: **an observation attached to the wrong event reads exactly like an observation about the right one.**
+
+**D8: strongly supported by the site's own data, one external check outstanding.** Submission 8 is the tell — a payment that *failed at Stripe* still wrote a `fluentform_transactions` row (`status=failed`, empty `charge_id`), which proves Fluent Forms writes that row whenever it reaches the payment stage at all. The 21:27:26 rejection produced **no submission row and no transaction row**, so validation stopped it before `fluentform/before_insert_payment_form` ever fired, exactly as the source read said. That is Fluent Forms' record, not Stripe's; confirming no hold exists still requires reading the gateway at 4:27 PM CDT with incomplete and uncaptured payments included.
+
+**Minor open observation.** Submission 8 (failed payment) has no `gswp_assessment_name` while 9 and 10 do. Most likely the request short-circuits inside the payment handler before `fluentform/submission_inserted` fires, so `store_submission_meta()` never runs and `pending_assessment` dies with the request. Bounded — a payment that never succeeded has nothing worth annotating — but it means Transaction Defense annotation may be unreachable for failed payments. Not chased; the successful path demonstrably works.
+
 ### Phase 50 Modifications (v2.23.0)
 
 `GSWP_Provider_Fluent_Forms`, implementing the same `GSWP_Form_Provider` contract as the Gravity Forms provider, reaching the 2.22.0 feature surface: enumeration, injection, coverage recording, scoring, classification (payment / creates account / updates account / changes password), per-class thresholds, asymmetric enforcement, the coverage assertion, the "Not public" declaration, per-form rejection reasons, native-captcha detection, Transaction Defense and submission meta.
