@@ -71,13 +71,24 @@ if ( ! $was_on ) {
 // ---------------------------------------------------------------------------
 $observed = array();
 
+// Accepts two args because the hooks disagree about their signature:
+// form_element_start and before/after_form_render pass the FORM first, but
+// render_item_submit_button passes the submit-button ITEM first and the form
+// second. The first cut took one argument and reported every
+// render_item_submit_button fire under "form #0", which reads like a failure
+// and is not one.
 $note = function ( $hook ) use ( &$observed ) {
-	return function ( $form ) use ( $hook, &$observed ) {
+	return function ( $a = null, $b = null ) use ( $hook, &$observed ) {
 		$id = 0;
-		if ( is_object( $form ) && isset( $form->id ) ) {
-			$id = (int) $form->id;
-		} elseif ( is_array( $form ) && isset( $form['id'] ) ) {
-			$id = (int) $form['id'];
+		foreach ( array( $a, $b ) as $form ) {
+			if ( is_object( $form ) && isset( $form->id ) ) {
+				$id = (int) $form->id;
+				break;
+			}
+			if ( is_array( $form ) && isset( $form['id'] ) ) {
+				$id = (int) $form['id'];
+				break;
+			}
 		}
 		if ( ! isset( $observed[ $id ] ) ) {
 			$observed[ $id ] = array();
@@ -97,8 +108,9 @@ foreach (
 		'fluentform/render_item_submit_button',
 	) as $hook
 ) {
-	// Priority 0 / 1000 so we bracket the provider's own callbacks.
-	add_action( $hook, $note( $hook ), 0, 1 );
+	// Priority 0 so we bracket the provider's own callbacks, and 2 accepted
+	// args because render_item_submit_button passes ( $item, $form ).
+	add_action( $hook, $note( $hook ), 0, 2 );
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +204,13 @@ if ( empty( $observed ) ) {
 			echo "    *** UNBALANCED before/after_form_render ({$before} / {$after}).\n";
 			echo "        The buffered coverage backstop is NOT safe on this install.\n";
 		}
+	}
+
+	if ( isset( $observed[0] ) ) {
+		echo "\n  A 'form #0' bucket means a hook fired without a form this probe\n";
+		echo "  could identify in either of its first two arguments. That is only a\n";
+		echo "  problem for a hook the PROVIDER uses — it uses form_element_start\n";
+		echo "  and before/after_form_render, all of which pass the form first.\n";
 	}
 }
 

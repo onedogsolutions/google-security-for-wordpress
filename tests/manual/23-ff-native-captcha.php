@@ -56,8 +56,18 @@ function gswp_ff_mask( $value ) {
 	if ( is_array( $value ) ) {
 		return 'array(' . count( $value ) . ')';
 	}
+	// Fluent Forms stores some options as serialized OBJECTS. The first cut of
+	// this chunk cast everything non-array to string, which fatals on an object
+	// and aborted the run before it printed anything useful — on 6.2.9 the very
+	// first row (__fluentform_payment_module_settings) is one.
+	if ( is_object( $value ) ) {
+		return 'object(' . get_class( $value ) . ', ' . count( get_object_vars( $value ) ) . ' props)';
+	}
 	if ( is_bool( $value ) ) {
 		return $value ? 'true' : 'false';
+	}
+	if ( null === $value ) {
+		return '(null)';
 	}
 
 	$value = (string) $value;
@@ -98,7 +108,19 @@ if ( empty( $rows ) ) {
 			}
 		}
 
-		echo '  ' . $name . "\n";
+		// Flatten an object to an array so its KEY NAMES print. Those key names
+		// are the whole point of this chunk — reporting 'object(stdClass)' and
+		// stopping would settle nothing.
+		$was_object = is_object( $value );
+		if ( $was_object ) {
+			$encoded = wp_json_encode( $value );
+			$decoded = is_string( $encoded ) ? json_decode( $encoded, true ) : null;
+			if ( is_array( $decoded ) ) {
+				$value = $decoded;
+			}
+		}
+
+		echo '  ' . $name . ( $was_object ? '   [stored as an OBJECT, not an array]' : '' ) . "\n";
 
 		if ( is_array( $value ) ) {
 			foreach ( $value as $k => $v ) {
@@ -177,7 +199,11 @@ echo "  2. Any form showing state 'unknown' while the option rows above plainly\
 echo "     show a configured captcha means the version key is misread. Report\n";
 echo "     the option block; the fix is the gswp_ff_native_captcha_options\n";
 echo "     filter, not a release.\n";
-echo "  3. The provider never returns 'off'. Proving a captcha is absent means\n";
+echo "  3. Any row marked [stored as an OBJECT, not an array] is the shape that\n";
+echo "     crashed the first version of this chunk, and that GSWP_Provider_\n";
+echo "     Fluent_Forms::raw_option() silently returned null for until 2.23.1.\n";
+echo "     If the reCAPTCHA row is one of those, detection was blind to it.\n";
+echo "  4. The provider never returns 'off'. Proving a captcha is absent means\n";
 echo "     trusting that our list of option names is complete, and it is not\n";
 echo "     confirmed — so a site with no captcha configured reads 'unknown'\n";
 echo "     rather than 'off'. That is noisier but it is the honest direction:\n";

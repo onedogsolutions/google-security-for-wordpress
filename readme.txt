@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.23.0
+Stable tag: 2.23.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.23.1 =
+* Fixed: this plugin could not read Fluent Forms settings that Fluent Forms stores as an object rather than a list — and on Fluent Forms 6.2.9 at least one is. Any such setting read as "not present". If your reCAPTCHA configuration is one of them, the Form Protection table would have reported Fluent Forms' own captcha as "unknown" while it was configured and running, and treated those forms as ours to take over. Found by the verification suite on a live install, before the provider had been switched on anywhere.
+* Fixed: the payment currency sent with a Fluent Forms fraud assessment is now read from the site-wide payment settings, not only from per-form settings. Currency is configured globally on most sites, so the previous lookup found nothing and the assessment went without it.
+* Fixed: three of the Fluent Forms verification scripts. The captcha inspector (chunk 23) crashed outright on the object-typed setting above; the render check (chunk 21) attributed one hook's activity to a non-existent "form #0"; and the submission capture (chunk 22) did not say that the provider has to be switched on first, which made a correct run look like a failure.
 
 = 2.23.0 =
 * Added: Fluent Forms support. This plugin can now score Fluent Forms submissions the same way it scores Gravity Forms ones — per-form classification, its own score thresholds, transaction data on payment forms, and the same coverage reporting. As always, it never writes to Fluent Forms' settings: turning it off restores Fluent Forms' own captcha on the next request, with nothing to re-enter.

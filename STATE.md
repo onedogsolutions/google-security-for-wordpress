@@ -2,7 +2,7 @@
 
 ## Release state
 
-**`main` is at v2.23.0** as of Phase 50, fast-forwarded from `claude/fluentforms-gravity-parity-5oi6xm`. It was at v2.22.1 immediately before, so the merge added exactly Phase 50: three commits, one release, no backlog. (Phase 49 took it from v2.22.0 to v2.22.1 the same way in five commits; Phase 48 from v2.21.1 to v2.22.0 in seven.)
+**`main` is at v2.23.1** as of Phase 50, fast-forwarded from `claude/fluentforms-gravity-parity-5oi6xm`. It was at v2.22.1 immediately before, so the merge added exactly Phase 50: three commits, one release, no backlog. (Phase 49 took it from v2.22.0 to v2.22.1 the same way in five commits; Phase 48 from v2.21.1 to v2.22.0 in seven.)
 
 **v2.22.1 is on `main` but has NOT been validated on a live site.** Merged at the operator's explicit request, with that caveat stated rather than assumed away. The evidence behind it is `php -l`, `node --check` on the generated bootstrap, and a hand-rolled DOM stub (12 assertions, covering the never-empty invariant) — **no browser, no WordPress, no PowerPack/Gravity Forms/Stripe**. The staging checks in `PLAN-suspicious-login-2fa-and-stale-token.md` are outstanding, including the WooCommerce checkout regression case, which **cannot** be signed off from the reporting site (it has no WooCommerce). A testing ZIP was delivered to the operator.
 
@@ -19,6 +19,38 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
 ## Current Phase: Phase 50 (Fluent Forms provider — parity with Gravity Forms)
+
+### Phase 50 addendum (v2.23.1) — first live-install results
+
+Chunks 20–26 were run on `test.onedog.solutions` (Fluent Forms **6.2.9**, Pro 6.2.7, PHP 8.3, Enterprise keys). The suite did its job: it found a defect in the provider that no amount of `php -l` would have, and it found it before the provider had been switched on anywhere.
+
+**The defect: `raw_option()` was blind to object-typed settings.** Chunk 23 crashed with *"Object of class stdClass could not be converted to string"* on `__fluentform_payment_module_settings`. The crash was in the test chunk, but the cause was a fact about Fluent Forms nobody had established: **it stores some options as a serialized OBJECT, not an array.** `raw_option()` handled the array case and the JSON-string case, and returned `null` for everything else. So an object-typed option read as *absent*.
+
+If the reCAPTCHA configuration is one of those, `native_captcha_state()` would have returned `unknown` for a captcha that was configured and running, `form_is_eligible()` would have returned true, and this plugin would have taken over a form still carrying a live Fluent Forms captcha.
+
+That is **Phases 43/44 word for word**: detection reporting "not configured" for a host plugin that was configured, because we looked in a shape it does not use. The new part is *why* it recurred — the option name `_fluentform_reCaptcha_details` was inherited as VERIFIED from the Smart Key Scavenger work, and that verification covered its NAME. Nobody had ever confirmed its TYPE, and "verified" quietly carried over to a property that had never been checked. **A binding is verified along the axis it was tested on, and no further.**
+
+Fixed by round-tripping objects through JSON rather than casting — a shallow `(array)` cast leaves the second level as `stdClass` and reintroduces the same silence one key deeper.
+
+**Settled by the run:**
+
+- **Submission transport — the highest-risk unknown in the plan — is confirmed.** A captured submission shows `$_POST` keys `fluent_forms_admin_nonce, data, action, form_id`. Transport 2 (parse the serialised `data` envelope) is the live one; transport 3 (`$_POST[TOKEN_FIELD]`) would have found nothing, which is exactly the failure a direct port of the Gravity Forms provider would have shipped: an empty token on every submission, every payment and account form failing closed, permanently, for every visitor.
+- **Transport 1 also works, and that was the open question.** `$formData` carries `_wp_http_referer` and Fluent Forms' own nonce — neither is a registered field — so it is the whole serialised payload, not a list filtered to known fields. Our hidden input survives into it.
+- **`before_form_render` / `after_form_render` fire in balanced 1:1 pairs** on every form, so the buffered coverage backstop is safe on this install. `form_element_start` fires once per form with the correct id.
+- **Render coverage: 3/3, then 4/4.** Every eligible form received the token field through the shortcode path.
+- **Chunk 26: 11/11.** Action pairing correct on all four forms including `checkout` on the payment form; the never-injected STRICT payment form was **admitted**, which is the assertion that matters most.
+- **`has_payment` returns the string `'0'`/`'1'`,** which `(int)` handles. The payment form classifies correctly.
+- **`fluentform_transactions` has `currency` and `payment_total` columns.** Tempting and unusable: that row is written when payment is taken, and classification runs during validation, before any transaction exists. Currency now falls back to the site-wide payment settings instead — which is the object-typed option above, so this fix depended on the other one.
+
+**Still unsettled, and stated as such:**
+
+- **The account create/update binding.** No form on this site uses User Registration or User Update, so `account_feed_type()` was never exercised against a real feed. It remains UNVERIFIED and still fails to `create`, the stricter reading. This is the binding whose Gravity Forms equivalent produced the Phase 48 incident.
+- **Whether our token survives into `$formData` in practice.** The capture was run with the provider OFF, so no token field was rendered and `token in formData: no` is the expected result, not evidence. Needs one re-run with the provider on. Chunk 22 now prints the provider's current state so the same run cannot be misread again.
+- **Charge timing.** Not yet tested; `may_block_payment()` stays false.
+- **Render paths other than the shortcode** — block, Elementor, modal.
+- **`fluentform/after_payment_status_change` has no listeners,** which is normal for an action nobody subscribes to and is not evidence the name is right. Only a real payment status change confirms it.
+
+**Three verification scripts were also wrong** and are fixed: chunk 23 fatally (see above), chunk 21 attributing `render_item_submit_button` to a non-existent "form #0" because that hook passes `$item` first and the probe only read argument one, and chunk 22 not saying the provider must be on before capturing. The last is the one worth noting: **a test that can be run correctly and read as a failure is a defective test**, and it cost a round trip.
 
 ### Phase 50 Modifications (v2.23.0)
 

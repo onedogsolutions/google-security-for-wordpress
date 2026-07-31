@@ -1046,6 +1046,30 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			$value   = is_array( $decoded ) ? $decoded : null;
 		}
 
+		// ...and some as a serialized OBJECT rather than an array.
+		//
+		// VERIFIED on Fluent Forms 6.2.9 (chunk 23):
+		// `__fluentform_payment_module_settings` unserializes to a stdClass.
+		// Before this branch existed, every such option fell past both cases
+		// above and returned null — so a reCAPTCHA configuration stored as an
+		// object would have made native_captcha_state() report 'unknown' for a
+		// captcha that was configured all along, and form_is_eligible() would
+		// then have let this plugin take the form over.
+		//
+		// That is the Phase 43/44 failure mode word for word: detection reading
+		// "not configured" for a host plugin that was configured, because we
+		// looked in a shape it does not use. It reached a request path here
+		// because the reads were written against an option we had confirmed by
+		// NAME without ever confirming its TYPE.
+		//
+		// Round-tripped through JSON rather than cast, so nested objects
+		// flatten too — a shallow (array) cast would leave the second level as
+		// stdClass and reintroduce the same silence one key deeper.
+		if ( is_object( $value ) ) {
+			$encoded = wp_json_encode( $value );
+			$value   = is_string( $encoded ) ? json_decode( $encoded, true ) : null;
+		}
+
 		return is_array( $value ) ? $value : null;
 	}
 
@@ -1306,10 +1330,31 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * The submitted reCAPTCHA token, from whichever transport carried it.
 	 *
 	 * Fluent Forms submits over AJAX and serialises the form into a single
-	 * request parameter, so $_POST[ TOKEN_FIELD ] is very probably empty. Three
-	 * transports are tried because it is not settled which one is real, and a
-	 * resolver that tries all three is correct under any of them — the same
-	 * reasoning as the candidate lists used for option names.
+	 * request parameter, so $_POST[ TOKEN_FIELD ] is empty. Three transports are
+	 * tried, and a resolver that tries all three is correct under any of them —
+	 * the same reasoning as the candidate lists used for option names.
+	 *
+	 * VERIFIED on Fluent Forms 6.2.9 by capturing a real submission (chunk 22):
+	 *
+	 *   $_POST keys    : fluent_forms_admin_nonce, data, action, form_id
+	 *   parsed $formData: __fluent_form_embded_post_id,
+	 *                     _fluentform_3_fluentformnonce, _wp_http_referer,
+	 *                     name_1, email_2, phone_5, comments_3,
+	 *                     newsletter_signup_4
+	 *
+	 * Two things follow, and both matter.
+	 *
+	 * Transport 2 is the live one: the form arrives serialised inside
+	 * $_POST['data']. Transport 3 would have found nothing, which is exactly the
+	 * failure this method was written to avoid — a direct port of the Gravity
+	 * Forms provider would have read an empty token on every submission of every
+	 * form, and failed every payment and account form closed, permanently.
+	 *
+	 * Transport 1 also works. $formData carries `_wp_http_referer` and Fluent
+	 * Forms' own nonce — neither of which is a registered form field — so it is
+	 * the whole serialised payload and NOT a list filtered to known fields. Our
+	 * hidden input therefore survives into it. That was the open question when
+	 * this was written, and the answer is the permissive one.
 	 *
 	 * Returning '' routes the caller into the coverage-assertion branch, not
 	 * into a rejection.
@@ -1883,6 +1928,30 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			foreach ( array( 'currency', 'payment_currency', 'paymentCurrency' ) as $candidate ) {
 				if ( ! empty( $meta[ $candidate ] ) && is_scalar( $meta[ $candidate ] ) ) {
 					return strtoupper( sanitize_text_field( (string) $meta[ $candidate ] ) );
+				}
+			}
+		}
+
+		// Fall back to the site-wide payment settings. Currency in Fluent Forms
+		// is configured globally far more often than per form, so the per-form
+		// scan above finds nothing on a typical install.
+		//
+		// VERIFIED to exist on 6.2.9 (chunk 23):
+		// `__fluentform_payment_module_settings`. Its internal key names are
+		// still UNVERIFIED — chunk 23 crashed before printing them, on the very
+		// object-typed option this one turned out to be.
+		//
+		// Deliberately NOT read from `fluentform_transactions.currency`, which
+		// chunk 25 confirmed exists and looks like the better binding: that row
+		// is written when the payment is taken, and this runs during validation,
+		// before any transaction exists. The better-looking column is unusable
+		// at the only moment we need the answer.
+		$settings = $this->raw_option( '__fluentform_payment_module_settings' );
+
+		if ( is_array( $settings ) ) {
+			foreach ( array( 'currency', 'payment_currency', 'paymentCurrency', 'business_currency' ) as $candidate ) {
+				if ( ! empty( $settings[ $candidate ] ) && is_scalar( $settings[ $candidate ] ) ) {
+					return strtoupper( sanitize_text_field( (string) $settings[ $candidate ] ) );
 				}
 			}
 		}
