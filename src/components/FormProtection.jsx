@@ -126,7 +126,17 @@ export default function FormProtection( { settings, onChange } ) {
 			? window.gswpAdminData
 			: {};
 
-	const audit = adminData.formProviders || { enabled: true, providers: {} };
+	// Prefer settings.form_providers: it's refreshed by both the initial
+	// GET (App.jsx's mount effect) and every save response, whereas
+	// adminData.formProviders is a snapshot baked into the page once, at
+	// initial load, via wp_localize_script() — never updated again. Reading
+	// only from adminData meant every toggle (and the whole coverage table:
+	// "Token seen", rejections, "Its own reCAPTCHA") reverted to its
+	// pre-save state immediately after Save, even though the setting had
+	// already been persisted correctly server-side.
+	const audit =
+		settings.form_providers ||
+		adminData.formProviders || { enabled: true, providers: {} };
 	const providers = Object.values( audit.providers || {} );
 
 	const pending = settings.provider_enabled || {};
