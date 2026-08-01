@@ -232,6 +232,17 @@ export default function FormProtection( { settings, onChange } ) {
 				{ providers.map( ( provider ) => {
 					const ineligible = ( provider.ineligible || [] ).length;
 					const prefix = prefixFor( provider.id );
+					// context_for() resolves any payment form to 'checkout' in both
+					// providers, scored against the single shared gswp_threshold_checkout
+					// option — the same dial WooCommerce Checkout uses. That dial is
+					// otherwise rendered only under the WooCommerce checkpoint group in
+					// PageToggles.jsx, which does not render at all on a site with no
+					// WooCommerce. A payment form under a form provider on such a site
+					// had no reachable control for the threshold governing it, while
+					// this panel showed four dials that do not apply to it.
+					const hasPaymentForm = ( provider.forms || [] ).some(
+						( form ) => form.context === 'checkout'
+					);
 
 					return (
 						<div key={ provider.id } className="mt-8">
@@ -349,6 +360,23 @@ export default function FormProtection( { settings, onChange } ) {
 													'google-security-for-wordpress'
 												),
 											},
+											// Not prefixed per provider: unlike the dials above,
+											// this is one option shared with WooCommerce Checkout
+											// (see the hasPaymentForm note above). Shown only when
+											// this provider actually has a payment form, so a site
+											// with only contact forms is not shown a dial with
+											// nothing under it.
+											...( hasPaymentForm
+												? [
+														{
+															key: 'threshold_checkout',
+															label: __(
+																'Payment forms (shared with WooCommerce checkout)',
+																'google-security-for-wordpress'
+															),
+														},
+												  ]
+												: [] ),
 										].map( ( dial ) => {
 											const value =
 												parseFloat(

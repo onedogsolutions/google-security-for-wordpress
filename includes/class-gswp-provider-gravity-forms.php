@@ -582,29 +582,17 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	/**
 	 * Action names accepted for a form's token.
 	 *
-	 * Every non-payment form additionally accepts 'submit', because that is what
-	 * this plugin rendered for ALL non-payment forms before 2.21.2 and a page
-	 * cached before the upgrade still carries it. Without the allowance the fix
-	 * would keep rejecting real customers until every cache expired.
-	 *
-	 * This is not a bypass. Both names are strings we mint ourselves; the token
-	 * must still be valid for our own site key, and must still clear the score
-	 * threshold. An attacker gains nothing by preferring one of our labels over
-	 * another. Payment forms get no latitude at all.
-	 *
-	 * REMOVE IN 2.23.0, by which point no page cached under 2.21.1 can survive.
+	 * Until 2.26.1 this additionally accepted 'submit' on every non-payment
+	 * form, as a compatibility allowance for pages cached before the 2.21.2
+	 * action-pairing fix. It was marked "REMOVE IN 2.23.0" at the time it was
+	 * written; three releases passed before it actually was, by which point no
+	 * cache from 2.21.1 could plausibly still be serving traffic.
 	 *
 	 * @param int|string $form_id Form identifier.
-	 * @return string[] Accepted actions, the canonical one first.
+	 * @return string[] Accepted actions.
 	 */
 	private function accepted_actions( $form_id ) {
-		$action = $this->action_for( $form_id );
-
-		if ( 'checkout' === $action || 'submit' === $action ) {
-			return array( $action );
-		}
-
-		return array( $action, 'submit' );
+		return array( $this->action_for( $form_id ) );
 	}
 
 	/**

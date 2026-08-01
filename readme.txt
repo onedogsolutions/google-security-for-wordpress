@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.26.0
+Stable tag: 2.26.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,12 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.26.1 =
+* Fixed: the Gravity Forms `submit`-action compatibility allowance (added in 2.21.2 for pages cached before that release's action-pairing fix, and marked for removal in 2.23.0) has been removed. No functional change for any page cached less than roughly a year ago.
+* Added: the payment-form score threshold ("Payment forms (shared with WooCommerce checkout)") is now shown in the Form Protection panel for any Gravity Forms or Fluent Forms provider reporting a payment form — previously that dial was reachable only when WooCommerce was active, so a payment form's threshold could not be changed from the admin screen on a WooCommerce-free site.
+* Fixed: one inherited ESLint (prettier) formatting error in FormProtection.jsx, present since 2.24.0 despite being reported clean at the time.
+* This is a testing build like the releases before it: `php -l`, ESLint, and a completed `npm run build` — no browser, no WordPress, no Gravity Forms, no Fluent Forms.
 
 = 2.26.0 =
 * Added: Account Defender risk assessment on the lost password form. When Account Defender flags a password reset request as suspicious login activity, the plugin can now optionally block the reset email from being sent (new "Block suspicious reset requests" toggle under Account Defender). Off by default: flagged requests are logged and alerted but never blocked, so a legitimate user is not locked out of recovery.
