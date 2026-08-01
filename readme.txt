@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.24.0
+Stable tag: 2.26.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.26.0 =
+* Added: Account Defender risk assessment on the lost password form. When Account Defender flags a password reset request as suspicious login activity, the plugin can now optionally block the reset email from being sent (new "Block suspicious reset requests" toggle under Account Defender). Off by default: flagged requests are logged and alerted but never blocked, so a legitimate user is not locked out of recovery.
+* Added: reCAPTCHA v3 scoring on WordPress core comment forms. A new "WordPress Comments" toggle under Form Protection scores comment submissions to block spam and automated link-dropping. Trackbacks, pingbacks, and users with moderate_comments capability are exempt.
+* Added: alert integration for suspicious lost password requests. Reuses the existing login alert toggle and throttling pipeline.
 
 = 2.24.0 =
 * Added: Beaver Builder core module protection. The Login Form, Contact Form, and Subscribe Form (newsletter signup) modules rendered by Beaver Builder core are now protected with reCAPTCHA v3 scoring, following the same pattern as the PowerPack integration.

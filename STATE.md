@@ -2,9 +2,9 @@
 
 ## Release state
 
-**`main` is at v2.25.0**, which extends reCAPTCHA v3 protection to the PowerPack Contact Form (`PPContactFormModule`) and Subscribe Form (`PPSubscribeFormModule`) modules, reaching parity with the Beaver Builder core module protection shipped in v2.24.0. This is a new-feature release following v2.24.0 (BB core modules). It has NOT been validated on a live site with PowerPack active — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
+**`main` is at v2.26.0**, which adds two new protection surfaces: (1) Account Defender risk-label evaluation on the WordPress lost password form, with an optional block on suspicious reset requests, and (2) reCAPTCHA v3 scoring on WordPress core comment forms. This is a new-feature release following v2.25.0 (PowerPack Contact/Subscribe forms). It has NOT been validated on a live site — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
 
-**v2.24.0 is the preceding release.** See below for its full history.
+**v2.25.0 is the preceding release.** See below for its full history.
 
 **v2.23.2 is the first Fluent Forms release with real field evidence behind it,** and that is the substantive change from the two entries below. Six of its eight fixes were confirmed on a live install (Fluent Forms 6.2.9, Pro 6.2.7, PHP 8.3, Enterprise keys, Stripe test mode, no WooCommerce): the token transport, the payment-status hook signature, rejection visibility on screen, captcha eligibility, the payment element set, and — closing a question open since 2.16.0 — that a refused submission leaves nothing on a real customer's card. Addenda 3 through 6 carry the detail.
 
@@ -26,7 +26,29 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 52 (PowerPack Contact Form and Subscribe Form protection)
+## Current Phase: Phase 53 (Account Defender lost password + Comment form protection)
+
+### Phase 53 Modifications (v2.26.0)
+
+Two new protection surfaces:
+
+**1. Account Defender risk assessment on the lost password form.** `GSWP_Login::validate_lostpassword()` already verified the reCAPTCHA token and sent `userInfo` to Google (the `wp_lostpassword` context was already in the verifier's account-contexts list). What was missing was interpreting the returned `accountDefenderAssessment.labels`. A new static method `GSWP_Account_Defender::screen_lost_password()` (modeled on `screen_registration()`) now checks for `SUSPICIOUS_LOGIN_ACTIVITY`, logs it, fires `gswp_suspicious_lost_password` for the alert pipeline, and — gated behind a new `gswp_ad_block_lostpw` toggle (default off) — returns a `WP_Error` that prevents the reset email from being sent.
+
+- New setting: `gswp_ad_block_lostpw` (default `'0'`), wired through `gswp_default_options()`, REST get/update, admin localizer, and `App.jsx`.
+- New UI toggle in `AccountDefender.jsx`: "Block suspicious reset requests".
+- Alert handler in `GSWP_Alerts::on_suspicious_lost_password()`, reusing the `alert_login` toggle and the `'login'` event type for dedupe/throttle.
+
+**2. reCAPTCHA v3 on WordPress comment forms.** A new class `GSWP_Comments` (`includes/class-gswp-comments.php`) follows the same pattern as the existing core form protections:
+
+- Token field injected via `comment_form_defaults` filter (prepended to `submit_field`, inside the `<form>` element).
+- Script enqueued via `GSWP_Recaptcha_Loader::enqueue()` on `is_singular()` pages where `comments_open()`.
+- Server-side validation via `pre_comment_approved` filter; returning `WP_Error` causes `wp_new_comment()` to `wp_die()` with the message.
+- Exemptions: trackbacks/pingbacks (no form), users with `moderate_comments` (trusted).
+- New settings: `gswp_enable_comments` (default `'0'`) and `gswp_threshold_comments` (default `'0.5'`).
+- New UI checkpoint in `PageToggles.jsx` under "WordPress Core Forms".
+- Instantiated in the frontend branch of `gswp_init()` (not admin).
+
+**Files touched:** `google-security-for-wordpress.php`, `includes/class-gswp-account-defender.php`, `includes/class-gswp-login.php`, `includes/class-gswp-alerts.php`, `includes/class-gswp-rest-api.php`, `includes/class-gswp-admin.php`, `includes/class-gswp-comments.php` (new), `src/components/AccountDefender.jsx`, `src/components/PageToggles.jsx`, `src/components/App.jsx`, `readme.txt`, `package.json`, `package-lock.json`.
 
 ### Phase 52 Modifications (v2.25.0)
 
