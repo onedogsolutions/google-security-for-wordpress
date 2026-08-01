@@ -92,6 +92,12 @@ Point integrations at a dedicated machine account and exempt only that account, 
 * Added: reCAPTCHA v3 scoring on WordPress core comment forms. A new "WordPress Comments" toggle under Form Protection scores comment submissions to block spam and automated link-dropping. Trackbacks, pingbacks, and users with moderate_comments capability are exempt.
 * Added: alert integration for suspicious lost password requests. Reuses the existing login alert toggle and throttling pipeline.
 
+= 2.25.0 =
+* Added: PowerPack module protection extended to the Contact Form and Subscribe Form (newsletter signup) modules, reaching parity with the Beaver Builder core module protection added in 2.24.0. The PowerPack Login Form and Registration Form were already covered.
+* Added: new "PowerPack Forms" section on the Form Protection settings tab with independent enable/threshold toggles for the Contact Form and Subscribe Form modules.
+* Added: the module's own built-in captcha (reCAPTCHA v2, hCaptcha, and — on the Contact Form — Cloudflare Turnstile) is automatically stripped when this plugin's protection is active, preventing dual-captcha conflicts.
+* Note: like the Beaver Builder core modules, both PowerPack modules build their AJAX payloads manually rather than serializing the form, so a small inline script appends the token via $.ajaxPrefilter. Inert unless PowerPack is active.
+
 = 2.24.0 =
 * Added: Beaver Builder core module protection. The Login Form, Contact Form, and Subscribe Form (newsletter signup) modules rendered by Beaver Builder core are now protected with reCAPTCHA v3 scoring, following the same pattern as the PowerPack integration.
 * Added: new "Beaver Builder Forms" section on the Form Protection settings tab with independent enable/threshold toggles for the Contact Form and Subscribe Form modules. The Login Form module reuses the existing WordPress Login toggle.

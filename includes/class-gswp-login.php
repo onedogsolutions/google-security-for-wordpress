@@ -245,16 +245,20 @@ class GSWP_Login {
 		$identifier = $user_data instanceof WP_User ? $user_data : null;
 
 		$result = $this->verifier->verify_token( 'wp_lostpassword', 'lostpassword', array(), $identifier );
-		if ( is_wp_error( $result ) && is_wp_error( $errors ) ) {
-			$errors->add( 'recaptcha_error', $result->get_error_message() );
+		if ( is_wp_error( $result ) ) {
+			if ( is_wp_error( $errors ) ) {
+				$errors->add( 'recaptcha_error', $result->get_error_message() );
+			}
+			// The score already refused this request, so no reset mail will be
+			// sent. Screening on top of that would only stack a second error
+			// message on the same form; validate_register() returns here too.
+			return;
 		}
 
-		// Account Defender: evaluate risk labels on the reset request.
-		if ( class_exists( 'GSWP_Account_Defender' ) ) {
-			$screen = GSWP_Account_Defender::screen_lost_password( $this->verifier, $user_data, 'wp-login' );
-			if ( is_wp_error( $screen ) && is_wp_error( $errors ) ) {
-				$errors->add( 'recaptcha_error', $screen->get_error_message() );
-			}
+		// The score passed; also consult any Account Defender risk labels.
+		$screen = GSWP_Account_Defender::screen_lost_password( $this->verifier, $user_data, 'wp-login' );
+		if ( is_wp_error( $screen ) && is_wp_error( $errors ) ) {
+			$errors->add( 'recaptcha_error', $screen->get_error_message() );
 		}
 
 		// Remember this assessment so completing the reset (a later request that
