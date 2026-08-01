@@ -2,6 +2,8 @@
 .github
 .gitignore
 .distignore
+.eslintignore
+.eslintrc*
 node_modules
 src
 tests
@@ -15,5 +17,4 @@ PLAN-*.md
 *.log
 .DS_Store
 .editorconfig
-.eslintrc*
 .prettierrc*
