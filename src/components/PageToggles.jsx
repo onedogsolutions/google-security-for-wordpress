@@ -128,6 +128,7 @@ export default function PageToggles( {
 	settings,
 	onChange,
 	woocommerceActive,
+	beaverBuilderActive,
 } ) {
 	const wordpressCheckpoints = [
 		{
@@ -165,6 +166,29 @@ export default function PageToggles( {
 			),
 			toggleKey: 'enable_wp_lostpassword',
 			thresholdKey: 'threshold_wp_lostpassword',
+		},
+	];
+
+	const bbCheckpoints = [
+		{
+			id: 'bb_contact',
+			title: __( 'BB Contact Form', 'google-security-for-wordpress' ),
+			description: __(
+				'Scores submissions on the Beaver Builder Contact Form module to block spam and automated messages.',
+				'google-security-for-wordpress'
+			),
+			toggleKey: 'enable_bb_contact',
+			thresholdKey: 'threshold_bb_contact',
+		},
+		{
+			id: 'bb_subscribe',
+			title: __( 'BB Subscribe Form', 'google-security-for-wordpress' ),
+			description: __(
+				'Protects the Beaver Builder Subscribe Form (newsletter signup) module from bot subscriptions.',
+				'google-security-for-wordpress'
+			),
+			toggleKey: 'enable_bb_subscribe',
+			thresholdKey: 'threshold_bb_subscribe',
 		},
 	];
 
@@ -216,7 +240,7 @@ export default function PageToggles( {
 	);
 
 	const wordpressDescription = __(
-		'Protects the wp-login.php sign in, registration, and lost password screens. These toggles also cover matching forms from supported login plugins when active — the Login/Signup Popup plugin and the PowerPack (Beaver Builder) Login Form module. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
+		'Protects the wp-login.php sign in, registration, and lost password screens. These toggles also cover matching forms from supported login plugins when active — the Login/Signup Popup plugin, the PowerPack (Beaver Builder) Login Form module, and the Beaver Builder core Login Form module. A score closer to 1.0 represents a human, while a score closer to 0.0 represents a bot.',
 		'google-security-for-wordpress'
 	);
 
@@ -241,6 +265,19 @@ export default function PageToggles( {
 					) }
 					description={ sharedDescription }
 					checkpoints={ wooCheckpoints }
+					settings={ settings }
+					onChange={ onChange }
+				/>
+			) }
+
+			{ beaverBuilderActive && (
+				<ToggleGroup
+					title={ __(
+						'Beaver Builder Forms',
+						'google-security-for-wordpress'
+					) }
+					description={ sharedDescription }
+					checkpoints={ bbCheckpoints }
 					settings={ settings }
 					onChange={ onChange }
 				/>

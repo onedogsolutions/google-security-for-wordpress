@@ -85,6 +85,10 @@ export default function App() {
 			threshold_wp_login: '0.5',
 			threshold_wp_register: '0.5',
 			threshold_wp_lostpassword: '0.5',
+			enable_bb_contact: '0',
+			threshold_bb_contact: '0.5',
+			enable_bb_subscribe: '0',
+			threshold_bb_subscribe: '0.5',
 			conflict_mode: 'off',
 			tfa_enabled: '1',
 			tfa_enforced_roles: [],
@@ -247,6 +251,9 @@ export default function App() {
 								onChange={ handleSettingChange }
 								woocommerceActive={
 									!! initialData.woocommerceActive
+								}
+								beaverBuilderActive={
+									!! initialData.beaverBuilderActive
 								}
 							/>
 						),

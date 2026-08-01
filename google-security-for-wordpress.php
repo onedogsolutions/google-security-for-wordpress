@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Google Security for WordPress
  * Description: A Google-powered security suite for WordPress: reCAPTCHA v3 scoring on the WordPress and WooCommerce login, registration, lost password, and checkout forms, plus two-factor authentication (TOTP) compatible with Google Authenticator. Works with or without WooCommerce.
- * Version: 2.23.2
+ * Version: 2.24.0
  * Author: One Dog Solutions
  * Author URI: https://onedog.solutions/
  * Requires at least: 5.8
@@ -47,7 +47,7 @@ if ( version_compare( $wp_version, '5.8', '<' ) ) {
 }
 
 // Define plugin constants.
-define( 'GSWP_VERSION', '2.23.2' );
+define( 'GSWP_VERSION', '2.24.0' );
 define( 'GSWP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSWP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'GSWP_FILE', __FILE__ );
@@ -103,6 +103,7 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-login.php';
 // true there), so their integrations must also load unconditionally.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-xootix.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-powerpack.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-beaver-builder.php';
 // REST requests are not admin context (is_admin() is false for /wp-json),
 // so the REST API class must load unconditionally for its routes to exist.
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-rest-api.php';
@@ -175,6 +176,11 @@ function gswp_default_options() {
 		'threshold_wp_login'        => '0.5',
 		'threshold_wp_register'     => '0.5',
 		'threshold_wp_lostpassword' => '0.5',
+		// Beaver Builder core module protection.
+		'enable_bb_contact'         => '0',
+		'threshold_bb_contact'      => '0.5',
+		'enable_bb_subscribe'       => '0',
+		'threshold_bb_subscribe'    => '0.5',
 		'conflict_mode'             => 'off',
 		// Form providers. The master switch is on; individual providers are
 		// enabled on upgrade wherever replacement can work (see
@@ -463,6 +469,10 @@ function gswp_init() {
 	// Extend the same protection to the PowerPack (Beaver Builder) Login Form
 	// module. Inert unless PowerPack is active.
 	new GSWP_Powerpack( $verifier );
+
+	// Extend protection to the Beaver Builder core Login Form, Contact Form,
+	// and Subscribe Form modules. Inert unless BB is active.
+	new GSWP_Beaver_Builder( $verifier );
 
 	// Form providers. Inert unless a provider is advanced past 'off' and the
 	// kill switch is clear.

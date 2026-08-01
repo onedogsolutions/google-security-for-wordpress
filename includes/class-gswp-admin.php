@@ -120,6 +120,11 @@ class GSWP_Admin {
 			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			// Beaver Builder core module protection.
+			'enable_bb_contact'      => get_option( 'gswp_enable_bb_contact', '0' ),
+			'threshold_bb_contact'   => get_option( 'gswp_threshold_bb_contact', '0.5' ),
+			'enable_bb_subscribe'    => get_option( 'gswp_enable_bb_subscribe', '0' ),
+			'threshold_bb_subscribe' => get_option( 'gswp_threshold_bb_subscribe', '0.5' ),
 			// Gravity Forms, per class of form. Before 2.22.0 every non-payment
 			// GF form was scored against threshold_wp_register.
 			'threshold_gf_submit'    => get_option( 'gswp_threshold_gf_submit', '0.5' ),
@@ -146,6 +151,7 @@ class GSWP_Admin {
 				'nonce'              => wp_create_nonce( 'wp_rest' ),
 				'settings'           => $initial_settings,
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
+				'beaverBuilderActive' => class_exists( 'FLBuilder' ),
 				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
 				'roles'              => wp_roles()->get_names(),
 				'loaderConflict'     => GSWP_Recaptcha_Loader::stored_conflict(),

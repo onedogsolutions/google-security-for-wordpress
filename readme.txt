@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.23.2
+Stable tag: 2.24.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,12 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.24.0 =
+* Added: Beaver Builder core module protection. The Login Form, Contact Form, and Subscribe Form (newsletter signup) modules rendered by Beaver Builder core are now protected with reCAPTCHA v3 scoring, following the same pattern as the PowerPack integration.
+* Added: new "Beaver Builder Forms" section on the Form Protection settings tab with independent enable/threshold toggles for the Contact Form and Subscribe Form modules. The Login Form module reuses the existing WordPress Login toggle.
+* Added: the module's own built-in reCAPTCHA (Contact Form and Subscribe Form) is automatically stripped when this plugin's protection is active, preventing dual-captcha conflicts.
+* Note: BB core modules build their AJAX payloads manually rather than serializing the form, so a small inline script appends the token via $.ajaxPrefilter. Inert unless Beaver Builder is active.
 
 = 2.23.2 =
 * Fixed: a Fluent Forms profile-edit form ("User Update") was classified the same as a signup form and rejected a submission with a missing or stale token, telling a signed-in visitor their own profile edit could not be verified. Fluent Forms Pro stores both signup and profile-update feeds under one internal record, and this plugin was reading it wrong on every install. It now reads the same field Fluent Forms Pro itself uses to tell the two apart, confirmed against Fluent Forms Pro's source directly. This is the highest-impact fix in this release; Fluent Forms support remains switched off by default until you turn it on.

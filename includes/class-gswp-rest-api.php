@@ -100,6 +100,11 @@ class GSWP_Rest_Api {
 			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			// Beaver Builder core module protection.
+			'enable_bb_contact'      => get_option( 'gswp_enable_bb_contact', '0' ),
+			'threshold_bb_contact'   => get_option( 'gswp_threshold_bb_contact', '0.5' ),
+			'enable_bb_subscribe'    => get_option( 'gswp_enable_bb_subscribe', '0' ),
+			'threshold_bb_subscribe' => get_option( 'gswp_threshold_bb_subscribe', '0.5' ),
 			// Gravity Forms, per class of form. Before 2.22.0 every non-payment
 			// GF form was scored against threshold_wp_register.
 			'threshold_gf_submit'    => get_option( 'gswp_threshold_gf_submit', '0.5' ),
@@ -831,6 +836,8 @@ class GSWP_Rest_Api {
 			'enable_wp_login',
 			'enable_wp_register',
 			'enable_wp_lostpassword',
+			'enable_bb_contact',
+			'enable_bb_subscribe',
 			'password_defense',
 			'pd_login',
 			'pd_block_choice',
@@ -852,6 +859,8 @@ class GSWP_Rest_Api {
 			'threshold_wp_login',
 			'threshold_wp_register',
 			'threshold_wp_lostpassword',
+			'threshold_bb_contact',
+			'threshold_bb_subscribe',
 			'threshold_gf_submit',
 			'threshold_gf_register',
 			'threshold_gf_account_update',

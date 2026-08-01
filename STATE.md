@@ -2,7 +2,9 @@
 
 ## Release state
 
-**`main` is at v2.23.2**, fast-forwarded from `claude/fluent-forms-integration-plan-ykmij4` (10 commits, one release). It was at v2.23.1 immediately before. Merged at the operator's explicit request with one binding still unproven — see the D2 note below, which is the single reason this is not a clean bill of health.
+**`main` is at v2.24.0**, which adds reCAPTCHA v3 protection to the Beaver Builder core Login Form, Contact Form, and Subscribe Form modules. This is a new-feature release following v2.23.2 (Fluent Forms). It has NOT been validated on a live site with Beaver Builder active — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
+
+**v2.23.2 is the preceding release.** See below for its full history.
 
 **v2.23.2 is the first Fluent Forms release with real field evidence behind it,** and that is the substantive change from the two entries below. Six of its eight fixes were confirmed on a live install (Fluent Forms 6.2.9, Pro 6.2.7, PHP 8.3, Enterprise keys, Stripe test mode, no WooCommerce): the token transport, the payment-status hook signature, rejection visibility on screen, captcha eligibility, the payment element set, and — closing a question open since 2.16.0 — that a refused submission leaves nothing on a real customer's card. Addenda 3 through 6 carry the detail.
 
@@ -24,7 +26,48 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 50 (Fluent Forms provider — parity with Gravity Forms)
+## Current Phase: Phase 51 (Beaver Builder core module protection)
+
+### Phase 51 Modifications (v2.24.0)
+
+Added reCAPTCHA v3 scoring to the three form modules shipped by Beaver Builder core: Login Form (`FLLoginFormModule`), Contact Form (`FLContactFormModule`), and Subscribe Form (`FLSubscribeFormModule`). BB core has no registration module; the PowerPack Registration Form was already protected by `GSWP_Powerpack`.
+
+**The key architectural constraint:** unlike PowerPack modules — which serialize their whole form with `FormData` so an injected hidden field reaches the server automatically — the BB core modules build their AJAX payloads manually in JavaScript (`$.post()` with a hand-constructed data object). A hidden input injected into the form HTML is NOT included in the request unless the client-side code is also patched. The solution is a small inline script using `$.ajaxPrefilter` to append the token from the hidden field to the relevant AJAX actions at send time.
+
+**Server-side enforcement** guards each module's admin-ajax action at priority 1 (before the module's own handler at priority 10):
+- `fl_builder_login_form_submit` → `guard_login()` — reuses the `gswp_enable_wp_login` toggle and `threshold_wp_login`.
+- `fl_builder_email` → `guard_contact()` — new `gswp_enable_bb_contact` toggle and `threshold_bb_contact`.
+- `fl_builder_subscribe_form_submit` → `guard_subscribe()` — new `gswp_enable_bb_subscribe` toggle and `threshold_bb_subscribe`.
+
+Error response shapes match each module's JS expectations so errors render inline without a page reload.
+
+**Module captcha stripping:** Contact Form and Subscribe Form have their own reCAPTCHA (v2/v3). When this plugin's protection is active, `fl_builder_render_module_content` strips the module's captcha markup and dequeues its loader script, preventing dual-captcha conflicts.
+
+**Token freshness:** The shared GSWP bootstrap refreshes tokens every 100s, on visibility change, and on DOM mutations. BB uses `<a>` tags as submit buttons (not `button/input[submit]`), so the bootstrap's click handler doesn't cover them — the inline script adds its own capture-phase click handler. A scoped `ajaxComplete` handler refreshes the spent token after a failed submission.
+
+**Account Defender:** No separate call needed for BB login — when the score passes and the module calls `wp_signon()`, the `authenticate` filter fires and `GSWP_Account_Defender` captures the assessment through its existing hook.
+
+**Settings UI:** A new "Beaver Builder Forms" `ToggleGroup` appears on the Form Protection tab when Beaver Builder is active (`beaverBuilderActive` flag), with independent enable/threshold controls for Contact Form and Subscribe Form. The WordPress Core Forms description now mentions the BB core Login Form module.
+
+**Files created/modified:**
+- Created `includes/class-gswp-beaver-builder.php` (472 lines).
+- Modified `google-security-for-wordpress.php` (require_once, default options, instantiation).
+- Modified `includes/class-gswp-admin.php` (initial settings + `beaverBuilderActive` flag).
+- Modified `includes/class-gswp-rest-api.php` (get_settings, toggles whitelist, threshold sanitization).
+- Modified `src/components/PageToggles.jsx` (new BB toggle group).
+- Modified `src/components/App.jsx` (prop passing + fallback defaults).
+
+**Verification:** `php -l` clean on all PHP files, ESLint 0 errors, webpack production build compiled successfully. **No browser, no WordPress, no Beaver Builder.**
+
+**Unverified, and stated as such:**
+- The `$.ajaxPrefilter` token delivery has not been tested in a browser against real BB module AJAX.
+- The regex-based captcha stripping has not been tested against real rendered BB module HTML.
+- The `<a>` tag click handler for token refresh has not been tested against real BB module DOM.
+- Token freshness after a failed submission (the `ajaxComplete` handler) has not been exercised.
+
+---
+
+## Historical Phase: Phase 50 (Fluent Forms provider — parity with Gravity Forms)
 
 ### Phase 50 addendum (v2.23.1) — first live-install results
 
@@ -983,6 +1026,7 @@ Implements items A2–A7 of `PLAN-recaptcha-loader-corrections.md`. Closes findi
 - [x] [includes/class-gswp-assets.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-assets.php)
 - [x] [includes/class-gswp-xootix.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-xootix.php)
 - [x] [includes/class-gswp-powerpack.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-powerpack.php)
+- [x] [includes/class-gswp-beaver-builder.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-beaver-builder.php)
 - [x] [includes/class-gswp-conflict-guard.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-conflict-guard.php)
 - [x] [includes/class-gswp-gravity-forms.php](file:///Users/rwaterbury/Developer/google-security-for-wordpress/includes/class-gswp-gravity-forms.php)
 - [x] [src/components/Compatibility.jsx](file:///Users/rwaterbury/Developer/google-security-for-wordpress/src/components/Compatibility.jsx)
@@ -991,6 +1035,6 @@ Implements items A2–A7 of `PLAN-recaptcha-loader-corrections.md`. Closes findi
 
 ### Current Status
 - Assets successfully built.
-- Gravity Forms reCAPTCHA deferral complete.
-- Ready to compile final ZIP plugin package for distribution.
+- Beaver Builder core module integration complete (Phase 51, v2.24.0).
+- Testing ZIP delivered; awaiting live-site validation with Beaver Builder active.
 - Ready to push code to GitHub.
