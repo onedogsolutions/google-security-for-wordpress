@@ -2,9 +2,9 @@
 
 ## Release state
 
-**`main` is at v2.24.0**, which adds reCAPTCHA v3 protection to the Beaver Builder core Login Form, Contact Form, and Subscribe Form modules. This is a new-feature release following v2.23.2 (Fluent Forms). It has NOT been validated on a live site with Beaver Builder active — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
+**`main` is at v2.25.0**, which extends reCAPTCHA v3 protection to the PowerPack Contact Form (`PPContactFormModule`) and Subscribe Form (`PPSubscribeFormModule`) modules, reaching parity with the Beaver Builder core module protection shipped in v2.24.0. This is a new-feature release following v2.24.0 (BB core modules). It has NOT been validated on a live site with PowerPack active — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
 
-**v2.23.2 is the preceding release.** See below for its full history.
+**v2.24.0 is the preceding release.** See below for its full history.
 
 **v2.23.2 is the first Fluent Forms release with real field evidence behind it,** and that is the substantive change from the two entries below. Six of its eight fixes were confirmed on a live install (Fluent Forms 6.2.9, Pro 6.2.7, PHP 8.3, Enterprise keys, Stripe test mode, no WooCommerce): the token transport, the payment-status hook signature, rejection visibility on screen, captcha eligibility, the payment element set, and — closing a question open since 2.16.0 — that a refused submission leaves nothing on a real customer's card. Addenda 3 through 6 carry the detail.
 
@@ -26,7 +26,50 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 51 (Beaver Builder core module protection)
+## Current Phase: Phase 52 (PowerPack Contact Form and Subscribe Form protection)
+
+### Phase 52 Modifications (v2.25.0)
+
+Extended `GSWP_Powerpack` to protect the PowerPack **Contact Form** (`PPContactFormModule`, AJAX action `pp_send_email`) and **Subscribe Form** (`PPSubscribeFormModule`, AJAX action `pp_subscribe_form_submit`) with reCAPTCHA v3 scoring — matching the protection already shipped for the BB core equivalents in `GSWP_Beaver_Builder` (v2.24.0). The PowerPack Login Form and Registration Form were already protected; this adds the two remaining form modules.
+
+**The key architectural constraint is the same as BB core:** both PowerPack Contact Form and Subscribe Form build their AJAX payloads manually in JavaScript (`$.post()` with a hand-constructed data object). They do NOT serialize the form with `FormData`. A hidden input injected into the form HTML is NOT included in the request unless the client-side code is also patched. The solution is the same `$.ajaxPrefilter` approach used by `GSWP_Beaver_Builder`.
+
+This differs from the existing PowerPack Login/Registration integration, which uses `FormData` serialization and therefore needs no client-side patching.
+
+**Server-side enforcement** guards each module's admin-ajax action at priority 1 (before the module's own handler at priority 10):
+- `pp_send_email` → `guard_contact()` — new `gswp_enable_pp_contact` toggle and `threshold_pp_contact`. Error shape: `wp_send_json( array( 'error' => true, 'message' => ... ) )`, matching `_submitComplete()`'s `response.error` / `response.message` reads.
+- `pp_subscribe_form_submit` → `guard_subscribe()` — new `gswp_enable_pp_subscribe` toggle and `threshold_pp_subscribe`. Error shape: raw `echo json_encode( array( 'error' => $msg, ... ) ); die();`, matching the module's own transport exactly (it does NOT use `wp_send_json()`). The client's `_submitFormComplete()` does `JSON.parse(response)` and reads `data.error` as a truthy string.
+
+**Module captcha stripping:** Both modules support reCAPTCHA v2 (normal/invisible) and hCaptcha; the Contact Form additionally supports Cloudflare Turnstile. When this plugin's protection is active, `fl_builder_render_module_content` strips the module's captcha markup (`.pp-input-group.pp-recaptcha/hcaptcha/turnstile` for contact, `.pp-form-field.pp-recaptcha/hcaptcha` for subscribe) and dequeues the `g-recaptcha` and `h-captcha` loader scripts. This also removes the client-side gating that would block the form when no module-captcha response exists.
+
+**Token field injection:** The Contact Form uses a `<form>` element, so the hidden field is placed before `</form>`. The Subscribe Form has NO `<form>` element — it is a `<div class="pp-subscribe-form">` — so the field is injected before the button wrap div.
+
+**Token freshness:** Same pattern as `GSWP_Beaver_Builder`: capture-phase click handler for `<a>`-tag buttons, scoped `ajaxComplete` handler refreshes the spent token after a failed submission. The failure detector handles both error shapes (boolean `true` for contact, truthy string for subscribe).
+
+**Settings UI:** A new "PowerPack Forms" `ToggleGroup` appears on the Form Protection tab when PowerPack is active (`powerpackActive` flag), with independent enable/threshold controls for Contact Form and Subscribe Form.
+
+**Files modified:**
+- Modified `includes/class-gswp-powerpack.php` (guards, injection, stripping, inline JS — now 493 lines).
+- Modified `google-security-for-wordpress.php` (default options, version bump to 2.25.0).
+- Modified `includes/class-gswp-admin.php` (initial settings + `powerpackActive` flag).
+- Modified `includes/class-gswp-rest-api.php` (get_settings, toggles whitelist, threshold sanitization).
+- Modified `src/components/PageToggles.jsx` (new PowerPack Forms toggle group).
+- Modified `src/components/App.jsx` (prop passing).
+- Modified `package.json` (version bump).
+
+**Verification:** `php -l` clean on all PHP files, ESLint 0 errors, webpack production build compiled successfully. **No browser, no WordPress, no PowerPack.**
+
+**Unverified, and stated as such:**
+- The `$.ajaxPrefilter` token delivery has not been tested in a browser against real PowerPack module AJAX.
+- The regex-based captcha stripping has not been tested against real rendered PowerPack module HTML (bindings read from bb-powerpack-2.43.0 source).
+- The subscribe form's raw JSON transport (`echo json_encode(); die();`) has not been exercised against the real module's `JSON.parse(response)` client code.
+- The `<a>` tag click handler for token refresh has not been tested against real PowerPack module DOM.
+- Token freshness after a failed submission (the `ajaxComplete` handler) has not been exercised.
+- The subscribe form's lack of a `<form>` element means the injection fallback path (before button wrap) is the one that will fire; it has not been confirmed against rendered HTML.
+
+---
+
+## Historical Phase: Phase 51 (Beaver Builder core module protection)
 
 ### Phase 51 Modifications (v2.24.0)
 
