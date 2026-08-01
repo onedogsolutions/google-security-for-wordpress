@@ -125,6 +125,11 @@ class GSWP_Admin {
 			'threshold_bb_contact'   => get_option( 'gswp_threshold_bb_contact', '0.5' ),
 			'enable_bb_subscribe'    => get_option( 'gswp_enable_bb_subscribe', '0' ),
 			'threshold_bb_subscribe' => get_option( 'gswp_threshold_bb_subscribe', '0.5' ),
+			// PowerPack module protection (Contact Form, Subscribe Form).
+			'enable_pp_contact'      => get_option( 'gswp_enable_pp_contact', '0' ),
+			'threshold_pp_contact'   => get_option( 'gswp_threshold_pp_contact', '0.5' ),
+			'enable_pp_subscribe'    => get_option( 'gswp_enable_pp_subscribe', '0' ),
+			'threshold_pp_subscribe' => get_option( 'gswp_threshold_pp_subscribe', '0.5' ),
 			// Gravity Forms, per class of form. Before 2.22.0 every non-payment
 			// GF form was scored against threshold_wp_register.
 			'threshold_gf_submit'    => get_option( 'gswp_threshold_gf_submit', '0.5' ),
@@ -152,6 +157,7 @@ class GSWP_Admin {
 				'settings'           => $initial_settings,
 				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 				'beaverBuilderActive' => class_exists( 'FLBuilder' ),
+				'powerpackActive'    => class_exists( 'BB_PowerPack' ),
 				'profileUrl'         => esc_url_raw( admin_url( 'profile.php' ) . '#gswp-2fa' ),
 				'roles'              => wp_roles()->get_names(),
 				'loaderConflict'     => GSWP_Recaptcha_Loader::stored_conflict(),

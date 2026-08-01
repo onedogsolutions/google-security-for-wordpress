@@ -181,6 +181,11 @@ function gswp_default_options() {
 		'threshold_bb_contact'      => '0.5',
 		'enable_bb_subscribe'       => '0',
 		'threshold_bb_subscribe'    => '0.5',
+		// PowerPack module protection (Contact Form, Subscribe Form).
+		'enable_pp_contact'         => '0',
+		'threshold_pp_contact'      => '0.5',
+		'enable_pp_subscribe'       => '0',
+		'threshold_pp_subscribe'    => '0.5',
 		'conflict_mode'             => 'off',
 		// Form providers. The master switch is on; individual providers are
 		// enabled on upgrade wherever replacement can work (see

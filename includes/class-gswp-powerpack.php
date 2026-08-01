@@ -2,12 +2,14 @@
 /**
  * PowerPack for Beaver Builder Integration
  *
- * Adds reCAPTCHA v3 scoring to the login and lost password forms rendered by
- * the PowerPack "Login Form" module and to the "Registration Form" module
- * (bb-powerpack). Each module serializes its whole form with FormData before
- * submitting over admin-ajax, so an injected hidden token field reaches the
- * server. This class validates that token, integrating with each module the
- * cleanest way it exposes:
+ * Adds reCAPTCHA v3 scoring to the forms rendered by the PowerPack modules:
+ * Login Form, Registration Form, Contact Form, and Subscribe Form
+ * (bb-powerpack).
+ *
+ * The Login and Registration modules serialize their whole form with FormData
+ * before submitting over admin-ajax, so an injected hidden token field reaches
+ * the server automatically. This class validates that token, integrating with
+ * each module the cleanest way it exposes:
  *
  *  - Login form: fires the WordPress core `login_form` action (so GSWP_Login
  *    injects the field) and validates through the module's own
@@ -20,10 +22,22 @@
  *    and field validation and immediately before wp_insert_user() — validates
  *    the score, so no user is created on a failed check.
  *
+ * The Contact Form and Subscribe Form modules build their AJAX payloads
+ * manually in JavaScript ($.post() with a hand-constructed data object). A
+ * hidden input injected into the form HTML is NOT included in the request
+ * unless the client-side code is also patched. These two modules therefore
+ * ship a small inline script that uses $.ajaxPrefilter to append the token to
+ * the relevant AJAX actions at submit time — the same approach used by
+ * GSWP_Beaver_Builder for the BB core modules.
+ *
  * When the matching form is protected, the module's own reCAPTCHA is stripped
  * so this plugin's single, site-wide reCAPTCHA is the only one on the form.
  *
- * These forms reuse the WordPress core toggles, thresholds, and verifier.
+ * Login and Registration reuse the WordPress core toggles and thresholds.
+ * Contact Form and Subscribe Form introduce new toggles (gswp_enable_pp_contact,
+ * gswp_enable_pp_subscribe) and thresholds (gswp_threshold_pp_contact,
+ * gswp_threshold_pp_subscribe) for contexts that have no existing equivalent.
+ *
  * PowerPack supports classic v3 keys only for its *own* captcha, but this
  * plugin's scoring is key-type agnostic (it loads enterprise.js for Enterprise
  * keys), so either key type works for the token this class injects.
@@ -45,6 +59,14 @@ class GSWP_Powerpack {
 	private $verifier;
 
 	/**
+	 * Whether at least one protected Contact/Subscribe module was rendered this
+	 * request, so the inline prefilter script should be emitted in the footer.
+	 *
+	 * @var bool
+	 */
+	private $needs_inline_js = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param GSWP_Verifier $verifier Token verifier instance.
@@ -57,8 +79,10 @@ class GSWP_Powerpack {
 			return;
 		}
 
-		$login_on    = '1' === get_option( 'gswp_enable_wp_login', '0' );
-		$register_on = '1' === get_option( 'gswp_enable_wp_register', '0' );
+		$login_on     = '1' === get_option( 'gswp_enable_wp_login', '0' );
+		$register_on  = '1' === get_option( 'gswp_enable_wp_register', '0' );
+		$contact_on   = '1' === get_option( 'gswp_enable_pp_contact', '0' );
+		$subscribe_on = '1' === get_option( 'gswp_enable_pp_subscribe', '0' );
 
 		if ( $login_on ) {
 			add_filter( 'pp_login_form_process_login_errors', array( $this, 'validate_login' ), 10, 3 );
@@ -73,13 +97,31 @@ class GSWP_Powerpack {
 			add_action( 'pp_rf_before_user_register', array( $this, 'validate_registration' ), 10, 2 );
 		}
 
+		// --- Server-side guards for Contact/Subscribe (priority 1, before the
+		// module's own handler at 10). ---
+
+		if ( $contact_on ) {
+			add_action( 'wp_ajax_pp_send_email', array( $this, 'guard_contact' ), 1 );
+			add_action( 'wp_ajax_nopriv_pp_send_email', array( $this, 'guard_contact' ), 1 );
+		}
+
+		if ( $subscribe_on ) {
+			add_action( 'wp_ajax_pp_subscribe_form_submit', array( $this, 'guard_subscribe' ), 1 );
+			add_action( 'wp_ajax_nopriv_pp_subscribe_form_submit', array( $this, 'guard_subscribe' ), 1 );
+		}
+
 		// Prefer this plugin's single, site-wide reCAPTCHA over each module's
 		// own: strip the module's reCAPTCHA so only our token field remains and
-		// our score is the one generated for the form. Registered once for both
+		// our score is the one generated for the form. Registered once for all
 		// modules; replace_module_recaptcha() gates per module by the matching
 		// form toggle.
-		if ( $login_on || $register_on ) {
+		if ( $login_on || $register_on || $contact_on || $subscribe_on ) {
 			add_filter( 'fl_builder_render_module_content', array( $this, 'replace_module_recaptcha' ), 10, 2 );
+		}
+
+		// Contact/Subscribe need the inline prefilter in the footer.
+		if ( $contact_on || $subscribe_on ) {
+			add_action( 'wp_footer', array( $this, 'print_inline_js' ), 25 );
 		}
 
 		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
@@ -174,18 +216,70 @@ class GSWP_Powerpack {
 		}
 	}
 
+	// ------------------------------------------------------------------
+	// Server-side guards for Contact Form and Subscribe Form.
+	// ------------------------------------------------------------------
+
 	/**
-	 * Remove a PowerPack module's own reCAPTCHA / hCaptcha field.
+	 * Guard the PowerPack Contact Form AJAX submission.
 	 *
-	 * Handles both the Login Form and Registration Form modules. When this
-	 * plugin protects the corresponding form, its hidden token field is already
-	 * injected and submitted with the module's FormData. Leaving the module's
-	 * own captcha in place would load a second reCAPTCHA and, worse, once its
-	 * loader is suppressed (the Conflict Guard suppresses the `g-recaptcha`
-	 * handle) the module's client-side gating would block the form for everyone.
-	 * Stripping the captcha field makes the module skip it entirely — client
-	 * side (no `.pp-grecaptcha` element to execute) and server side (no captcha
-	 * flag posted) — so this plugin's site-wide score is the only one generated.
+	 * Runs before the module's send_mail() handler (priority 1 vs 10). On a
+	 * failed score the request is ended with the JSON shape the module's
+	 * _submitComplete() reads: response.error (boolean) and response.message.
+	 */
+	public function guard_contact() {
+		$result = $this->verifier->verify_token( 'pp_contact', 'contact' );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json(
+				array(
+					'error'   => true,
+					'message' => $result->get_error_message(),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Guard the PowerPack Subscribe Form AJAX submission.
+	 *
+	 * Runs before the module's submit() handler (priority 1 vs 10). The module
+	 * outputs raw JSON via echo json_encode(); die(); — NOT wp_send_json() —
+	 * and its _submitFormComplete() parses data.error as a truthy string.
+	 * This guard replicates that transport exactly.
+	 */
+	public function guard_subscribe() {
+		$result = $this->verifier->verify_token( 'pp_subscribe', 'subscribe' );
+		if ( is_wp_error( $result ) ) {
+			echo wp_json_encode(
+				array(
+					'action'  => false,
+					'error'   => $result->get_error_message(),
+					'message' => false,
+					'url'     => false,
+				)
+			);
+			die();
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Front-end field injection and captcha stripping.
+	// ------------------------------------------------------------------
+
+	/**
+	 * Remove a PowerPack module's own reCAPTCHA / hCaptcha / Turnstile field
+	 * and inject this plugin's hidden token field where needed.
+	 *
+	 * Handles the Login Form, Registration Form, Contact Form, and Subscribe
+	 * Form modules. When this plugin protects the corresponding form, its
+	 * hidden token field is injected and the module's own captcha is removed.
+	 * Leaving the module's captcha in place would load a second reCAPTCHA and,
+	 * worse, once its loader is suppressed (the Conflict Guard suppresses the
+	 * `g-recaptcha` handle) the module's client-side gating would block the
+	 * form for everyone. Stripping the captcha field makes the module skip it
+	 * entirely — client side (no `.pp-grecaptcha` element to execute) and
+	 * server side (no captcha flag posted) — so this plugin's site-wide score
+	 * is the only one generated.
 	 *
 	 * @param string $content The rendered module HTML.
 	 * @param object $module  The Beaver Builder module instance.
@@ -214,6 +308,12 @@ class GSWP_Powerpack {
 				'',
 				$content
 			);
+		} elseif ( 'PPContactFormModule' === $class && '1' === get_option( 'gswp_enable_pp_contact', '0' ) ) {
+			$content  = $this->inject_token_field( $content, 'contact' );
+			$stripped = $this->strip_contact_captcha( $content );
+		} elseif ( 'PPSubscribeFormModule' === $class && '1' === get_option( 'gswp_enable_pp_subscribe', '0' ) ) {
+			$content  = $this->inject_token_field_subscribe( $content, 'subscribe' );
+			$stripped = $this->strip_subscribe_captcha( $content );
 		} else {
 			return $content;
 		}
@@ -227,7 +327,122 @@ class GSWP_Powerpack {
 			wp_dequeue_script( 'h-captcha' );
 		}
 
+		// For Contact/Subscribe: request the shared API script, the token
+		// bootstrap, and flag the inline prefilter for the footer.
+		if ( 'PPContactFormModule' === $class || 'PPSubscribeFormModule' === $class ) {
+			if ( GSWP_Assets::enqueue_api_script() ) {
+				GSWP_Assets::add_refresh_bootstrap();
+				$this->needs_inline_js = true;
+			}
+		}
+
 		return $content;
+	}
+
+	/**
+	 * Inject the hidden reCAPTCHA response field into the Contact Form HTML.
+	 *
+	 * The Contact Form uses a <form> element, so the field is placed just
+	 * before the closing </form> tag.
+	 *
+	 * @param string $content Module HTML.
+	 * @param string $action  reCAPTCHA action name for this form.
+	 * @return string Modified HTML.
+	 */
+	private function inject_token_field( $content, $action ) {
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return $content;
+		}
+
+		$field = sprintf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( $action )
+		);
+
+		$pos = strrpos( $content, '</form>' );
+		if ( false !== $pos ) {
+			return substr_replace( $content, $field . "\n", $pos, 0 );
+		}
+
+		// Fallback: append at the end.
+		return $content . "\n" . $field;
+	}
+
+	/**
+	 * Inject the hidden reCAPTCHA response field into the Subscribe Form HTML.
+	 *
+	 * The Subscribe Form has NO <form> element — it is a <div class="pp-subscribe-form">.
+	 * The field is placed just before the closing </div> of .pp-subscribe-form-inner
+	 * (identified by the error message div that immediately precedes the button wrap).
+	 * Fallback: insert before the button wrap div.
+	 *
+	 * @param string $content Module HTML.
+	 * @param string $action  reCAPTCHA action name for this form.
+	 * @return string Modified HTML.
+	 */
+	private function inject_token_field_subscribe( $content, $action ) {
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return $content;
+		}
+
+		$field = sprintf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( $action )
+		);
+
+		// Insert before the button wrap: <div class="pp-form-button pp-button-wrap"
+		$pos = strpos( $content, '<div class="pp-form-button' );
+		if ( false !== $pos ) {
+			return substr_replace( $content, $field . "\n", $pos, 0 );
+		}
+
+		// Fallback: append at the end.
+		return $content . "\n" . $field;
+	}
+
+	/**
+	 * Strip the Contact Form module's own captcha fields (reCAPTCHA, hCaptcha,
+	 * Turnstile).
+	 *
+	 * Each is rendered inside:
+	 *   <div class="pp-input-group pp-recaptcha">...</div>
+	 *   <div class="pp-input-group pp-hcaptcha">...</div>
+	 *   <div class="pp-input-group pp-turnstile">...</div>
+	 *
+	 * @param string $content Module HTML.
+	 * @return string|null Stripped HTML, or null if no regex matched.
+	 */
+	private function strip_contact_captcha( $content ) {
+		$stripped = preg_replace(
+			'~<div class="pp-input-group pp-(?:recaptcha|hcaptcha|turnstile)">.*?</div>\s*</div>~s',
+			'',
+			$content
+		);
+
+		return $stripped;
+	}
+
+	/**
+	 * Strip the Subscribe Form module's own captcha fields (reCAPTCHA, hCaptcha).
+	 *
+	 * Each is rendered inside:
+	 *   <div class="pp-form-field pp-recaptcha">...</div>
+	 *   <div class="pp-form-field pp-hcaptcha">...</div>
+	 *
+	 * The inner structure has one nested div (the widget) plus a <p> error
+	 * message, then the wrapper closes.
+	 *
+	 * @param string $content Module HTML.
+	 * @return string|null Stripped HTML, or null if no regex matched.
+	 */
+	private function strip_subscribe_captcha( $content ) {
+		$stripped = preg_replace(
+			'~<div class="pp-form-field pp-(?:recaptcha|hcaptcha)">.*?</p>\s*</div>~s',
+			'',
+			$content
+		);
+
+		return $stripped;
 	}
 
 	/**
@@ -263,5 +478,192 @@ class GSWP_Powerpack {
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}
+	}
+
+	// ------------------------------------------------------------------
+	// Client-side token delivery for Contact Form and Subscribe Form.
+	// ------------------------------------------------------------------
+
+	/**
+	 * Print the inline prefilter script in the footer.
+	 *
+	 * The PowerPack Contact Form and Subscribe Form modules build their AJAX
+	 * payloads manually — they do NOT serialize the form with FormData — so the
+	 * hidden token field is not included in the $.post() data automatically.
+	 * This script uses $.ajaxPrefilter to append the current token value to the
+	 * relevant AJAX requests at send time.
+	 *
+	 * The shared GSWP bootstrap (printed by GSWP_Recaptcha_Loader) keeps the
+	 * hidden field populated: it fetches on load, refreshes every 100 seconds,
+	 * and refreshes on visibility change. The prefilter simply reads whatever
+	 * value the field holds when the AJAX call is assembled.
+	 *
+	 * A capture-phase click handler also triggers a best-effort token refresh
+	 * for PowerPack's <a>-tag buttons (the bootstrap's own click handler only
+	 * targets button/input[type=submit] elements), and replaces the token after
+	 * a failed submission so the next attempt carries a fresh one.
+	 */
+	public function print_inline_js() {
+		if ( ! $this->needs_inline_js ) {
+			return;
+		}
+
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return;
+		}
+
+		$actions = array();
+
+		if ( '1' === get_option( 'gswp_enable_pp_contact', '0' ) ) {
+			$actions[] = 'pp_send_email';
+		}
+		if ( '1' === get_option( 'gswp_enable_pp_subscribe', '0' ) ) {
+			$actions[] = 'pp_subscribe_form_submit';
+		}
+
+		if ( empty( $actions ) ) {
+			return;
+		}
+
+		$site_key      = GSWP_Recaptcha_Loader::site_key();
+		$is_enterprise = GSWP_Recaptcha_Loader::is_enterprise();
+
+		ob_start();
+		?>
+		(function($) {
+			'use strict';
+
+			if (window.gswpPPFormInit) {
+				return;
+			}
+			window.gswpPPFormInit = true;
+
+			var actions = <?php echo wp_json_encode( $actions ); ?>;
+			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
+			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
+
+			function api() {
+				if (typeof grecaptcha === 'undefined') {
+					return null;
+				}
+				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
+			}
+
+			function fetchToken(input) {
+				var client = api();
+				if (!client || !input) {
+					return;
+				}
+				client.ready(function() {
+					var action = input.getAttribute('data-recaptcha-action') || 'submit';
+					client.execute(siteKey, { action: action }).then(function(token) {
+						input.value = token;
+					});
+				});
+			}
+
+			// Append the current token to PowerPack module AJAX submissions.
+			$.ajaxPrefilter(function(options) {
+				if (!options.data || !options.type || options.type.toUpperCase() !== 'POST') {
+					return;
+				}
+
+				var params;
+				try {
+					params = new URLSearchParams(options.data);
+				} catch (e) {
+					return;
+				}
+
+				var action = params.get('action');
+				if (!action || actions.indexOf(action) === -1) {
+					return;
+				}
+
+				// Already carries a token (future-proofing).
+				if (params.has('g-recaptcha-response')) {
+					return;
+				}
+
+				var input = document.querySelector('.g-recaptcha-response');
+				if (input && input.value) {
+					options.data += '&g-recaptcha-response=' + encodeURIComponent(input.value);
+				}
+			});
+
+			// Best-effort token refresh on PowerPack button click (capture phase,
+			// before jQuery's bubble-phase handler builds the AJAX data).
+			// The PowerPack modules use <a> tags as buttons, which the shared
+			// bootstrap's click handler does not target.
+			document.addEventListener('click', function(e) {
+				var target = e.target;
+				if (!target || !target.closest) {
+					return;
+				}
+
+				var btn = target.closest('.pp-contact-form .pp-submit-button, .pp-subscribe-form .fl-button');
+				if (!btn) {
+					return;
+				}
+
+				var form = btn.closest('form, .pp-contact-form, .pp-subscribe-form');
+				if (!form) {
+					return;
+				}
+
+				var input = form.querySelector('.g-recaptcha-response');
+				if (input) {
+					fetchToken(input);
+				}
+			}, true);
+
+			// After a failed PowerPack AJAX submission, replace the spent token
+			// so the next attempt carries a fresh one. Scoped to the two PP
+			// actions to avoid interfering with other AJAX on the page.
+			$(document).ajaxComplete(function(event, xhr, settings) {
+				if (!settings.data) {
+					return;
+				}
+
+				var params;
+				try {
+					params = new URLSearchParams(settings.data);
+				} catch (e) {
+					return;
+				}
+
+				var action = params.get('action');
+				if (!action || actions.indexOf(action) === -1) {
+					return;
+				}
+
+				var response;
+				try {
+					response = typeof xhr.responseJSON !== 'undefined'
+						? xhr.responseJSON
+						: JSON.parse(xhr.responseText);
+				} catch (e) {
+					return;
+				}
+
+				// Contact Form: error === true. Subscribe Form: error is truthy string.
+				var failed = (response && (response.error === true || (typeof response.error === 'string' && response.error !== '' && response.error !== '0')));
+				if (failed) {
+					var input = document.querySelector('.g-recaptcha-response');
+					if (input) {
+						window.setTimeout(function() {
+							fetchToken(input);
+						}, 0);
+					}
+				}
+			});
+		})(jQuery);
+		<?php
+		$js = ob_get_clean();
+
+		printf(
+			'<script>%s</script>',
+			$js // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded values and static JS, no user HTML.
+		);
 	}
 }

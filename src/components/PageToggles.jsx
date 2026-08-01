@@ -129,6 +129,7 @@ export default function PageToggles( {
 	onChange,
 	woocommerceActive,
 	beaverBuilderActive,
+	powerpackActive,
 } ) {
 	const wordpressCheckpoints = [
 		{
@@ -189,6 +190,29 @@ export default function PageToggles( {
 			),
 			toggleKey: 'enable_bb_subscribe',
 			thresholdKey: 'threshold_bb_subscribe',
+		},
+	];
+
+	const ppCheckpoints = [
+		{
+			id: 'pp_contact',
+			title: __( 'PP Contact Form', 'google-security-for-wordpress' ),
+			description: __(
+				'Scores submissions on the PowerPack Contact Form module to block spam and automated messages.',
+				'google-security-for-wordpress'
+			),
+			toggleKey: 'enable_pp_contact',
+			thresholdKey: 'threshold_pp_contact',
+		},
+		{
+			id: 'pp_subscribe',
+			title: __( 'PP Subscribe Form', 'google-security-for-wordpress' ),
+			description: __(
+				'Protects the PowerPack Subscribe Form (newsletter signup) module from bot subscriptions.',
+				'google-security-for-wordpress'
+			),
+			toggleKey: 'enable_pp_subscribe',
+			thresholdKey: 'threshold_pp_subscribe',
 		},
 	];
 
@@ -278,6 +302,19 @@ export default function PageToggles( {
 					) }
 					description={ sharedDescription }
 					checkpoints={ bbCheckpoints }
+					settings={ settings }
+					onChange={ onChange }
+				/>
+			) }
+
+			{ powerpackActive && (
+				<ToggleGroup
+					title={ __(
+						'PowerPack Forms',
+						'google-security-for-wordpress'
+					) }
+					description={ sharedDescription }
+					checkpoints={ ppCheckpoints }
 					settings={ settings }
 					onChange={ onChange }
 				/>

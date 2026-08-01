@@ -255,6 +255,9 @@ export default function App() {
 								beaverBuilderActive={
 									!! initialData.beaverBuilderActive
 								}
+								powerpackActive={
+									!! initialData.powerpackActive
+								}
 							/>
 						),
 						defense: (
