@@ -139,7 +139,8 @@ $has_txn = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $txn_table ) )
 
 $ids = implode( ',', array_map( 'intval', array_keys( $payment_forms ) ) );
 
-$subs = $wpdb->get_results( // phpcs:ignore WordPress.DB
+// phpcs:ignore WordPress.DB
+$subs = $wpdb->get_results(
 	"SELECT id, form_id, payment_status, created_at
 	 FROM {$subs_table}
 	 WHERE form_id IN ({$ids})
@@ -155,13 +156,16 @@ if ( empty( $subs ) ) {
 	echo '  ' . str_repeat( '-', 104 ) . "\n";
 
 	foreach ( $subs as $sub ) {
-		$assessment = $wpdb->get_var( // phpcs:ignore WordPress.DB
+		// phpcs:ignore WordPress.DB
+		$assessment = $wpdb->get_var(
 			$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE response_id = %d AND meta_key = 'gswp_assessment_name'", (int) $sub['id'] )
 		);
-		$unverified = $wpdb->get_var( // phpcs:ignore WordPress.DB
+		// phpcs:ignore WordPress.DB
+		$unverified = $wpdb->get_var(
 			$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE response_id = %d AND meta_key = 'gswp_unverified'", (int) $sub['id'] )
 		);
-		$annotated  = $wpdb->get_var( // phpcs:ignore WordPress.DB
+		// phpcs:ignore WordPress.DB
+		$annotated  = $wpdb->get_var(
 			$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE response_id = %d AND meta_key = 'gswp_annotated'", (int) $sub['id'] )
 		);
 
@@ -191,7 +195,8 @@ if ( empty( $subs ) ) {
 }
 
 if ( $has_txn ) {
-	$txns = $wpdb->get_results( // phpcs:ignore WordPress.DB
+	// phpcs:ignore WordPress.DB
+	$txns = $wpdb->get_results(
 		"SELECT id, submission_id, form_id, payment_total, currency, status, payment_method, charge_id, created_at
 		 FROM {$txn_table}
 		 WHERE form_id IN ({$ids})

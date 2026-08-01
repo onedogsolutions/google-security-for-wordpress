@@ -189,7 +189,8 @@ foreach ( $provider->forms() as $form_id => $title ) {
 	// general meta dump. Every 'user_registration_feeds' row, decoded,
 	// with the discriminator printed explicitly.
 	// -------------------------------------------------------------------
-	$feed_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
+	// phpcs:ignore WordPress.DB
+	$feed_rows = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = 'user_registration_feeds'",
 			(int) $form_id
@@ -213,19 +214,28 @@ foreach ( $provider->forms() as $form_id => $title ) {
 			$cond_status  = isset( $feed['conditionals']['status'] ) ? var_export( $feed['conditionals']['status'], true ) : '(none)'; // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 			$resolves_to  = ( isset( $feed['list_id'] ) && 'user_update' === $feed['list_id'] ) ? 'update' : 'create';
 
-			echo '                         [' . $i . '] list_id=' . var_export( $list_id, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-				. '  enabled=' . $enabled
-				. '  conditionals.status=' . $cond_status
-				. '  -> resolves to: ' . $resolves_to . "\n";
-			echo '                             (conditionals are NOT evaluated — a conditional feed still counts as active, per the 2.17.0 rule against reading enforcement from request-shaped data)' . "\n";
+			// Built as one variable before echoing. An earlier revision put a
+			// phpcs:ignore comment at the end of the FIRST line of a
+			// multi-line concatenation, which is valid PHP but fragile: any
+			// layer that reflows or joins those lines swallows the
+			// continuation into the comment and truncates the statement. This
+			// chunk is pasted between tools often enough for that to matter.
+			$line  = '                         [' . $i . '] list_id=' . var_export( $list_id, true ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			$line .= '  enabled=' . $enabled;
+			$line .= '  conditionals.status=' . $cond_status;
+			$line .= '  -> resolves to: ' . $resolves_to;
+			echo $line . "\n";
+			echo "                             (conditionals are NOT evaluated - a conditional feed still counts as active, per the 2.17.0 rule against reading enforcement from request-shaped data)\n";
 		}
 	}
 
 	// The sticky fallback flags, printed explicitly.
-	$has_reg = $wpdb->get_var( // phpcs:ignore WordPress.DB
+	// phpcs:ignore WordPress.DB
+	$has_reg = $wpdb->get_var(
 		$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = '_has_user_registration'", (int) $form_id )
 	);
-	$has_upd = $wpdb->get_var( // phpcs:ignore WordPress.DB
+	// phpcs:ignore WordPress.DB
+	$has_upd = $wpdb->get_var(
 		$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = '_has_user_update'", (int) $form_id )
 	);
 	echo '    _has_user_registration (sticky, fallback only) : ' . ( null === $has_reg ? '(absent)' : var_export( $has_reg, true ) ) . "\n"; // phpcs:ignore WordPress.PHP.DevelopmentFunctions

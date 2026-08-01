@@ -86,7 +86,8 @@ function gswp_ff_mask( $value ) {
 // ---------------------------------------------------------------------------
 echo "=== FLUENT FORMS OPTION ROWS (names verbatim, values masked) ===\n\n";
 
-$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
+// phpcs:ignore WordPress.DB
+$rows = $wpdb->get_results(
 	"SELECT option_name, option_value FROM {$wpdb->options}
 	 WHERE option_name LIKE '%fluentform%' OR option_name LIKE '%fluent_form%'
 	 ORDER BY option_name ASC",

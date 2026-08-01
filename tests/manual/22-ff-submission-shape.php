@@ -240,7 +240,8 @@ if ( ! $reflect->hasConstant( 'ERROR_KEY' ) ) {
 		}
 
 		$settings_json = $wpdb->get_var(
-			$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = 'formSettings'", (int) $form_id ) // phpcs:ignore WordPress.DB
+			// phpcs:ignore WordPress.DB
+			$wpdb->prepare( "SELECT value FROM {$meta_table} WHERE form_id = %d AND meta_key = 'formSettings'", (int) $form_id )
 		);
 		$settings      = is_string( $settings_json ) ? json_decode( $settings_json, true ) : null;
 		$placement     = is_array( $settings ) ? (string) ( $settings['layout']['errorMessagePlacement'] ?? 'inline' ) : 'inline (default)';

@@ -420,7 +420,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 		$assert(
 			'pure User Update feed resolves to update',
 			'update' === $got,
-			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			'got: ' . var_export( $got, true )
 		);
 
 		// Case 2: a pure User Registration feed (list_id is anything other than
@@ -430,7 +431,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 		$assert(
 			'pure User Registration feed resolves to create',
 			'create' === $got,
-			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			'got: ' . var_export( $got, true )
 		);
 
 		// Case 3: a disabled User Update feed and nothing else — touches no
@@ -440,7 +442,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 		$assert(
 			'disabled feed, nothing else, resolves to empty (touches no account)',
 			'' === $got,
-			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			'got: ' . var_export( $got, true )
 		);
 
 		// Case 4: an undecodable feed row. Fails to the stricter reading.
@@ -457,7 +460,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 		$assert(
 			'undecodable feed row resolves to create (stricter)',
 			'create' === $got,
-			'got: ' . var_export( $got, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			'got: ' . var_export( $got, true )
 		);
 
 		// Case 5: both an active registration feed and an active update feed.
@@ -471,7 +475,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 		$assert(
 			'both feeds active, logged OUT, resolves to create',
 			'create' === $logged_out_result,
-			'got: ' . var_export( $logged_out_result, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			'got: ' . var_export( $logged_out_result, true )
 		);
 
 		$existing_users = get_users(
@@ -489,7 +494,8 @@ if ( ! $reflect->hasMethod( 'account_feed_type' ) ) {
 			$assert(
 				'both feeds active, logged IN, resolves to update',
 				'update' === $logged_in_result,
-				'got: ' . var_export( $logged_in_result, true ) // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				'got: ' . var_export( $logged_in_result, true )
 			);
 		}
 
