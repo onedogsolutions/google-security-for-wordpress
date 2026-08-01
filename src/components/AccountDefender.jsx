@@ -39,6 +39,8 @@ export default function AccountDefender( { settings, onChange } ) {
 		settings.ad_events === undefined;
 	const blockSignupOn =
 		settings.ad_block_signup === '1' || settings.ad_block_signup === true;
+	const blockLostpwOn =
+		settings.ad_block_lostpw === '1' || settings.ad_block_lostpw === true;
 	const shareEmailOn =
 		settings.ad_share_email === '1' || settings.ad_share_email === true;
 
@@ -195,6 +197,39 @@ export default function AccountDefender( { settings, onChange } ) {
 										onChange(
 											'ad_block_signup',
 											blockSignupOn ? '0' : '1'
+										)
+									}
+								/>
+							</div>
+						) }
+
+						{ /* Block suspicious reset requests */ }
+						{ defenderOn && (
+							<div className="py-6 flex flex-col gap-y-4 sm:flex-row sm:items-center sm:justify-between sm:gap-x-8 animate-fadeIn">
+								<div className="flex-1">
+									<h3 className="text-sm font-semibold text-gray-900">
+										{ __(
+											'Block suspicious reset requests',
+											'google-security-for-wordpress'
+										) }
+									</h3>
+									<p className="mt-1 text-sm text-gray-500">
+										{ __(
+											'When a lost password request is flagged by Account Defender as suspicious activity, refuse to send the reset email. Off by default: requests are logged and alerted but not blocked, so a legitimate user is never locked out of recovery.',
+											'google-security-for-wordpress'
+										) }
+									</p>
+								</div>
+								<Toggle
+									label={ __(
+										'Block suspicious reset requests',
+										'google-security-for-wordpress'
+									) }
+									enabled={ blockLostpwOn }
+									onToggle={ () =>
+										onChange(
+											'ad_block_lostpw',
+											blockLostpwOn ? '0' : '1'
 										)
 									}
 								/>

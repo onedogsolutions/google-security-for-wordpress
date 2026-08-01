@@ -168,6 +168,16 @@ export default function PageToggles( {
 			toggleKey: 'enable_wp_lostpassword',
 			thresholdKey: 'threshold_wp_lostpassword',
 		},
+		{
+			id: 'wp_comments',
+			title: __( 'WordPress Comments', 'google-security-for-wordpress' ),
+			description: __(
+				'Scores comment submissions to block spam and automated link-dropping on posts and pages.',
+				'google-security-for-wordpress'
+			),
+			toggleKey: 'enable_comments',
+			thresholdKey: 'threshold_comments',
+		},
 	];
 
 	const bbCheckpoints = [

@@ -128,6 +128,7 @@ require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-password-defense.php';
 // during WP-CLI boot). Instantiation remains gated in gswp_init().
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-admin.php';
 require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-frontend.php';
+require_once GSWP_PLUGIN_DIR . 'includes/class-gswp-comments.php';
 
 /**
  * Default option values, keyed by option name without the gswp_ prefix.
@@ -159,6 +160,7 @@ function gswp_default_options() {
 		'ad_step_up'                => '0',
 		'ad_events'                 => '1',
 		'ad_block_signup'           => '0',
+		'ad_block_lostpw'           => '0',
 		'ad_share_email'            => '0',
 		'account_salt'              => '',
 		// Admin email alerts on flagged events.
@@ -176,6 +178,9 @@ function gswp_default_options() {
 		'threshold_wp_login'        => '0.5',
 		'threshold_wp_register'     => '0.5',
 		'threshold_wp_lostpassword' => '0.5',
+		// WordPress comment form protection.
+		'enable_comments'           => '0',
+		'threshold_comments'        => '0.5',
 		// Beaver Builder core module protection.
 		'enable_bb_contact'         => '0',
 		'threshold_bb_contact'      => '0.5',
@@ -519,6 +524,8 @@ function gswp_init() {
 		new GSWP_Foreign_Recaptcha();
 	} else {
 		new GSWP_Frontend();
+		// Comment form reCAPTCHA scoring. Inert unless the toggle is on.
+		new GSWP_Comments( $verifier );
 	}
 }
 add_action( 'plugins_loaded', 'gswp_init' );

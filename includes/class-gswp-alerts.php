@@ -76,6 +76,7 @@ class GSWP_Alerts {
 
 		add_action( 'gswp_suspicious_admin_login', array( $this, 'on_suspicious_login' ), 10, 3 );
 		add_action( 'gswp_suspicious_registration', array( $this, 'on_suspicious_registration' ), 10, 3 );
+		add_action( 'gswp_suspicious_lost_password', array( $this, 'on_suspicious_lost_password' ), 10, 3 );
 		add_action( 'gswp_checkout_blocked', array( $this, 'on_checkout_blocked' ), 10, 3 );
 		add_action( 'gswp_leaked_credentials', array( $this, 'on_leaked_credentials' ), 10, 3 );
 		add_action( 'gswp_form_coverage_gap', array( $this, 'on_form_coverage_gap' ), 10, 2 );
@@ -217,6 +218,43 @@ class GSWP_Alerts {
 		$identity = '' !== $email ? strtolower( $email ) : $ip;
 
 		$this->handle_event( 'registration', 'registration_' . md5( $identity ), $data );
+	}
+
+	/**
+	 * Handle a lost password request flagged as suspicious login activity.
+	 *
+	 * Reuses the alert_login toggle since a suspicious reset request is a
+	 * login-adjacent event (credential-stuffing / account-takeover pattern).
+	 *
+	 * @param WP_User|false|null $user_data The user the reset was requested for.
+	 * @param string[]           $labels    Account Defender labels.
+	 * @param array              $context   Extra flags: source, blocked, assessment.
+	 */
+	public function on_suspicious_lost_password( $user_data, $labels, $context = array() ) {
+		if ( '1' !== get_option( 'gswp_alert_login', '1' ) ) {
+			return;
+		}
+
+		$identity = '';
+		if ( $user_data instanceof WP_User ) {
+			$identity = $user_data->user_login;
+		}
+
+		$ip = self::client_ip();
+
+		$data = array(
+			'user_login' => $identity,
+			'labels'     => implode( ', ', (array) $labels ),
+			'source'     => isset( $context['source'] ) ? (string) $context['source'] : '',
+			'blocked'    => ! empty( $context['blocked'] ),
+			'assessment' => isset( $context['assessment'] ) ? (string) $context['assessment'] : '',
+			'ip'         => $ip,
+			'ua'         => self::user_agent(),
+		);
+
+		$dedupe_id = '' !== $identity ? strtolower( $identity ) : $ip;
+
+		$this->handle_event( 'login', 'lostpw_' . md5( $dedupe_id ), $data );
 	}
 
 	/**
