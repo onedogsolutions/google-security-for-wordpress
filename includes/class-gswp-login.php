@@ -249,6 +249,14 @@ class GSWP_Login {
 			$errors->add( 'recaptcha_error', $result->get_error_message() );
 		}
 
+		// Account Defender: evaluate risk labels on the reset request.
+		if ( class_exists( 'GSWP_Account_Defender' ) ) {
+			$screen = GSWP_Account_Defender::screen_lost_password( $this->verifier, $user_data, 'wp-login' );
+			if ( is_wp_error( $screen ) && is_wp_error( $errors ) ) {
+				$errors->add( 'recaptcha_error', $screen->get_error_message() );
+			}
+		}
+
 		// Remember this assessment so completing the reset (a later request that
 		// carries no token) can annotate it once email control is proven.
 		if ( $user_data instanceof WP_User && $this->reset_events_active() ) {

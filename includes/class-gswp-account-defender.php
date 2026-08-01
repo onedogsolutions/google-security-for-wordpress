@@ -583,6 +583,66 @@ class GSWP_Account_Defender {
 	}
 
 	/**
+	 * Screen a just-scored lost password request against Account Defender's labels.
+	 *
+	 * Called by the lost password validator after the reCAPTCHA score passed.
+	 * Logs any labels, fires the gswp_suspicious_lost_password alert action when
+	 * SUSPICIOUS_LOGIN_ACTIVITY is present, and — only when the opt-in
+	 * gswp_ad_block_lostpw toggle is on — returns a WP_Error for the caller to
+	 * surface, preventing the reset email from being sent.
+	 *
+	 * @param GSWP_Verifier    $verifier  Verifier holding the fresh assessment.
+	 * @param WP_User|false|null $user_data The user the reset was requested for.
+	 * @param string           $source    Surface identifier ('wp-login').
+	 * @return WP_Error|null WP_Error to block the request, null to allow.
+	 */
+	public static function screen_lost_password( $verifier, $user_data, $source = 'wp-login' ) {
+		if ( ! self::is_active() || ! $verifier instanceof GSWP_Verifier ) {
+			return null;
+		}
+
+		$labels = $verifier->get_last_account_labels();
+		if ( empty( $labels ) ) {
+			return null;
+		}
+
+		$suspicious = in_array( 'SUSPICIOUS_LOGIN_ACTIVITY', $labels, true );
+		$blocking   = $suspicious && '1' === get_option( 'gswp_ad_block_lostpw', '0' );
+
+		if ( $suspicious || self::verbose() ) {
+			self::static_log( 'Account Defender labels for lost password (' . $source . '): ' . implode( ', ', $labels ) . '.' );
+		}
+
+		if ( $suspicious ) {
+			/**
+			 * A lost password request was flagged as suspicious login activity.
+			 * Fires whether or not the request is blocked; GSWP_Alerts is the
+			 * shipped subscriber, and the action doubles as a seam for
+			 * third-party (Slack/webhook) forwarding.
+			 */
+			do_action(
+				'gswp_suspicious_lost_password',
+				$user_data,
+				$labels,
+				array(
+					'source'     => $source,
+					'blocked'    => $blocking,
+					'assessment' => $verifier->get_last_assessment_name(),
+				)
+			);
+		}
+
+		if ( $blocking ) {
+			return new WP_Error(
+				'recaptcha_suspicious_reset',
+				__( '<strong>Error:</strong> This password reset request was flagged as suspicious. Please try again later or contact us.', 'google-security-for-wordpress' )
+			);
+		}
+
+		return null;
+	}
+
+	/**
 	 * Annotate a failed login (wrong password) for the assessed attempt.
 	 *
 	 * @param string        $username Submitted username.

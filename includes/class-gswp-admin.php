@@ -106,6 +106,7 @@ class GSWP_Admin {
 			'ad_step_up'             => get_option( 'gswp_ad_step_up', '0' ),
 			'ad_events'              => get_option( 'gswp_ad_events', '1' ),
 			'ad_block_signup'        => get_option( 'gswp_ad_block_signup', '0' ),
+			'ad_block_lostpw'        => get_option( 'gswp_ad_block_lostpw', '0' ),
 			'ad_share_email'         => get_option( 'gswp_ad_share_email', '0' ),
 			'alerts'                 => get_option( 'gswp_alerts', '0' ),
 			'alert_email'            => get_option( 'gswp_alert_email', '' ),
@@ -120,6 +121,9 @@ class GSWP_Admin {
 			'threshold_wp_login'     => get_option( 'gswp_threshold_wp_login', '0.5' ),
 			'threshold_wp_register'  => get_option( 'gswp_threshold_wp_register', '0.5' ),
 			'threshold_wp_lostpassword' => get_option( 'gswp_threshold_wp_lostpassword', '0.5' ),
+			// WordPress comment form protection.
+			'enable_comments'        => get_option( 'gswp_enable_comments', '0' ),
+			'threshold_comments'     => get_option( 'gswp_threshold_comments', '0.5' ),
 			// Beaver Builder core module protection.
 			'enable_bb_contact'      => get_option( 'gswp_enable_bb_contact', '0' ),
 			'threshold_bb_contact'   => get_option( 'gswp_threshold_bb_contact', '0.5' ),
