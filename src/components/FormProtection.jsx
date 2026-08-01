@@ -134,8 +134,7 @@ export default function FormProtection( { settings, onChange } ) {
 	// "Token seen", rejections, "Its own reCAPTCHA") reverted to its
 	// pre-save state immediately after Save, even though the setting had
 	// already been persisted correctly server-side.
-	const audit =
-		settings.form_providers ||
+	const audit = settings.form_providers ||
 		adminData.formProviders || { enabled: true, providers: {} };
 	const providers = Object.values( audit.providers || {} );
 
