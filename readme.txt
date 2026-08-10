@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.26.1
+Stable tag: 2.26.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.26.2 =
+* Fixed: password reset links could not be sent from the WordPress admin when the lost password form protection was enabled. The reCAPTCHA script and token field are now loaded on the Users screen and the user profile screens, so admin-initiated resets pass verification. The per-user "Send password reset" row action remains a nonce-protected link and is not blocked by reCAPTCHA.
 
 = 2.26.0 =
 * Added: Account Defender risk assessment on the lost password form. When Account Defender flags a password reset request as suspicious login activity, the plugin can now optionally block the reset email from being sent (new "Block suspicious reset requests" toggle under Account Defender). Off by default: flagged requests are logged and alerted but never blocked, so a legitimate user is not locked out of recovery.

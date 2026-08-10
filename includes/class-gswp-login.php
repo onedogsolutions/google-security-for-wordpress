@@ -3,7 +3,8 @@
  * WordPress Core Login Class
  *
  * Adds reCAPTCHA v3 scoring to the WordPress core authentication screens
- * served by wp-login.php: sign in, user registration, and lost password.
+ * served by wp-login.php: sign in, user registration, and lost password,
+ * plus admin-initiated password reset links.
  * These screens are independent of WooCommerce, so this works on any
  * WordPress install.
  *
@@ -56,6 +57,14 @@ class GSWP_Login {
 			// Two args: the second is the requested WP_User, used as the Account
 			// Defender identifier and to store a pending assessment for the reset.
 			add_action( 'lostpassword_post', array( $this, 'validate_lostpassword' ), 10, 2 );
+
+			// Admin-initiated password reset links (Users screen and profile
+			// screens) also flow through lostpassword_post/retrieve_password(),
+			// so they need the token field and script loaded in wp-admin.
+			add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+			add_action( 'show_user_profile', array( $this, 'inject_admin_reset_field' ) );
+			add_action( 'edit_user_profile', array( $this, 'inject_admin_reset_field' ) );
+			add_action( 'restrict_manage_users', array( $this, 'inject_admin_users_field' ) );
 		}
 
 		// Account Defender: assess and annotate the password-reset completion so
@@ -154,6 +163,61 @@ class GSWP_Login {
 	}
 
 	/**
+	 * Load the reCAPTCHA API script and token bootstrap on admin screens where
+	 * password reset links can be sent.
+	 *
+	 * @param string $hook Current admin page hook.
+	 */
+	public function enqueue_admin_assets( $hook ) {
+		if ( ! in_array( $hook, array( 'users.php', 'user-edit.php', 'profile.php' ), true ) ) {
+			return;
+		}
+
+		if ( GSWP_Assets::enqueue_api_script() ) {
+			GSWP_Assets::add_refresh_bootstrap();
+		}
+	}
+
+	/**
+	 * Inject the hidden token field into the user profile reset-link form.
+	 */
+	public function inject_admin_reset_field() {
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return;
+		}
+
+		printf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( 'lostpassword' )
+		);
+	}
+
+	/**
+	 * Inject the hidden token field into the Users screen bulk-action form.
+	 *
+	 * restrict_manage_users fires inside the bulk-action form, and the shared
+	 * bootstrap keeps the field populated.
+	 *
+	 * @param string $which 'top' or 'bottom' table navigation (unused).
+	 */
+	public function inject_admin_users_field( $which ) {
+		static $printed = false;
+		if ( $printed ) {
+			return;
+		}
+		$printed = true;
+
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return;
+		}
+
+		printf(
+			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			esc_attr( 'lostpassword' )
+		);
+	}
+
+	/**
 	 * Validate the wp-login.php sign in attempt.
 	 *
 	 * @param null|WP_User|WP_Error $user     Authenticated user or error so far.
@@ -239,6 +303,14 @@ class GSWP_Login {
 	 * @param WP_User|false|null $user_data The user the reset was requested for.
 	 */
 	public function validate_lostpassword( $errors, $user_data = null ) {
+		// The admin Users list "Send password reset" row action is a GET link
+		// protected by a WordPress nonce. reCAPTCHA cannot be attached to a link,
+		// so skip enforcement for that path while still validating bulk actions
+		// and profile form submissions.
+		if ( is_admin() && isset( $_GET['action'] ) && 'resetpassword' === $_GET['action'] && isset( $_GET['user'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			return;
+		}
+
 		// Attach the Account Defender identifier when the requested account is
 		// known, so the lost-password assessment carries the same accountId as
 		// the eventual reset completion.

@@ -2,7 +2,7 @@
 
 ## Release state
 
-**`main` is at v2.26.1**, which adds two new protection surfaces: (1) Account Defender risk-label evaluation on the WordPress lost password form, with an optional block on suspicious reset requests, and (2) reCAPTCHA v3 scoring on WordPress core comment forms. This is a new-feature release following v2.25.0 (PowerPack Contact/Subscribe forms). It has NOT been validated on a live site — the evidence behind it is `php -l`, ESLint, and a completed `npm run build`. A testing ZIP was delivered to the operator.
+**`main` is at v2.26.2**, a bugfix release that resolves admin-initiated password resets being blocked when the lost password form protection is enabled. v2.26.1 added two new protection surfaces: (1) Account Defender risk-label evaluation on the WordPress lost password form, with an optional block on suspicious reset requests, and (2) reCAPTCHA v3 scoring on WordPress core comment forms. v2.26.2 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated bootstrap, and a completed `npm run build`. A testing ZIP was delivered to the operator.
 
 **v2.25.0 is the preceding release.** See below for its full history.
 
@@ -28,7 +28,34 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 53 (Account Defender lost password + Comment form protection)
+## Current Phase: Phase 54 (Admin password reset asset loading)
+
+### Phase 54 Modifications (v2.26.2)
+
+Fixed admin-initiated password reset links being rejected with **"Anti-spam verification token is missing"** when `gswp_enable_wp_lostpassword` is enabled.
+
+`GSWP_Login::validate_lostpassword()` enforces a reCAPTCHA token on the `lostpassword_post` hook. That hook fires not only for the front-end `wp-login.php?action=lostpassword` form, but also when WordPress sends a reset link from the admin:
+
+- `wp-admin/users.php` bulk action **Send password reset** (POST)
+- `wp-admin/user-edit.php` and `wp-admin/profile.php` **Send Reset Link** button (POST)
+- `wp-admin/users.php` per-user **Send password reset** row action (GET, nonce-protected)
+
+Previously `GSWP_Login` only injected the token field on `lostpassword_form` and only printed the reCAPTCHA script on `login_footer`, neither of which runs in `wp-admin`. The result was an empty `g-recaptcha-response` field and a hard block for legitimate admin/users.
+
+Changes in `includes/class-gswp-login.php`:
+
+- Added `admin_enqueue_scripts` hook to load the shared reCAPTCHA API script and token bootstrap on `users.php`, `user-edit.php`, and `profile.php` when the lost-password toggle is on.
+- Added `show_user_profile` / `edit_user_profile` hooks to inject the hidden token field into the profile form's **Send Reset Link** submission.
+- Added `restrict_manage_users` hook to inject the hidden token field into the Users screen bulk-action form.
+- Added a guard in `validate_lostpassword()` to skip reCAPTCHA enforcement for the per-user row-action GET link, which is protected by a WordPress nonce and cannot carry a reCAPTCHA token.
+
+The front-end lost-password dialogue on the affected site renders the standard WordPress form, so no front-end changes are required.
+
+**Files touched:** `includes/class-gswp-login.php`, `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json`, `tests/manual/29-password-reset-assets.php` (new).
+
+**Evidence:** `php -l` on every touched file, `node --check` on the generated bootstrap, and a completed `npm run build`. ESLint reports one inherited `prettier/prettier` error in `src/components/FormProtection.jsx:137` — unchanged from v2.26.1. **Not exercised on a live site** — no browser, no real admin password reset, no Users screen submission.
+
+## Historical Phase: Phase 53 (Account Defender lost password + Comment form protection)
 
 ### Phase 53 Modifications (v2.26.0)
 
