@@ -2,7 +2,7 @@
 
 ## Release state
 
-**`main` is at v2.27.0**, a bugfix release that resolves the remaining password-reset failures after v2.26.2 loaded the reCAPTCHA assets. The front-end PowerPack lost-password form and the WordPress admin profile "Send Reset Link" button both submit via AJAX without serializing the token field, so they received either a missing-token or an already-spent-token error. v2.27.0 adds `$.ajaxPrefilter` inline scripts for both paths so a fresh token is appended at send time and refreshed after a failed attempt. v2.27.0 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated inline scripts, and a completed `npm run build`. A testing ZIP will be delivered to the operator.
+**`main` is at v2.27.1**, a follow-up bugfix release that corrects two runtime defects left by v2.27.0's password-reset fix. The front-end PowerPack lost-password form was failing because the single-use Enterprise token was verified twice in one AJAX request, causing Google's API to return `DUPE`. The WordPress admin profile "Send Reset Link" button was failing because the shared token-refresh bootstrap was not printed in wp-admin, leaving the token field empty. v2.27.1 removes the redundant PowerPack AJAX guard, prints the shared bootstrap on `admin_print_footer_scripts`, and adds defensive client-side token fetching for the admin button. v2.27.1 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated inline scripts, and a completed `npm run build`. A testing ZIP will be delivered to the operator.
 
 **v2.25.0 is the preceding release.** See below for its full history.
 
@@ -55,6 +55,34 @@ Fixed the two remaining password-reset paths that still failed after Phase 54 lo
 **Files touched:** `includes/class-gswp-powerpack.php`, `includes/class-gswp-login.php`, `tests/manual/29-password-reset-assets.php`, `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json`.
 
 **Evidence:** `php -l` on every touched file, `node --check` on the generated inline scripts, and a completed `npm run build`. **Not exercised on a live site** — no browser, no real PowerPack lost-password submission, no real admin "Send Reset Link" click.
+
+### Phase 55 Modifications (v2.27.1)
+
+Fixed two runtime defects discovered after v2.27.0 was deployed to staging.
+
+**Problem:** v2.27.0 loaded the right assets and prefilters, but the password-reset flows still failed:
+
+1. **Front-end PowerPack lost-password form** verified the single-use Enterprise token twice in one request. `GSWP_Powerpack::guard_lostpassword()` ran at priority 1 on `wp_ajax_pp_lf_process_lost_pass`, and then `GSWP_Login::validate_lostpassword()` ran again on the `lostpassword_post` action fired by PowerPack's `retrieve_password()`. The second verification caused Google's Enterprise API to return `invalidReason: DUPE`.
+2. **Admin "Send Reset Link"** had no populated token because the shared `gswpInit` token-refresh bootstrap was only printed on `wp_print_footer_scripts`, which does not fire in wp-admin. The admin inline prefilter therefore appended an empty value, and the server rejected the request as missing a token.
+
+**Changes:**
+
+- `includes/class-gswp-powerpack.php`:
+  - Removed the redundant `wp_ajax_pp_lf_process_lost_pass` / `wp_ajax_nopriv_pp_lf_process_lost_pass` guard and its `guard_lostpassword()` method. Validation now happens exactly once via `lostpassword_post`.
+  - Expanded the capture-phase click selector to include `.pp-login-form--button`, the actual button class used by the PowerPack lost-password form.
+
+- `includes/class-gswp-recaptcha-loader.php`:
+  - Hooked `print_bootstrap()` to `admin_print_footer_scripts` so the shared token refresh bootstrap also runs in wp-admin.
+
+- `includes/class-gswp-login.php`:
+  - Updated the admin inline script to fetch an initial token on load and to refresh the token on a capture-phase click of the `.send-password-reset` button.
+
+- `tests/manual/29-password-reset-assets.php`:
+  - Added assertions that the shared bootstrap is hooked to `admin_print_footer_scripts` and that the PowerPack click handler targets `.pp-login-form--button`.
+
+**Files touched:** `includes/class-gswp-powerpack.php`, `includes/class-gswp-recaptcha-loader.php`, `includes/class-gswp-login.php`, `tests/manual/29-password-reset-assets.php`, `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json`, `STATE.md`.
+
+**Evidence:** `php -l` on every touched file, `node --check` on the generated inline scripts, and a completed `npm run build`. **Not exercised on a live site** — staging verification is outstanding.
 
 ## Historical Phase: Phase 54 (Admin password reset asset loading)
 

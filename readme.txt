@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.27.0
+Stable tag: 2.27.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,10 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.27.1 =
+* Fixed: front-end PowerPack lost-password forms still failed with an "Anti-spam verification expired" error because the single-use Enterprise token was verified twice in one AJAX request. Removed the redundant `wp_ajax_pp_lf_process_lost_pass` guard; validation now runs only on the `lostpassword_post` action fired by PowerPack's `retrieve_password()` call.
+* Fixed: the WordPress admin "Send Reset Link" button had no populated reCAPTCHA token because the shared token-refresh bootstrap was only printed on the front-end footer. The bootstrap is now also printed on `admin_print_footer_scripts`, and the admin inline script fetches an initial token plus refreshes on the Send Reset Link click.
 
 = 2.27.0 =
 * Fixed: front-end PowerPack lost-password forms and the WordPress admin "Send Reset Link" button could not send password reset emails when lost password form protection was enabled. Both paths submit via AJAX without serializing the reCAPTCHA token field, so the token was either missing or already spent on retry. The PowerPack inline prefilter now covers `pp_lf_process_lost_pass`, and a new admin prefilter covers WordPress core's `send_password_reset` action; each appends a fresh token at send time and refreshes it after a failed attempt.

@@ -239,6 +239,23 @@ class GSWP_Login {
 				return;
 			}
 
+			// Populate the field immediately in case the shared bootstrap is
+			// delayed or suppressed on this admin screen.
+			fetchToken($field.get(0));
+
+			// Refresh the token when the admin clicks the Send Reset Link
+			// button, so a click after the two-minute expiry is more likely to
+			// carry a usable token.
+			document.addEventListener('click', function(e) {
+				var target = e.target;
+				if (!target || !target.closest) {
+					return;
+				}
+				if (target.closest('.send-password-reset')) {
+					fetchToken($field.get(0));
+				}
+			}, true);
+
 			// Append the current token to WordPress core's send-password-reset
 			// AJAX request at send time.
 			$.ajaxPrefilter(function(options) {

@@ -14,6 +14,10 @@ $login = GSWP_Login::class;
 
 // Ensure the new hooks are wired.
 $t( 'admin_enqueue_scripts hooked', false !== has_action( 'admin_enqueue_scripts', array( $login, 'enqueue_admin_assets' ) ) );
+$t(
+	'admin_print_footer_scripts bootstrap hooked',
+	false !== has_action( 'admin_print_footer_scripts', array( GSWP_Recaptcha_Loader::class, 'print_bootstrap' ) )
+);
 $t( 'show_user_profile hooked', false !== has_action( 'show_user_profile', array( $login, 'inject_admin_reset_field' ) ) );
 $t( 'edit_user_profile hooked', false !== has_action( 'edit_user_profile', array( $login, 'inject_admin_reset_field' ) ) );
 $t( 'restrict_manage_users hooked', false !== has_action( 'restrict_manage_users', array( $login, 'inject_admin_users_field' ) ) );
@@ -82,6 +86,10 @@ if ( class_exists( 'BB_PowerPack' ) ) {
 	$t(
 		'PowerPack prefilter includes lost-password action',
 		false !== strpos( $pp_inline_js, 'pp_lf_process_lost_pass' )
+	);
+	$t(
+		'PowerPack click handler targets lost-password button',
+		false !== strpos( $pp_inline_js, '.pp-login-form--button' )
 	);
 } else {
 	$t( 'PowerPack prefilter includes lost-password action', true, 'PowerPack not active' );

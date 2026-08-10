@@ -103,6 +103,10 @@ class GSWP_Recaptcha_Loader {
 		// our own loader tag survived deduplication.
 		add_action( 'wp_print_footer_scripts', array( __CLASS__, 'print_bootstrap' ), 20 );
 
+		// The same bootstrap is needed in wp-admin for screens such as the
+		// user profile "Send Reset Link" button.
+		add_action( 'admin_print_footer_scripts', array( __CLASS__, 'print_bootstrap' ), 20 );
+
 		// Record third-party loaders for the admin warning surfaces.
 		add_action( 'wp_footer', array( __CLASS__, 'record_conflicts' ), 99 );
 	}

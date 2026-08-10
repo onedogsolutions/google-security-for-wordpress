@@ -126,13 +126,10 @@ class GSWP_Powerpack {
 			add_action( 'wp_footer', array( $this, 'print_inline_js' ), 25 );
 		}
 
-		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
-			// The lost password handler exposes no validation filter, so guard
-			// its admin-ajax action before the module processes it (its handler
-			// runs at the default priority of 10).
-			add_action( 'wp_ajax_pp_lf_process_lost_pass', array( $this, 'guard_lostpassword' ), 1 );
-			add_action( 'wp_ajax_nopriv_pp_lf_process_lost_pass', array( $this, 'guard_lostpassword' ), 1 );
-		}
+		// Lost-password validation is handled through the WordPress core
+		// lostpassword_post action, which PPLoginFormModule::retrieve_password()
+		// fires from its admin-ajax handler. A separate guard here would verify
+		// the single-use Enterprise token a second time and cause a DUPE error.
 	}
 
 	/**
@@ -475,19 +472,6 @@ class GSWP_Powerpack {
 		return $validation_error;
 	}
 
-	/**
-	 * Guard the PowerPack lost password admin-ajax action.
-	 *
-	 * Runs before the module's own handler; on a failed score it ends the
-	 * request with a JSON error the module renders inline.
-	 */
-	public function guard_lostpassword() {
-		$result = $this->verifier->verify_token( 'wp_lostpassword', 'lostpassword' );
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( $result->get_error_message() );
-		}
-	}
-
 	// ------------------------------------------------------------------
 	// Client-side token delivery for Contact Form and Subscribe Form.
 	// ------------------------------------------------------------------
@@ -619,7 +603,7 @@ class GSWP_Powerpack {
 					return;
 				}
 
-				var btn = target.closest('.pp-contact-form .pp-submit-button, .pp-subscribe-form .fl-button, .pp-login-form .pp-login-form-submit, .pp-login-form .pp-lf-submit, .pp-login-form input[type="submit"]');
+				var btn = target.closest('.pp-contact-form .pp-submit-button, .pp-subscribe-form .fl-button, .pp-login-form .pp-login-form--button, .pp-login-form .pp-login-form-submit, .pp-login-form .pp-lf-submit, .pp-login-form input[type="submit"]');
 				if (!btn) {
 					return;
 				}
