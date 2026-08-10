@@ -2,7 +2,7 @@
 
 ## Release state
 
-**`main` is at v2.27.1**, a follow-up bugfix release that corrects two runtime defects left by v2.27.0's password-reset fix. The front-end PowerPack lost-password form was failing because the single-use Enterprise token was verified twice in one AJAX request, causing Google's API to return `DUPE`. The WordPress admin profile "Send Reset Link" button was failing because the shared token-refresh bootstrap was not printed in wp-admin, leaving the token field empty. v2.27.1 removes the redundant PowerPack AJAX guard, prints the shared bootstrap on `admin_print_footer_scripts`, and adds defensive client-side token fetching for the admin button. v2.27.1 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated inline scripts, and a completed `npm run build`. A testing ZIP will be delivered to the operator.
+**`main` is at v2.27.2**, a follow-up bugfix release that corrects three defects left by v2.27.1's admin password-reset fix. The admin "Send Reset Link" button still failed because the inline script's `fetchToken()` had no `grecaptcha` readiness polling and the capture-phase click handler's async refresh could not complete before jQuery's `$.ajaxPrefilter` read the stale field value. The admin inline script is rewritten in vanilla JS with `waitForApi()` polling and `XMLHttpRequest.prototype.send` patching, so every `send_password_reset` request mints a fresh single-use token before it leaves the browser. The bulk "Send password reset" on `users.php` rejected all but the first selected user because the same single-use token was verified once per user; a request-scoped token cache in `GSWP_Verifier` now returns the first user's verdict for subsequent users sharing the same token. v2.27.2 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated inline scripts, and a completed `npm run build`. A testing ZIP will be delivered to the operator.
 
 **v2.25.0 is the preceding release.** See below for its full history.
 
@@ -28,7 +28,42 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 55 (AJAX password reset token delivery)
+## Current Phase: Phase 56 (Vanilla JS token delivery and bulk-reset token cache)
+
+### Phase 56 Modifications (v2.27.2)
+
+Corrected three defects that persisted after v2.27.1's admin password-reset fix.
+
+**Problem:** v2.27.1 printed the shared bootstrap in wp-admin and added a capture-phase click handler plus `$.ajaxPrefilter` for the admin "Send Reset Link" button, but two issues remained:
+
+1. **Admin inline script had no `grecaptcha` readiness polling.** `print_admin_reset_inline_js()` called `fetchToken()` immediately when the `<script>` tag executed. If the reCAPTCHA API script had not finished loading, `api()` returned `null` and the call failed silently. The shared bootstrap (`gswpInit`) had a `waitForApi()` polling loop, but the admin script did not, creating a window where the token field could be empty when the admin clicked the button.
+2. **The `ajaxPrefilter` sent whatever was in the field at click time, even if expired.** The capture-phase click handler started an async `fetchToken()`, but the WordPress core click handler fired the AJAX request almost immediately after. The `ajaxPrefilter` read `$field.val()` at that instant — still holding the old (possibly expired) token. The request left with a stale token, and Google returned `EXPIRED` or `DUPE`. The `ajaxComplete` handler refreshed the token afterward, so the *second* click worked — a degraded two-click experience.
+3. **Bulk "Send password reset" verified the same single-use token per user.** On `users.php`, selecting multiple users and choosing "Send password reset" called `retrieve_password()` for each user, each firing `lostpassword_post` → `validate_lostpassword()` → `verify_token()`. The same token was sent to Google N times. The first succeeded; the second and subsequent calls returned `invalidReason: DUPE`, rejecting all but the first user's reset.
+
+**Changes:**
+
+- `includes/class-gswp-login.php`:
+  - Rewrote `print_admin_reset_inline_js()` in vanilla JS, removing the jQuery IIFE wrapper and all jQuery dependencies (`$.ajaxPrefilter`, `$.ajaxComplete`, `$()`).
+  - Added `waitForApi()` polling (100 ms interval, 10 s timeout) matching the shared bootstrap's pattern, so the initial token fetch only runs once `grecaptcha` is available.
+  - Replaced `$.ajaxPrefilter` with `XMLHttpRequest.prototype.send` patching: intercepts `send_password_reset` POST requests, mints a fresh token via `client.execute()`, appends it to the request body, then calls the original `send()`. On token-fetch failure, appends whatever is in the field and sends anyway.
+  - Replaced `$.ajaxComplete` with `XMLHttpRequest.prototype.addEventListener` patching: attaches a `load` listener that parses the response and refreshes the token after a failed `send_password_reset`.
+  - `XMLHttpRequest.prototype.open` is also patched to capture the request URL and method for use by the `send` and `load` overrides.
+
+- `includes/class-gswp-verifier.php`:
+  - Added a request-scoped `$token_cache` property (keyed by token string) to `GSWP_Verifier`.
+  - In `verify_token()`, after reading the token: if the same token has already been verified on this request, the cached verdict (true or WP_Error) is returned along with the cached score and token action. The API call is skipped, preventing Google's DUPE rejection.
+  - Assessment metadata (`last_assessment_name`, `last_fraud_assessment`, `last_account_assessment`) is deliberately NOT restored from cache: each user in a bulk operation would otherwise inherit the first user's assessment resource, causing later annotation to annotate the wrong assessment.
+  - After each API call (score pass, score fail, or error), the final result is stored in the cache.
+
+- `tests/manual/29-password-reset-assets.php`:
+  - Added assertions that the admin inline script contains `waitForApi` polling and `XMLHttpRequest.prototype.send` patching.
+  - Added assertion that `GSWP_Verifier` declares a `$token_cache` property.
+
+**Files touched:** `includes/class-gswp-login.php`, `includes/class-gswp-verifier.php`, `tests/manual/29-password-reset-assets.php`, `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json`, `STATE.md`.
+
+**Evidence:** `php -l` on every touched file, `node --check` on the generated inline scripts, and a completed `npm run build`. **Not exercised on a live site** — staging verification is outstanding.
+
+## Historical Phase: Phase 55 (AJAX password reset token delivery)
 
 ### Phase 55 Modifications (v2.27.0)
 

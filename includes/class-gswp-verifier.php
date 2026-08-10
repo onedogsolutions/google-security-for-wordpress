@@ -69,6 +69,26 @@ class GSWP_Verifier {
 	private $last_token_action = '';
 
 	/**
+	 * Request-scoped cache of token verification results.
+	 *
+	 * Keyed by token string. Each entry holds the final verdict (true or
+	 * WP_Error) plus the score and token action captured at verification
+	 * time. When the same single-use token is verified more than once in a
+	 * single request — e.g. the admin bulk "Send password reset" action
+	 * iterating over selected users — subsequent calls return the cached
+	 * verdict instead of making a duplicate API call that Google would
+	 * reject with invalidReason: DUPE.
+	 *
+	 * Assessment metadata (assessment name, fraud/account assessments) is
+	 * deliberately NOT cached: each user in a bulk operation would otherwise
+	 * inherit the first user's assessment resource, causing later annotation
+	 * to annotate the wrong assessment.
+	 *
+	 * @var array<string, array{result: true|WP_Error, score: float|null, token_action: string}>
+	 */
+	private $token_cache = array();
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -272,6 +292,19 @@ class GSWP_Verifier {
 			);
 		}
 
+		// Return a cached verdict when the same token has already been verified
+		// on this request (e.g. bulk "Send password reset" iterating over
+		// multiple users with one form token). The API call is skipped; score
+		// and token action are restored so threshold and action checks still
+		// see the original values. Assessment metadata is left at its reset
+		// defaults to avoid annotating the wrong user's assessment later.
+		if ( isset( $this->token_cache[ $token ] ) ) {
+			$cached                  = $this->token_cache[ $token ];
+			$this->last_score        = $cached['score'];
+			$this->last_token_action = $cached['token_action'];
+			return $cached['result'];
+		}
+
 		$result = 'enterprise' === $key_type
 			? $this->assess_enterprise_token( $token, $expected_action, $event_extra )
 			: $this->verify_classic_token( $token );
@@ -291,14 +324,36 @@ class GSWP_Verifier {
 					sprintf( 'score %.2f < threshold %.2f', $this->last_score, $threshold )
 				);
 
-				return new WP_Error(
+				$final = new WP_Error(
 					'recaptcha_low_score',
 					__( '<strong>Error:</strong> Verification score too low. Submission rejected as potential spam.', 'google-security-for-wordpress' )
 				);
+
+				$this->token_cache[ $token ] = array(
+					'result'       => $final,
+					'score'        => $this->last_score,
+					'token_action' => $this->last_token_action,
+				);
+
+				return $final;
 			}
+
+			$this->token_cache[ $token ] = array(
+				'result'       => true,
+				'score'        => $this->last_score,
+				'token_action' => $this->last_token_action,
+			);
 
 			return true;
 		}
+
+		// Cache the terminal result (true or WP_Error) so a subsequent call
+		// with the same token on this request reuses the verdict.
+		$this->token_cache[ $token ] = array(
+			'result'       => $result,
+			'score'        => $this->last_score,
+			'token_action' => $this->last_token_action,
+		);
 
 		return $result;
 	}

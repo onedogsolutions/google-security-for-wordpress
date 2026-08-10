@@ -184,14 +184,19 @@ class GSWP_Login {
 	}
 
 	/**
-	 * Print an admin-footer prefilter so the profile "Send Reset Link" AJAX
-	 * request carries the current reCAPTCHA token.
+	 * Print an admin-footer script so the profile "Send Reset Link" AJAX
+	 * request always carries a fresh reCAPTCHA token.
 	 *
 	 * WordPress core submits the "Send Reset Link" button via
 	 * admin-ajax.php?action=send_password_reset without serializing the profile
 	 * form, so the hidden token field injected by inject_admin_reset_field()
-	 * would otherwise be ignored. This prefilter appends the field value at
-	 * send time and refreshes it after a failed response.
+	 * would otherwise be ignored. This script patches XMLHttpRequest to mint a
+	 * fresh token and append it to the request body at send time, and refreshes
+	 * the token after a failed response.
+	 *
+	 * Written in vanilla JS (no jQuery dependency) so it is self-sufficient
+	 * even when the shared token-refresh bootstrap has not yet populated the
+	 * hidden field.
 	 */
 	public function print_admin_reset_inline_js() {
 		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
@@ -203,7 +208,7 @@ class GSWP_Login {
 
 		ob_start();
 		?>
-		(function($) {
+		(function() {
 			'use strict';
 
 			if (window.gswpAdminResetInit) {
@@ -213,6 +218,9 @@ class GSWP_Login {
 
 			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
 			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
+			// reCAPTCHA v3 tokens expire after 120 seconds.
+			var READY_POLL_MS = 100;
+			var READY_TIMEOUT_MS = 10000;
 
 			function api() {
 				if (typeof grecaptcha === 'undefined') {
@@ -221,104 +229,133 @@ class GSWP_Login {
 				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
 			}
 
+			// Returns a Promise that resolves with a fresh token string,
+			// or rejects when the API is unavailable or the input is missing.
 			function fetchToken(input) {
-				var client = api();
-				if (!client || !input) {
-					return;
-				}
-				client.ready(function() {
-					var action = input.getAttribute('data-recaptcha-action') || 'submit';
-					client.execute(siteKey, { action: action }).then(function(token) {
-						input.value = token;
+				return new Promise(function(resolve, reject) {
+					var client = api();
+					if (!client || !input) {
+						reject();
+						return;
+					}
+					client.ready(function() {
+						var action = input.getAttribute('data-recaptcha-action') || 'submit';
+						client.execute(siteKey, { action: action }).then(resolve, reject);
 					});
 				});
 			}
 
-			var $field = $('input.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
-			if (!$field.length) {
+			function noop() {}
+
+			var field = document.querySelector('input.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
+			if (!field) {
 				return;
 			}
 
-			// Populate the field immediately in case the shared bootstrap is
-			// delayed or suppressed on this admin screen.
-			fetchToken($field.get(0));
-
-			// Refresh the token when the admin clicks the Send Reset Link
-			// button, so a click after the two-minute expiry is more likely to
-			// carry a usable token.
-			document.addEventListener('click', function(e) {
-				var target = e.target;
-				if (!target || !target.closest) {
+			// --- API readiness polling -----------------------------------
+			// The reCAPTCHA API script loads asynchronously; grecaptcha may
+			// not exist yet when this inline script executes. Poll for it
+			// (matching the shared bootstrap's waitForApi pattern) and
+			// populate the field as soon as the API is ready.
+			function waitForApi(elapsed) {
+				if (api()) {
+					fetchToken(field).then(function(token) {
+						field.value = token;
+					}).catch(noop);
 					return;
 				}
-				if (target.closest('.send-password-reset')) {
-					fetchToken($field.get(0));
-				}
-			}, true);
-
-			// Append the current token to WordPress core's send-password-reset
-			// AJAX request at send time.
-			$.ajaxPrefilter(function(options) {
-				if (!options.data || !options.type || options.type.toUpperCase() !== 'POST') {
+				if (elapsed >= READY_TIMEOUT_MS) {
 					return;
 				}
+				setTimeout(function() {
+					waitForApi(elapsed + READY_POLL_MS);
+				}, READY_POLL_MS);
+			}
+			waitForApi(0);
 
-				var params;
-				try {
-					params = new URLSearchParams(options.data);
-				} catch (e) {
-					return;
-				}
+			// --- XMLHttpRequest interception ------------------------------
+			// WordPress core's "Send Reset Link" handler uses jQuery.ajax()
+			// (which delegates to XMLHttpRequest) to POST to admin-ajax.php
+			// with action=send_password_reset. The hidden token field is
+			// inside the profile <form> and is NOT serialized into the AJAX
+			// payload, so we intercept the XHR at send time to append a
+			// fresh token.
 
-				if (params.get('action') !== 'send_password_reset') {
-					return;
+			// Capture the request URL so send() can identify target requests.
+			var origOpen = XMLHttpRequest.prototype.open;
+			XMLHttpRequest.prototype.open = function(method, url) {
+				this._gswpUrl = url;
+				this._gswpMethod = method;
+				return origOpen.apply(this, arguments);
+			};
+
+			// Intercept send() for send_password_reset requests: mint a
+			// fresh token, append it to the body, then call the real send().
+			// Non-matching requests pass through unchanged.
+			var origSend = XMLHttpRequest.prototype.send;
+			XMLHttpRequest.prototype.send = function(body) {
+				if (!this._gswpMethod || this._gswpMethod.toUpperCase() !== 'POST' ||
+					!body || typeof body !== 'string' ||
+					body.indexOf('action=send_password_reset') === -1) {
+					return origSend.apply(this, arguments);
 				}
 
 				// Already carries a token (future-proofing).
-				if (params.has('g-recaptcha-response')) {
-					return;
+				if (body.indexOf('g-recaptcha-response=') !== -1) {
+					return origSend.apply(this, arguments);
 				}
 
-				var value = $field.val();
-				if (value) {
-					options.data += '&g-recaptcha-response=' + encodeURIComponent(value);
-				}
-			});
+				var xhr = this;
 
-			// Refresh the token after a failed reset attempt so the admin can
-			// try again without reloading the page.
-			$(document).ajaxComplete(function(event, xhr, settings) {
-				if (!settings.data) {
-					return;
-				}
+				// Mint a fresh single-use token, then send.
+				fetchToken(field).then(function(token) {
+					body += '&g-recaptcha-response=' + encodeURIComponent(token);
+					origSend.call(xhr, body);
+				}).catch(function() {
+					// API unavailable or fetch failed: append whatever is in
+					// the field and let the server respond with a meaningful
+					// error ("token missing" or "token expired").
+					var val = field.value;
+					if (val) {
+						body += '&g-recaptcha-response=' + encodeURIComponent(val);
+					}
+					origSend.call(xhr, body);
+				});
+			};
 
-				var params;
-				try {
-					params = new URLSearchParams(settings.data);
-				} catch (e) {
-					return;
+			// --- Post-failure token refresh ------------------------------
+			// After a failed send_password_reset response, refresh the token
+			// so the admin can retry without reloading the page.
+			var origAddListener = XMLHttpRequest.prototype.addEventListener;
+			XMLHttpRequest.prototype.addEventListener = function(type, listener) {
+				// Piggyback on the first event listener attachment to add
+				// our own load observer exactly once per XHR instance.
+				if (!this._gswpLoadHooked && (type === 'load' || type === 'readystatechange')) {
+					this._gswpLoadHooked = true;
+					var xhr = this;
+					origAddListener.call(this, 'load', function() {
+						if (!xhr._gswpUrl || !xhr._gswpMethod ||
+							xhr._gswpMethod.toUpperCase() !== 'POST') {
+							return;
+						}
+						var response;
+						try {
+							response = JSON.parse(xhr.responseText);
+						} catch (e) {
+							return;
+						}
+						if (response && response.success === false) {
+							window.setTimeout(function() {
+								fetchToken(field).then(function(token) {
+									field.value = token;
+								}).catch(noop);
+							}, 0);
+						}
+					});
 				}
-
-				if (params.get('action') !== 'send_password_reset') {
-					return;
-				}
-
-				var response;
-				try {
-					response = typeof xhr.responseJSON !== 'undefined'
-						? xhr.responseJSON
-						: JSON.parse(xhr.responseText);
-				} catch (e) {
-					return;
-				}
-
-				if (response && response.success === false) {
-					window.setTimeout(function() {
-						fetchToken($field.get(0));
-					}, 0);
-				}
-			});
-		})(jQuery);
+				return origAddListener.apply(this, arguments);
+			};
+		})();
 		<?php
 		$js = ob_get_clean();
 

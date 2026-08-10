@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.27.1
+Stable tag: 2.27.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,10 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.27.2 =
+* Fixed: the admin "Send Reset Link" button could still fail with an expired or missing token. The admin inline script is rewritten in vanilla JS with `grecaptcha` readiness polling and `XMLHttpRequest.prototype.send` patching, so every `send_password_reset` AJAX request mints a fresh single-use token before it leaves the browser.
+* Fixed: bulk "Send password reset" on the Users screen rejected all but the first selected user with "Anti-spam verification expired" because the same single-use token was verified once per user. A request-scoped token cache in the verifier now returns the first user's verdict for subsequent users sharing the same token, preventing Google's DUPE rejection.
 
 = 2.27.1 =
 * Fixed: front-end PowerPack lost-password forms still failed with an "Anti-spam verification expired" error because the single-use Enterprise token was verified twice in one AJAX request. Removed the redundant `wp_ajax_pp_lf_process_lost_pass` guard; validation now runs only on the `lostpassword_post` action fired by PowerPack's `retrieve_password()` call.

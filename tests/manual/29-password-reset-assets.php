@@ -63,9 +63,38 @@ ob_start();
 $login_instance->print_admin_reset_inline_js();
 $admin_inline_js = ob_get_clean();
 $t(
-	'admin reset prefilter targets send_password_reset',
+	'admin reset inline JS targets send_password_reset',
 	false !== strpos( $admin_inline_js, 'send_password_reset' )
 );
+$t(
+	'admin reset inline JS has waitForApi polling',
+	false !== strpos( $admin_inline_js, 'waitForApi' )
+);
+$t(
+	'admin reset inline JS patches XMLHttpRequest.prototype.send',
+	false !== strpos( $admin_inline_js, 'XMLHttpRequest.prototype.send' )
+);
+$t(
+	'admin reset inline JS has no jQuery dependency',
+	false === strpos( $admin_inline_js, 'jQuery' )
+	&& false === strpos( $admin_inline_js, 'ajaxPrefilter' )
+);
+
+// Confirm the verifier carries a request-scoped token cache.
+$verifier = new ReflectionClass( GSWP_Verifier::class );
+$t(
+	'verifier declares token_cache property',
+	$verifier->hasProperty( 'token_cache' )
+);
+if ( $verifier->hasProperty( 'token_cache' ) ) {
+	$prop = $verifier->getProperty( 'token_cache' );
+	$prop->setAccessible( true );
+	$v = new GSWP_Verifier();
+	$t(
+		'token_cache initialises as empty array',
+		is_array( $prop->getValue( $v ) ) && empty( $prop->getValue( $v ) )
+	);
+}
 
 // Confirm the PowerPack lost-password action is included in the front-end
 // prefilter when the Login Form module is rendered.
