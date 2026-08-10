@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.26.2
+Stable tag: 2.27.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.27.0 =
+* Fixed: front-end PowerPack lost-password forms and the WordPress admin "Send Reset Link" button could not send password reset emails when lost password form protection was enabled. Both paths submit via AJAX without serializing the reCAPTCHA token field, so the token was either missing or already spent on retry. The PowerPack inline prefilter now covers `pp_lf_process_lost_pass`, and a new admin prefilter covers WordPress core's `send_password_reset` action; each appends a fresh token at send time and refreshes it after a failed attempt.
 
 = 2.26.2 =
 * Fixed: password reset links could not be sent from the WordPress admin when the lost password form protection was enabled. The reCAPTCHA script and token field are now loaded on the Users screen and the user profile screens, so admin-initiated resets pass verification. The per-user "Send password reset" row action remains a nonce-protected link and is not blocked by reCAPTCHA.

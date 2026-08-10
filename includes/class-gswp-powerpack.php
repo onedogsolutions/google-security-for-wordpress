@@ -120,7 +120,9 @@ class GSWP_Powerpack {
 		}
 
 		// Contact/Subscribe need the inline prefilter in the footer.
-		if ( $contact_on || $subscribe_on ) {
+		// The Login Form's lost-password sub-form also submits over admin-ajax
+		// and needs the token appended at send time, so include it here.
+		if ( $contact_on || $subscribe_on || '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
 			add_action( 'wp_footer', array( $this, 'print_inline_js' ), 25 );
 		}
 
@@ -299,6 +301,12 @@ class GSWP_Powerpack {
 				'',
 				$content
 			);
+
+			// The lost-password sub-form submits via admin-ajax and needs the
+			// inline prefilter to deliver a fresh token at send time.
+			if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
+				$this->needs_inline_js = true;
+			}
 		} elseif ( 'PPRegistrationFormModule' === $class && '1' === get_option( 'gswp_enable_wp_register', '0' ) ) {
 			// The Registration Form module renders its captcha inside a field
 			// wrapper flagged with data-field-type="recaptcha" that closes after
@@ -487,11 +495,11 @@ class GSWP_Powerpack {
 	/**
 	 * Print the inline prefilter script in the footer.
 	 *
-	 * The PowerPack Contact Form and Subscribe Form modules build their AJAX
-	 * payloads manually — they do NOT serialize the form with FormData — so the
-	 * hidden token field is not included in the $.post() data automatically.
-	 * This script uses $.ajaxPrefilter to append the current token value to the
-	 * relevant AJAX requests at send time.
+	 * The PowerPack Contact Form, Subscribe Form, and Login Form lost-password
+	 * modules build their AJAX payloads manually — they do NOT serialize the
+	 * form with FormData — so the hidden token field is not included in the
+	 * $.post() data automatically. This script uses $.ajaxPrefilter to append
+	 * the current token value to the relevant AJAX requests at send time.
 	 *
 	 * The shared GSWP bootstrap (printed by GSWP_Recaptcha_Loader) keeps the
 	 * hidden field populated: it fetches on load, refreshes every 100 seconds,
@@ -519,6 +527,9 @@ class GSWP_Powerpack {
 		}
 		if ( '1' === get_option( 'gswp_enable_pp_subscribe', '0' ) ) {
 			$actions[] = 'pp_subscribe_form_submit';
+		}
+		if ( '1' === get_option( 'gswp_enable_wp_lostpassword', '0' ) ) {
+			$actions[] = 'pp_lf_process_lost_pass';
 		}
 
 		if ( empty( $actions ) ) {
@@ -585,7 +596,14 @@ class GSWP_Powerpack {
 					return;
 				}
 
-				var input = document.querySelector('.g-recaptcha-response');
+				// Use the field matching this action so a page with both login
+				// and lost-password forms does not send the wrong token.
+				var input;
+				if (action === 'pp_lf_process_lost_pass') {
+					input = document.querySelector('.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
+				} else {
+					input = document.querySelector('.g-recaptcha-response');
+				}
 				if (input && input.value) {
 					options.data += '&g-recaptcha-response=' + encodeURIComponent(input.value);
 				}
@@ -601,12 +619,12 @@ class GSWP_Powerpack {
 					return;
 				}
 
-				var btn = target.closest('.pp-contact-form .pp-submit-button, .pp-subscribe-form .fl-button');
+				var btn = target.closest('.pp-contact-form .pp-submit-button, .pp-subscribe-form .fl-button, .pp-login-form .pp-login-form-submit, .pp-login-form .pp-lf-submit, .pp-login-form input[type="submit"]');
 				if (!btn) {
 					return;
 				}
 
-				var form = btn.closest('form, .pp-contact-form, .pp-subscribe-form');
+				var form = btn.closest('form, .pp-contact-form, .pp-subscribe-form, .pp-login-form');
 				if (!form) {
 					return;
 				}
@@ -618,8 +636,8 @@ class GSWP_Powerpack {
 			}, true);
 
 			// After a failed PowerPack AJAX submission, replace the spent token
-			// so the next attempt carries a fresh one. Scoped to the two PP
-			// actions to avoid interfering with other AJAX on the page.
+			// so the next attempt carries a fresh one. Scoped to the protected
+			// PowerPack actions to avoid interfering with other AJAX on the page.
 			$(document).ajaxComplete(function(event, xhr, settings) {
 				if (!settings.data) {
 					return;
@@ -647,9 +665,22 @@ class GSWP_Powerpack {
 				}
 
 				// Contact Form: error === true. Subscribe Form: error is truthy string.
-				var failed = (response && (response.error === true || (typeof response.error === 'string' && response.error !== '' && response.error !== '0')));
+				// Lost Password: wp_send_json_error() -> response.success === false.
+				var failed = false;
+				if (response) {
+					if (action === 'pp_lf_process_lost_pass') {
+						failed = (response.success === false);
+					} else {
+						failed = (response.error === true || (typeof response.error === 'string' && response.error !== '' && response.error !== '0'));
+					}
+				}
 				if (failed) {
-					var input = document.querySelector('.g-recaptcha-response');
+					var input;
+					if (action === 'pp_lf_process_lost_pass') {
+						input = document.querySelector('.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
+					} else {
+						input = document.querySelector('.g-recaptcha-response');
+					}
 					if (input) {
 						window.setTimeout(function() {
 							fetchToken(input);

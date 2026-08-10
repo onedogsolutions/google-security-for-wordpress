@@ -65,6 +65,11 @@ class GSWP_Login {
 			add_action( 'show_user_profile', array( $this, 'inject_admin_reset_field' ) );
 			add_action( 'edit_user_profile', array( $this, 'inject_admin_reset_field' ) );
 			add_action( 'restrict_manage_users', array( $this, 'inject_admin_users_field' ) );
+
+			// The profile "Send Reset Link" button submits via AJAX and does not
+			// serialize the profile form, so the token field must be appended
+			// with a prefilter.
+			add_action( 'admin_footer', array( $this, 'print_admin_reset_inline_js' ), 25 );
 		}
 
 		// Account Defender: assess and annotate the password-reset completion so
@@ -176,6 +181,134 @@ class GSWP_Login {
 		if ( GSWP_Assets::enqueue_api_script() ) {
 			GSWP_Assets::add_refresh_bootstrap();
 		}
+	}
+
+	/**
+	 * Print an admin-footer prefilter so the profile "Send Reset Link" AJAX
+	 * request carries the current reCAPTCHA token.
+	 *
+	 * WordPress core submits the "Send Reset Link" button via
+	 * admin-ajax.php?action=send_password_reset without serializing the profile
+	 * form, so the hidden token field injected by inject_admin_reset_field()
+	 * would otherwise be ignored. This prefilter appends the field value at
+	 * send time and refreshes it after a failed response.
+	 */
+	public function print_admin_reset_inline_js() {
+		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
+			return;
+		}
+
+		$site_key      = GSWP_Recaptcha_Loader::site_key();
+		$is_enterprise = GSWP_Recaptcha_Loader::is_enterprise();
+
+		ob_start();
+		?>
+		(function($) {
+			'use strict';
+
+			if (window.gswpAdminResetInit) {
+				return;
+			}
+			window.gswpAdminResetInit = true;
+
+			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
+			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
+
+			function api() {
+				if (typeof grecaptcha === 'undefined') {
+					return null;
+				}
+				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
+			}
+
+			function fetchToken(input) {
+				var client = api();
+				if (!client || !input) {
+					return;
+				}
+				client.ready(function() {
+					var action = input.getAttribute('data-recaptcha-action') || 'submit';
+					client.execute(siteKey, { action: action }).then(function(token) {
+						input.value = token;
+					});
+				});
+			}
+
+			var $field = $('input.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
+			if (!$field.length) {
+				return;
+			}
+
+			// Append the current token to WordPress core's send-password-reset
+			// AJAX request at send time.
+			$.ajaxPrefilter(function(options) {
+				if (!options.data || !options.type || options.type.toUpperCase() !== 'POST') {
+					return;
+				}
+
+				var params;
+				try {
+					params = new URLSearchParams(options.data);
+				} catch (e) {
+					return;
+				}
+
+				if (params.get('action') !== 'send_password_reset') {
+					return;
+				}
+
+				// Already carries a token (future-proofing).
+				if (params.has('g-recaptcha-response')) {
+					return;
+				}
+
+				var value = $field.val();
+				if (value) {
+					options.data += '&g-recaptcha-response=' + encodeURIComponent(value);
+				}
+			});
+
+			// Refresh the token after a failed reset attempt so the admin can
+			// try again without reloading the page.
+			$(document).ajaxComplete(function(event, xhr, settings) {
+				if (!settings.data) {
+					return;
+				}
+
+				var params;
+				try {
+					params = new URLSearchParams(settings.data);
+				} catch (e) {
+					return;
+				}
+
+				if (params.get('action') !== 'send_password_reset') {
+					return;
+				}
+
+				var response;
+				try {
+					response = typeof xhr.responseJSON !== 'undefined'
+						? xhr.responseJSON
+						: JSON.parse(xhr.responseText);
+				} catch (e) {
+					return;
+				}
+
+				if (response && response.success === false) {
+					window.setTimeout(function() {
+						fetchToken($field.get(0));
+					}, 0);
+				}
+			});
+		})(jQuery);
+		<?php
+		$js = ob_get_clean();
+
+		printf(
+			'<script>%s</script>',
+			$js // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded values and static JS, no user HTML.
+		);
 	}
 
 	/**

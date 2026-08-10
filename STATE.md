@@ -2,7 +2,7 @@
 
 ## Release state
 
-**`main` is at v2.26.2**, a bugfix release that resolves admin-initiated password resets being blocked when the lost password form protection is enabled. v2.26.1 added two new protection surfaces: (1) Account Defender risk-label evaluation on the WordPress lost password form, with an optional block on suspicious reset requests, and (2) reCAPTCHA v3 scoring on WordPress core comment forms. v2.26.2 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated bootstrap, and a completed `npm run build`. A testing ZIP was delivered to the operator.
+**`main` is at v2.27.0**, a bugfix release that resolves the remaining password-reset failures after v2.26.2 loaded the reCAPTCHA assets. The front-end PowerPack lost-password form and the WordPress admin profile "Send Reset Link" button both submit via AJAX without serializing the token field, so they received either a missing-token or an already-spent-token error. v2.27.0 adds `$.ajaxPrefilter` inline scripts for both paths so a fresh token is appended at send time and refreshed after a failed attempt. v2.27.0 has NOT been validated on a live site — the evidence behind it is `php -l`, `node --check` on the generated inline scripts, and a completed `npm run build`. A testing ZIP will be delivered to the operator.
 
 **v2.25.0 is the preceding release.** See below for its full history.
 
@@ -28,7 +28,35 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 54 (Admin password reset asset loading)
+## Current Phase: Phase 55 (AJAX password reset token delivery)
+
+### Phase 55 Modifications (v2.27.0)
+
+Fixed the two remaining password-reset paths that still failed after Phase 54 loaded the reCAPTCHA script and token field on admin profile/Users screens.
+
+**Problem:** Phase 54 injected the hidden `g-recaptcha-response` field and loaded the reCAPTCHA API in `wp-admin`, but it did not ensure the field value actually reached the server on the requests that mattered:
+
+1. **Front-end PowerPack lost-password form** (`PPLoginFormModule`, AJAX action `pp_lf_process_lost_pass`) builds its AJAX payload manually instead of serializing the form. The shared token bootstrap could populate the field, but the payload was assembled before a fresh token was fetched, and retries resubmitted the same spent token — producing **"Anti-spam verification expired"**.
+2. **Admin `user-edit.php` / `profile.php` "Send Reset Link" button** is a `type="button"` that WordPress core submits via AJAX (`action=send_password_reset`) with a hand-built data object. The injected field inside the profile `<form>` was not included — producing **"Anti-spam verification token is missing"**.
+
+**Changes:**
+
+- `includes/class-gswp-powerpack.php`:
+  - Added `pp_lf_process_lost_pass` to the existing front-end inline prefilter actions, so the current value of `.g-recaptcha-response[data-recaptcha-action="lostpassword"]` is appended to the AJAX payload at send time.
+  - Updated the prefilter, capture-phase click handler, and `ajaxComplete` refresh logic to use the lost-password-specific field when the action is `pp_lf_process_lost_pass`, and to refresh the token after a `wp_send_json_error()` response.
+  - Ensured the inline script is printed and the `needs_inline_js` flag is set when a `PPLoginFormModule` is rendered and lost-password protection is enabled.
+
+- `includes/class-gswp-login.php`:
+  - Added a new `admin_footer` inline script (`print_admin_reset_inline_js()`) that appends the current token to WordPress core's `send_password_reset` AJAX request via `$.ajaxPrefilter` and refreshes it after a failed response.
+
+- `tests/manual/29-password-reset-assets.php`:
+  - Extended to assert the admin `send_password_reset` prefilter script is emitted and the PowerPack lost-password action is included in the front-end prefilter.
+
+**Files touched:** `includes/class-gswp-powerpack.php`, `includes/class-gswp-login.php`, `tests/manual/29-password-reset-assets.php`, `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json`.
+
+**Evidence:** `php -l` on every touched file, `node --check` on the generated inline scripts, and a completed `npm run build`. **Not exercised on a live site** — no browser, no real PowerPack lost-password submission, no real admin "Send Reset Link" click.
+
+## Historical Phase: Phase 54 (Admin password reset asset loading)
 
 ### Phase 54 Modifications (v2.26.2)
 
