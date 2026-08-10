@@ -71,13 +71,16 @@ class GSWP_Verifier {
 	/**
 	 * Request-scoped cache of token verification results.
 	 *
-	 * Keyed by token string. Each entry holds the final verdict (true or
-	 * WP_Error) plus the score and token action captured at verification
-	 * time. When the same single-use token is verified more than once in a
-	 * single request — e.g. the admin bulk "Send password reset" action
-	 * iterating over selected users — subsequent calls return the cached
-	 * verdict instead of making a duplicate API call that Google would
-	 * reject with invalidReason: DUPE.
+	 * Keyed by token, threshold context and expected action together. Each
+	 * entry holds the final verdict (true or WP_Error) plus the score and
+	 * token action captured at verification time. When the same single-use
+	 * token is verified more than once in a single request, subsequent calls
+	 * return the cached verdict instead of making a duplicate API call that
+	 * Google would reject with invalidReason: DUPE.
+	 *
+	 * The context and action are part of the key because the verdict was
+	 * computed against both, and a cache hit re-runs neither check. See the
+	 * comment at the lookup site in verify_token().
 	 *
 	 * Assessment metadata (assessment name, fraud/account assessments) is
 	 * deliberately NOT cached: each user in a bulk operation would otherwise
@@ -293,13 +296,24 @@ class GSWP_Verifier {
 		}
 
 		// Return a cached verdict when the same token has already been verified
-		// on this request (e.g. bulk "Send password reset" iterating over
-		// multiple users with one form token). The API call is skipped; score
-		// and token action are restored so threshold and action checks still
-		// see the original values. Assessment metadata is left at its reset
-		// defaults to avoid annotating the wrong user's assessment later.
-		if ( isset( $this->token_cache[ $token ] ) ) {
-			$cached                  = $this->token_cache[ $token ];
+		// on this request, so Google's single-use enforcement does not reject
+		// the second and later calls with `invalidReason: DUPE`. The API call is
+		// skipped; score and token action are restored so threshold and action
+		// checks still see the original values. Assessment metadata is left at
+		// its reset defaults to avoid annotating the wrong user's assessment
+		// later.
+		//
+		// The key includes the context and the expected action, not just the
+		// token. The cached verdict was computed against both — the action check
+		// happens inside assess_enterprise_token(), which a cache hit skips, and
+		// the threshold is read as gswp_threshold_{$context}. Keying on the
+		// token alone would let a verdict earned under a permissive context
+		// satisfy a stricter one within the same request without either check
+		// being re-run.
+		$cache_key = $token . '|' . $context . '|' . ( is_array( $expected_action ) ? implode( ',', $expected_action ) : (string) $expected_action );
+
+		if ( isset( $this->token_cache[ $cache_key ] ) ) {
+			$cached                  = $this->token_cache[ $cache_key ];
 			$this->last_score        = $cached['score'];
 			$this->last_token_action = $cached['token_action'];
 			return $cached['result'];
@@ -329,7 +343,7 @@ class GSWP_Verifier {
 					__( '<strong>Error:</strong> Verification score too low. Submission rejected as potential spam.', 'google-security-for-wordpress' )
 				);
 
-				$this->token_cache[ $token ] = array(
+				$this->token_cache[ $cache_key ] = array(
 					'result'       => $final,
 					'score'        => $this->last_score,
 					'token_action' => $this->last_token_action,
@@ -338,7 +352,7 @@ class GSWP_Verifier {
 				return $final;
 			}
 
-			$this->token_cache[ $token ] = array(
+			$this->token_cache[ $cache_key ] = array(
 				'result'       => true,
 				'score'        => $this->last_score,
 				'token_action' => $this->last_token_action,
@@ -349,7 +363,7 @@ class GSWP_Verifier {
 
 		// Cache the terminal result (true or WP_Error) so a subsequent call
 		// with the same token on this request reuses the verdict.
-		$this->token_cache[ $token ] = array(
+		$this->token_cache[ $cache_key ] = array(
 			'result'       => $result,
 			'score'        => $this->last_score,
 			'token_action' => $this->last_token_action,

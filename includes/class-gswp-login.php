@@ -3,10 +3,12 @@
  * WordPress Core Login Class
  *
  * Adds reCAPTCHA v3 scoring to the WordPress core authentication screens
- * served by wp-login.php: sign in, user registration, and lost password,
- * plus admin-initiated password reset links.
+ * served by wp-login.php: sign in, user registration, and lost password.
  * These screens are independent of WooCommerce, so this works on any
  * WordPress install.
+ *
+ * Admin-initiated password resets reach the same `lostpassword_post` hook but
+ * are deliberately exempt — see GSWP_Login::is_admin_initiated_reset().
  *
  * @package Google_Security_For_WordPress
  */
@@ -58,18 +60,10 @@ class GSWP_Login {
 			// Defender identifier and to store a pending assessment for the reset.
 			add_action( 'lostpassword_post', array( $this, 'validate_lostpassword' ), 10, 2 );
 
-			// Admin-initiated password reset links (Users screen and profile
-			// screens) also flow through lostpassword_post/retrieve_password(),
-			// so they need the token field and script loaded in wp-admin.
-			add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
-			add_action( 'show_user_profile', array( $this, 'inject_admin_reset_field' ) );
-			add_action( 'edit_user_profile', array( $this, 'inject_admin_reset_field' ) );
-			add_action( 'restrict_manage_users', array( $this, 'inject_admin_users_field' ) );
-
-			// The profile "Send Reset Link" button submits via AJAX and does not
-			// serialize the profile form, so the token field must be appended
-			// with a prefilter.
-			add_action( 'admin_footer', array( $this, 'print_admin_reset_inline_js' ), 25 );
+			// Admin-initiated resets also flow through lostpassword_post, but
+			// they are exempt rather than protected — see
+			// is_admin_initiated_reset() for why. Nothing is loaded in wp-admin
+			// on their behalf.
 		}
 
 		// Account Defender: assess and annotate the password-reset completion so
@@ -168,243 +162,6 @@ class GSWP_Login {
 	}
 
 	/**
-	 * Load the reCAPTCHA API script and token bootstrap on admin screens where
-	 * password reset links can be sent.
-	 *
-	 * @param string $hook Current admin page hook.
-	 */
-	public function enqueue_admin_assets( $hook ) {
-		if ( ! in_array( $hook, array( 'users.php', 'user-edit.php', 'profile.php' ), true ) ) {
-			return;
-		}
-
-		if ( GSWP_Assets::enqueue_api_script() ) {
-			GSWP_Assets::add_refresh_bootstrap();
-		}
-	}
-
-	/**
-	 * Print an admin-footer script so the profile "Send Reset Link" AJAX
-	 * request always carries a fresh reCAPTCHA token.
-	 *
-	 * WordPress core submits the "Send Reset Link" button via
-	 * admin-ajax.php?action=send_password_reset without serializing the profile
-	 * form, so the hidden token field injected by inject_admin_reset_field()
-	 * would otherwise be ignored. This script patches XMLHttpRequest to mint a
-	 * fresh token and append it to the request body at send time, and refreshes
-	 * the token after a failed response.
-	 *
-	 * Written in vanilla JS (no jQuery dependency) so it is self-sufficient
-	 * even when the shared token-refresh bootstrap has not yet populated the
-	 * hidden field.
-	 */
-	public function print_admin_reset_inline_js() {
-		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
-			return;
-		}
-
-		$site_key      = GSWP_Recaptcha_Loader::site_key();
-		$is_enterprise = GSWP_Recaptcha_Loader::is_enterprise();
-
-		ob_start();
-		?>
-		(function() {
-			'use strict';
-
-			if (window.gswpAdminResetInit) {
-				return;
-			}
-			window.gswpAdminResetInit = true;
-
-			var siteKey = <?php echo wp_json_encode( $site_key ); ?>;
-			var isEnterprise = <?php echo $is_enterprise ? 'true' : 'false'; ?>;
-			// reCAPTCHA v3 tokens expire after 120 seconds.
-			var READY_POLL_MS = 100;
-			var READY_TIMEOUT_MS = 10000;
-
-			function api() {
-				if (typeof grecaptcha === 'undefined') {
-					return null;
-				}
-				return isEnterprise ? grecaptcha.enterprise : grecaptcha;
-			}
-
-			// Returns a Promise that resolves with a fresh token string,
-			// or rejects when the API is unavailable or the input is missing.
-			function fetchToken(input) {
-				return new Promise(function(resolve, reject) {
-					var client = api();
-					if (!client || !input) {
-						reject();
-						return;
-					}
-					client.ready(function() {
-						var action = input.getAttribute('data-recaptcha-action') || 'submit';
-						client.execute(siteKey, { action: action }).then(resolve, reject);
-					});
-				});
-			}
-
-			function noop() {}
-
-			var field = document.querySelector('input.g-recaptcha-response[data-recaptcha-action="lostpassword"]');
-			if (!field) {
-				return;
-			}
-
-			// --- API readiness polling -----------------------------------
-			// The reCAPTCHA API script loads asynchronously; grecaptcha may
-			// not exist yet when this inline script executes. Poll for it
-			// (matching the shared bootstrap's waitForApi pattern) and
-			// populate the field as soon as the API is ready.
-			function waitForApi(elapsed) {
-				if (api()) {
-					fetchToken(field).then(function(token) {
-						field.value = token;
-					}).catch(noop);
-					return;
-				}
-				if (elapsed >= READY_TIMEOUT_MS) {
-					return;
-				}
-				setTimeout(function() {
-					waitForApi(elapsed + READY_POLL_MS);
-				}, READY_POLL_MS);
-			}
-			waitForApi(0);
-
-			// --- XMLHttpRequest interception ------------------------------
-			// WordPress core's "Send Reset Link" handler uses jQuery.ajax()
-			// (which delegates to XMLHttpRequest) to POST to admin-ajax.php
-			// with action=send_password_reset. The hidden token field is
-			// inside the profile <form> and is NOT serialized into the AJAX
-			// payload, so we intercept the XHR at send time to append a
-			// fresh token.
-
-			// Capture the request URL so send() can identify target requests.
-			var origOpen = XMLHttpRequest.prototype.open;
-			XMLHttpRequest.prototype.open = function(method, url) {
-				this._gswpUrl = url;
-				this._gswpMethod = method;
-				return origOpen.apply(this, arguments);
-			};
-
-			// Intercept send() for send_password_reset requests: mint a
-			// fresh token, append it to the body, then call the real send().
-			// Non-matching requests pass through unchanged.
-			var origSend = XMLHttpRequest.prototype.send;
-			XMLHttpRequest.prototype.send = function(body) {
-				if (!this._gswpMethod || this._gswpMethod.toUpperCase() !== 'POST' ||
-					!body || typeof body !== 'string' ||
-					body.indexOf('action=send_password_reset') === -1) {
-					return origSend.apply(this, arguments);
-				}
-
-				// Already carries a token (future-proofing).
-				if (body.indexOf('g-recaptcha-response=') !== -1) {
-					return origSend.apply(this, arguments);
-				}
-
-				var xhr = this;
-
-				// Mint a fresh single-use token, then send.
-				fetchToken(field).then(function(token) {
-					body += '&g-recaptcha-response=' + encodeURIComponent(token);
-					origSend.call(xhr, body);
-				}).catch(function() {
-					// API unavailable or fetch failed: append whatever is in
-					// the field and let the server respond with a meaningful
-					// error ("token missing" or "token expired").
-					var val = field.value;
-					if (val) {
-						body += '&g-recaptcha-response=' + encodeURIComponent(val);
-					}
-					origSend.call(xhr, body);
-				});
-			};
-
-			// --- Post-failure token refresh ------------------------------
-			// After a failed send_password_reset response, refresh the token
-			// so the admin can retry without reloading the page.
-			var origAddListener = XMLHttpRequest.prototype.addEventListener;
-			XMLHttpRequest.prototype.addEventListener = function(type, listener) {
-				// Piggyback on the first event listener attachment to add
-				// our own load observer exactly once per XHR instance.
-				if (!this._gswpLoadHooked && (type === 'load' || type === 'readystatechange')) {
-					this._gswpLoadHooked = true;
-					var xhr = this;
-					origAddListener.call(this, 'load', function() {
-						if (!xhr._gswpUrl || !xhr._gswpMethod ||
-							xhr._gswpMethod.toUpperCase() !== 'POST') {
-							return;
-						}
-						var response;
-						try {
-							response = JSON.parse(xhr.responseText);
-						} catch (e) {
-							return;
-						}
-						if (response && response.success === false) {
-							window.setTimeout(function() {
-								fetchToken(field).then(function(token) {
-									field.value = token;
-								}).catch(noop);
-							}, 0);
-						}
-					});
-				}
-				return origAddListener.apply(this, arguments);
-			};
-		})();
-		<?php
-		$js = ob_get_clean();
-
-		printf(
-			'<script>%s</script>',
-			$js // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-encoded values and static JS, no user HTML.
-		);
-	}
-
-	/**
-	 * Inject the hidden token field into the user profile reset-link form.
-	 */
-	public function inject_admin_reset_field() {
-		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
-			return;
-		}
-
-		printf(
-			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
-			esc_attr( 'lostpassword' )
-		);
-	}
-
-	/**
-	 * Inject the hidden token field into the Users screen bulk-action form.
-	 *
-	 * restrict_manage_users fires inside the bulk-action form, and the shared
-	 * bootstrap keeps the field populated.
-	 *
-	 * @param string $which 'top' or 'bottom' table navigation (unused).
-	 */
-	public function inject_admin_users_field( $which ) {
-		static $printed = false;
-		if ( $printed ) {
-			return;
-		}
-		$printed = true;
-
-		if ( ! GSWP_Recaptcha_Loader::will_load() ) {
-			return;
-		}
-
-		printf(
-			'<input type="hidden" name="g-recaptcha-response" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
-			esc_attr( 'lostpassword' )
-		);
-	}
-
-	/**
 	 * Validate the wp-login.php sign in attempt.
 	 *
 	 * @param null|WP_User|WP_Error $user     Authenticated user or error so far.
@@ -490,11 +247,10 @@ class GSWP_Login {
 	 * @param WP_User|false|null $user_data The user the reset was requested for.
 	 */
 	public function validate_lostpassword( $errors, $user_data = null ) {
-		// The admin Users list "Send password reset" row action is a GET link
-		// protected by a WordPress nonce. reCAPTCHA cannot be attached to a link,
-		// so skip enforcement for that path while still validating bulk actions
-		// and profile form submissions.
-		if ( is_admin() && isset( $_GET['action'] ) && 'resetpassword' === $_GET['action'] && isset( $_GET['user'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		// Resets an administrator initiated from wp-admin are exempt. None of
+		// the three core entry points can carry a token, and the capability and
+		// nonce they do carry are the controls that actually protect them.
+		if ( $this->is_admin_initiated_reset() ) {
 			return;
 		}
 
@@ -532,6 +288,115 @@ class GSWP_Login {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Whether this request is a password reset an administrator initiated from
+	 * wp-admin, rather than a visitor using the public lost-password form.
+	 *
+	 * Three core entry points reach `lostpassword_post` from wp-admin, and none
+	 * of them can deliver a reCAPTCHA token to this plugin:
+	 *
+	 *  1. The users.php per-row "Send password reset" action is a plain
+	 *     `<a href>` built as `users.php?action=resetpassword&users=ID`
+	 *     (wp-admin/includes/class-wp-users-list-table.php). A link cannot carry
+	 *     a token under any design.
+	 *  2. The users.php bulk "Send password reset" submits the list-table form,
+	 *     which core renders as `<form method="get">` (wp-admin/users.php). A
+	 *     field injected into it arrives in $_GET, and tokens are read from
+	 *     $_POST.
+	 *  3. The profile.php / user-edit.php "Send Reset Link" button posts
+	 *     `action=send-password-reset` to admin-ajax.php from a hand-built data
+	 *     object (wp-admin/js/user-profile.js) that never serializes the profile
+	 *     form the field lives in.
+	 *
+	 * All three are performed by an authenticated administrator and are already
+	 * gated on a capability check and a WordPress nonce, both verified by core
+	 * before retrieve_password() is reached. reCAPTCHA v3 scores anonymous
+	 * browser traffic; against an admin acting inside wp-admin it adds nothing
+	 * those two controls do not already provide, and every attempt to attach it
+	 * here has instead hard-blocked a legitimate action.
+	 *
+	 * This is NOT the request-body opt-out the A4 note in
+	 * GSWP_Verifier::verify_token() warns about. Each branch re-proves the
+	 * capability and the nonce for itself, so a caller cannot reach the
+	 * exemption by omitting or forging a field — it must already hold the
+	 * privileges that make the reset legitimate. The public lost-password form
+	 * satisfies neither branch and stays fully enforced.
+	 *
+	 * @return bool True when the reset was initiated from wp-admin by a capable,
+	 *              nonce-verified user.
+	 */
+	private function is_admin_initiated_reset() {
+		if ( ! is_admin() ) {
+			return false;
+		}
+
+		return wp_doing_ajax()
+			? $this->is_profile_reset_ajax()
+			: $this->is_users_screen_reset();
+	}
+
+	/**
+	 * Whether this is a nonce-verified reset from the Users list screen.
+	 *
+	 * Covers both the per-row link and the bulk action: core handles them in
+	 * one `case 'resetpassword'` branch, both arrive as GET with the same
+	 * `bulk-users` nonce, and they are not distinguishable from the request.
+	 *
+	 * @return bool
+	 */
+	private function is_users_screen_reset() {
+		if ( ! isset( $GLOBALS['pagenow'] ) || 'users.php' !== $GLOBALS['pagenow'] ) {
+			return false;
+		}
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- the nonce is verified below.
+		// The bulk dropdown submits `action` from the top of the table and
+		// `action2` from the bottom; the row link only ever sets `action`.
+		$action  = isset( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
+		$action2 = isset( $_REQUEST['action2'] ) ? sanitize_key( wp_unslash( $_REQUEST['action2'] ) ) : '';
+		$nonce   = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		if ( 'resetpassword' !== $action && 'resetpassword' !== $action2 ) {
+			return false;
+		}
+
+		if ( ! current_user_can( 'edit_users' ) ) {
+			return false;
+		}
+
+		// wp_verify_nonce() rather than check_admin_referer(): core has already
+		// run the latter, and re-running it would fire its action a second time
+		// and wp_die() on failure instead of returning false.
+		return (bool) wp_verify_nonce( $nonce, 'bulk-users' );
+	}
+
+	/**
+	 * Whether this is the nonce-verified profile "Send Reset Link" AJAX request.
+	 *
+	 * @return bool
+	 */
+	private function is_profile_reset_ajax() {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- the nonce is verified below.
+		// Core registers its AJAX actions hyphenated (wp-admin/admin-ajax.php
+		// $core_actions_post) and derives the handler name from that by
+		// str_replace( '-', '_' ). The request body carries the hyphenated form.
+		$action = isset( $_POST['action'] ) ? sanitize_key( wp_unslash( $_POST['action'] ) ) : '';
+		if ( 'send-password-reset' !== $action ) {
+			return false;
+		}
+
+		$user_id = isset( $_POST['user_id'] ) ? (int) $_POST['user_id'] : 0;
+		$nonce   = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		if ( $user_id <= 0 || ! current_user_can( 'edit_user', $user_id ) ) {
+			return false;
+		}
+
+		return (bool) wp_verify_nonce( $nonce, 'reset-password-for-' . $user_id );
 	}
 
 	/**

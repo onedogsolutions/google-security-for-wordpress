@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.27.2
+Stable tag: 2.27.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,11 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.27.3 =
+* Fixed: admin-initiated password resets failed with "Anti-spam verification token is missing" on the user profile "Send Reset Link" button, and with "Password reset links sent to 0 users" from the Users screen row action and bulk action. Admin-initiated resets are now exempt from reCAPTCHA token enforcement. They are performed by an authenticated administrator and are already protected by a capability check and a WordPress nonce, both verified by WordPress core; none of the three entry points can carry a reCAPTCHA token, so enforcing one only ever blocked a legitimate action. The public lost-password form on wp-login.php is unchanged and remains fully protected.
+* Removed: the wp-admin reCAPTCHA script loading, hidden token fields and `XMLHttpRequest` patching added in 2.26.2–2.27.2 for those paths. wp-admin no longer loads reCAPTCHA on the Users or profile screens.
+* Hardened: the request-scoped token cache added in 2.27.2 was keyed on the token alone, so within one request a verdict earned under one threshold context could satisfy a stricter one without the action or threshold being re-checked. The key now includes the context and expected action.
 
 = 2.27.2 =
 * Fixed: the admin "Send Reset Link" button could still fail with an expired or missing token. The admin inline script is rewritten in vanilla JS with `grecaptcha` readiness polling and `XMLHttpRequest.prototype.send` patching, so every `send_password_reset` AJAX request mints a fresh single-use token before it leaves the browser.

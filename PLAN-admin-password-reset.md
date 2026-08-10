@@ -1,6 +1,8 @@
 # PLAN — Admin-initiated password reset failures (v2.27.2)
 
-**Status:** investigation complete, implementation not started.
+**Status:** implemented in v2.27.3 — Part A, Part B option A2, and Part C.
+Server-side gate proved by a stub harness (15 cases); **the live checks in §7
+have not been run.**
 **Reported against:** v2.27.2, `gswp_enable_wp_lostpassword = 1`, Enterprise keys.
 **Symptoms:**
 
@@ -284,7 +286,7 @@ behavioural model rather than informing it.
 
 ### Part B — choose one for the profile "Send Reset Link" button
 
-#### Option A2 (recommended): exempt it too, and delete the admin JS
+#### Option A2 (recommended — **this is what was implemented**): exempt it too, and delete the admin JS
 
 The profile button is the one admin path that *can* carry a POST token, but the
 request already requires the `edit_user` capability and a per-user
@@ -391,14 +393,27 @@ computed under one context's threshold and action from satisfying another's.
 
 ## 7. Verification
 
-### Static (do before handing over a ZIP)
+### Static — done for v2.27.3
 
-- `php -l` on `includes/class-gswp-login.php`, `includes/class-gswp-verifier.php`.
-- `node --check` on the generated inline script, if option B2 keeps one.
-- `npm run build`.
-- `wp eval-file tests/manual/29-password-reset-assets.php` — note the file needs
-  rewriting either way: under option A2 most of its assertions describe deleted
-  code, and under option B2 the action-string assertion is wrong (§6, item 2).
+- `php -l` clean on every plugin PHP file.
+- `node --check` not applicable: option A2 deletes the only admin inline script,
+  and no `src/` file changed.
+- `npm run build` not run and not needed: no JavaScript or JSX changed, and
+  `build/` is gitignored, so the bundle is unaffected.
+- A stub harness (`scratchpad/exempt-harness.php`, not committed) exercised
+  `is_admin_initiated_reset()` against 15 request shapes with no WordPress
+  present: both exempting cases pass, and forged nonce, missing nonce,
+  wrong-user nonce, missing capability, `user_id=0`, unrelated bulk action,
+  wrong screen, the underscore spelling of the AJAX action, front-end AJAX lost
+  password, admin-shaped parameters replayed off wp-admin, and the public
+  lost-password form all correctly fail to be exempt.
+- `tests/manual/29-password-reset-assets.php` rewritten for the new behaviour.
+  **Not executed** — it needs a live WordPress.
+
+**What this evidence does not cover:** none of it sends an email. It proves the
+gate opens for the right requests and stays shut for the wrong ones; it says
+nothing about whether `retrieve_password()` then succeeds. That is §7's job, and
+it is the step whose absence let this defect ship three times.
 
 ### Live (this is what has been missing for three releases)
 
