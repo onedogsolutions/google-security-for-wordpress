@@ -10,6 +10,18 @@
  * the user, and a template action inside each form, so no request sniffing is
  * required. These forms reuse the WordPress core form toggles and thresholds.
  *
+ * The template action (`xoo_el_form_end`, fired inside each `<form>` by
+ * templates/xoo-el-form.php) passes the form's *render slug*: the basename of
+ * its section template, e.g. global/xoo-el-lostpw-section.php for the lost
+ * password form. That slug is not the wire action — the lostpw section prints
+ * `_xoo_el_form=lostPassword`, and that hidden input is what the AJAX handler
+ * dispatches on. The two sides of this integration therefore key off different
+ * identifiers: injection off the render slug below, validation off the wire
+ * filters. Keying both off the wire action is how the lostpw form shipped with
+ * no token field at all through v2.30.0 — the map carried 'lostPassword' where
+ * the template action passes 'lostpw', so inject_field() printed nothing and
+ * every popup reset failed with "Anti-spam verification token is missing".
+ *
  * @package Google_Security_For_WordPress
  */
 
@@ -27,23 +39,30 @@ class GSWP_Xootix {
 	private $verifier;
 
 	/**
-	 * Map of Xootix form slugs to this plugin's action name, enable option,
-	 * and threshold context.
+	 * Map of Xootix form render slugs to this plugin's action name, enable
+	 * option, and threshold context.
+	 *
+	 * Keys are the slugs `xoo_el_form_end` passes: the section template
+	 * basenames in the plugin's templates/global/ directory ('login',
+	 * 'register', 'lostpw'). The constructor adds 'lostPassword' — the wire
+	 * action from the lostpw section's `_xoo_el_form` hidden input — as an
+	 * alias, so a Xootix release that keys the section differently still
+	 * injects. The action values are the reCAPTCHA action names, not slugs.
 	 *
 	 * @var array
 	 */
 	private $forms = array(
-		'login'        => array(
+		'login'    => array(
 			'action'  => 'login',
 			'enable'  => 'gswp_enable_wp_login',
 			'context' => 'wp_login',
 		),
-		'register'     => array(
+		'register' => array(
 			'action'  => 'register',
 			'enable'  => 'gswp_enable_wp_register',
 			'context' => 'wp_register',
 		),
-		'lostPassword' => array(
+		'lostpw'   => array(
 			'action'  => 'lostpassword',
 			'enable'  => 'gswp_enable_wp_lostpassword',
 			'context' => 'wp_lostpassword',
@@ -57,6 +76,12 @@ class GSWP_Xootix {
 	 */
 	public function __construct( GSWP_Verifier $verifier ) {
 		$this->verifier = $verifier;
+
+		// Alias the lost-password wire action to the lostpw render slug. The
+		// template action passes one slug per form render, so the alias can
+		// never double-print; it only covers a Xootix release that keys the
+		// section by the `_xoo_el_form` value instead of the template slug.
+		$this->forms['lostPassword'] = $this->forms['lostpw'];
 
 		// The Login/Signup Popup plugin must be active.
 		if ( ! function_exists( 'xoo_el' ) ) {
@@ -105,7 +130,8 @@ class GSWP_Xootix {
 	/**
 	 * Inject the hidden reCAPTCHA response field into a popup form.
 	 *
-	 * @param string $form The Xootix form slug ('login', 'register', 'lostPassword').
+	 * @param string $form The Xootix form render slug ('login', 'register',
+	 *                     'lostpw', or the 'lostPassword' wire-action alias).
 	 */
 	public function inject_field( $form, $args = array() ) {
 		if ( ! isset( $this->forms[ $form ] ) ) {

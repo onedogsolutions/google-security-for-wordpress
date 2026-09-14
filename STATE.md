@@ -2,7 +2,9 @@
 
 ## Release state
 
-**`main` is at v2.30.0**, which adds one-click toggles to trust the published edge addresses of Cloudflare and QUIC.cloud. Those ranges are fetched from each provider's public endpoint, refreshed daily via WordPress cron, and merged with any manually-declared trusted proxies at resolution time. Both CDNs can be enabled together for sites that pass traffic through both in series. This is Phase 59 work; the phase is complete.
+**`main` is at v2.30.1**, which fixes the Login/Signup Popup (Xootix) lost-password form refusing every reset with "Anti-spam verification token is missing": the injection map was keyed on the form's wire action where the popup's template action passes its render slug, so the token field never reached that form at all. This is Phase 60 work; the code is complete and the live checks listed in the phase entry are outstanding.
+
+**v2.30.0 is the release before that**, which adds one-click toggles to trust the published edge addresses of Cloudflare and QUIC.cloud. Those ranges are fetched from each provider's public endpoint, refreshed daily via WordPress cron, and merged with any manually-declared trusted proxies at resolution time. Both CDNs can be enabled together for sites that pass traffic through both in series. This is Phase 59 work; the phase is complete.
 
 **`main` also carries the v2.29.0 work** that closes the two items v2.28.0 left open: the client IP sent to Google is now resolved through a declared trusted-proxy chain instead of being `REMOTE_ADDR` unconditionally, and a checkout no longer submits a reCAPTCHA token that went stale while the page was hidden. Both are Phase 58 work; that phase is also complete.
 
@@ -54,7 +56,27 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 59 (CDN proxy toggles for Cloudflare and QUIC.cloud)
+## Current Phase: Phase 60 (Xootix lost-password token injection)
+
+### Phase 60 Modifications (v2.30.1)
+
+**Problem, from the field.** On v2.30.0 with `gswp_enable_wp_lostpassword = 1`, every password reset submitted from the Login/Signup Popup (Xootix, `easy-login-woocommerce`) failed inside the popup with *"Error: Anti-spam verification token is missing. Please refresh the page and try again."* Vanilla wp-login.php, LoginPress and the PowerPack login form reset as expected, and the popup's own login and register forms worked: only the popup's lost-password form was affected.
+
+**Root cause: one map key, keyed on the wrong identifier.** Xootix carries two identifiers for the lost-password form. The *wire action* is `lostPassword` — the value of the `_xoo_el_form` hidden input printed by `templates/global/xoo-el-lostpw-section.php`, which `Xoo_El_Form_Handler::form_action()` dispatches on and `process_lost_password()` re-checks before firing `xoo_el_process_lostpw_errors`. The *render slug* is `lostpw` — the basename of that section template, which `templates/xoo-el-form.php` uses as its loop key and passes to `do_action( 'xoo_el_form_end', $form, $args )` inside each `<form>`. Verified against Xootix trunk rev 3695876 (templates @version 2.5): the section templates shipped are `xoo-el-login-section.php`, `xoo-el-register-section.php`, `xoo-el-lostpw-section.php`, `xoo-el-resetpw-section.php` and `xoo-el-single-section.php`, and the popup JS submits with `new FormData( $form[0] )`, so any field printed inside the form is sent.
+
+`GSWP_Xootix::$forms` keys injection off the slug the template action passes, but its lost-password entry was keyed `'lostPassword'` — the wire action. `inject_field( 'lostpw' )` therefore found no map entry and printed nothing; the shared bootstrap had no `.g-recaptcha-response` field to populate and its MutationObserver never saw one added; the request reached `xoo_el_process_lostpw_errors` with an empty token and the verifier refused it. Validation was correctly wired throughout — the error the visitor saw was enforcement doing its job on a form this plugin had silently failed to arm. The login and register keys matched their section templates, which is precisely why only reset failed.
+
+**Changes:**
+
+- `includes/class-gswp-xootix.php`: re-keyed the lost-password entry of `$forms` to `'lostpw'`, with `'lostPassword'` added in the constructor as an alias for a release that keys the section by the wire action (one slug per render, so the alias cannot double-print). Class and property docblocks now name which identifier each side of the integration consumes — render slug for injection, wire filters for validation — and record the v2.30.0 failure, because this is the same two-expressions-drift failure mode the Gravity Forms provider produced in Phase 48.
+- `tests/manual/32-xootix-lostpw-injection.php`: new. Derives the render slugs from the INSTALLED Xootix section templates so a future rename fails here; asserts by reflection that the map covers `login`, `register` and `lostpw` with the lostpassword action plus the wire-action alias; fetches the popup page over loopback logged-out and asserts each section's `<form>` contains the token field with the right `data-recaptcha-action` (the value that crosses the wire, per the Phase 57 lesson); asserts the lostpw section still carries `_xoo_el_form=lostPassword`; asserts the `resetpw`/`single` second stages carry no field (A4 invariant); replays a tokenless `xoo_el_form_action` POST and asserts it is still refused; and re-fetches with all three toggles off to assert the popup carries no field at all.
+- Version plumbing: `google-security-for-wordpress.php`, `readme.txt`, `package.json`, `package-lock.json` to 2.30.1.
+
+**Evidence, stated plainly:** `php -l` clean on both touched PHP files. No JavaScript or JSX changed, so `npm run build` was not run and the existing `build/` is packaged as-is. **Not validated on a live site** — no browser, no real reset email. The live checks that settle it: (1) a logged-out visitor opens the popup's lost-password view and the hidden field is present and populated before submit; (2) a real reset submits, the success notice renders and the email arrives, and an immediate second submit does not DUPE; (3) popup login and registration still succeed; (4) a raw tokenless POST of `_xoo_el_form=lostPassword` to admin-ajax is still refused. `tests/manual/32` covers field presence, the second-stage invariant and (4) without a browser; the email and the no-DUPE repeat need a human at the popup.
+
+**Packaged.** Distribution ZIP assembled from `google-security-for-wordpress.php`, `readme.txt`, `includes/`, `assets/` and the existing `build/`, rooted at a `google-security-for-wordpress/` folder, excluding `.DS_Store`.
+
+## Historical Phase: Phase 59 (CDN proxy toggles for Cloudflare and QUIC.cloud)
 
 ### Phase 59 Modifications (v2.30.0)
 

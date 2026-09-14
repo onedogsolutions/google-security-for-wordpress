@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.30.0
+Stable tag: 2.30.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.30.1 =
+* Fixed: the Login/Signup Popup (Xootix) lost-password form rejected every reset with "Anti-spam verification token is missing." The hidden reCAPTCHA field was injected under the form's AJAX action name (`lostPassword`, the value of its `_xoo_el_form` hidden input) instead of the render slug the popup's `xoo_el_form_end` template action actually passes (`lostpw`, the basename of the plugin's lost-password section template), so the field never reached that form at all and validation then correctly refused the empty token. The field is now injected into the lostpw form and populated by the shared token bootstrap; a tokenless submission is still refused. The popup's login and registration forms and every other reset surface (wp-login.php, LoginPress, PowerPack, and the admin-initiated exemption) are unchanged.
 
 = 2.30.0 =
 * Added: one-click toggles to trust the published edge addresses of Cloudflare and QUIC.cloud. When enabled, the plugin fetches each CDN's current IP list, stores it locally, and merges those ranges with any manually-declared trusted proxies. Lists refresh daily via WordPress cron and can be refreshed manually from the settings screen.
