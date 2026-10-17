@@ -79,6 +79,23 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	const META_ANNOTATED = 'gswp_annotated';
 
 	/**
+	 * Entry meta key holding why this plugin sent an entry to Spam.
+	 */
+	const META_SPAM_REASON = 'gswp_spam_reason';
+
+	/**
+	 * Transient prefix for a verdict reached during the GF Stripe Payment
+	 * Element's pre-submit check. See remember_precheck_verdict().
+	 */
+	const PRECHECK_PREFIX = 'gswp_gf_pv_';
+
+	/**
+	 * How long a pre-check verdict stays redeemable. Covers a 3-D Secure
+	 * challenge between the pre-check and the completion request.
+	 */
+	const PRECHECK_TTL = 15 * MINUTE_IN_SECONDS;
+
+	/**
 	 * Option recording, per form, when a token field was last successfully
 	 * injected on a real front-end render.
 	 *
@@ -232,6 +249,14 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 * @var array<int,bool>
 	 */
 	private $pending_unverified = array();
+
+	/**
+	 * Forms admitted this request on a low score, to be filed as spam. Keyed
+	 * by form id; the value is the reason recorded on the entry.
+	 *
+	 * @var array<int,string>
+	 */
+	private $pending_spam = array();
 
 	/**
 	 * {@inheritDoc}
@@ -894,6 +919,13 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		add_filter( 'gform_validation', array( $this, 'validate_submission' ), 20 );
 		add_filter( 'gform_validation_message', array( $this, 'validation_message' ), 10, 2 );
 
+		// A low score on a form that neither takes payment nor creates an
+		// account files the entry as spam instead of refusing the visitor.
+		// Verified against GF 3.1.3: GFCommon::is_spam_entry() applies this
+		// filter after the entry is saved, then marks it 'spam' and writes the
+		// note set by GFCommon::set_spam_filter().
+		add_filter( 'gform_entry_is_spam', array( $this, 'flag_spam' ), 10, 3 );
+
 		// Persist the assessment name and any fail-open flag onto the entry.
 		add_action( 'gform_entry_created', array( $this, 'store_entry_meta' ), 10, 2 );
 
@@ -1020,6 +1052,10 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 
 		$form_id = (int) $form['id'];
 
+		// A verdict belongs to one submission. Nothing from an earlier
+		// submission of this form in the same request may reach this entry.
+		unset( $this->pending_spam[ $form_id ] );
+
 		// Never re-judge a submission GF has already rejected.
 		if ( isset( $validation_result['is_valid'] ) && ! $validation_result['is_valid'] ) {
 			return $validation_result;
@@ -1098,6 +1134,52 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return $validation_result;
 		}
 
+		// The GF Stripe Payment Element runs gform_validation twice for one
+		// payment: once in its admin-ajax pre-check, and again when it
+		// completes the entry from a draft whose stored $_POST still carries
+		// the token the pre-check spent. Scoring that token a second time gets
+		// DUPE from Google — a bogus rejection on the coverage report, and the
+		// payment annotation landing on a dead assessment. So the pre-check's
+		// verdict is kept, and the follow-up request for the same token
+		// redeems it instead of re-assessing.
+		$precheck = $this->is_stripe_precheck();
+
+		if ( ! $precheck ) {
+			$redeemed = $this->redeem_precheck_verdict( $form_id, $token );
+			if ( null !== $redeemed ) {
+				if ( $redeemed['ok'] ) {
+					if ( '' !== $redeemed['assessment'] ) {
+						$this->pending_assessment[ $form_id ] = $redeemed['assessment'];
+					}
+
+					return $validation_result;
+				}
+
+				return $this->reject( $validation_result, $redeemed['message'], $form_id );
+			}
+		}
+
+		$validation_result = $this->score_submission( $validation_result, $form, $form_id, $payment, $strict, $token );
+
+		if ( $precheck ) {
+			$this->remember_precheck_verdict( $form_id, $token, $validation_result );
+		}
+
+		return $validation_result;
+	}
+
+	/**
+	 * Assess a submission's token with Google and apply this form's policy.
+	 *
+	 * @param array  $validation_result GF validation result.
+	 * @param array  $form              Form definition.
+	 * @param int    $form_id           Form id.
+	 * @param bool   $payment           Whether the form takes payment.
+	 * @param bool   $strict            Whether the form fails closed.
+	 * @param string $token             Submitted token, non-empty.
+	 * @return array Filtered validation result.
+	 */
+	private function score_submission( $validation_result, $form, $form_id, $payment, $strict, $token ) {
 		$context     = $this->context_for( $form_id );
 		$actions     = $this->accepted_actions( $form_id );
 		$event_extra = $payment ? $this->payment_context( $form, $form_id ) : array();
@@ -1123,6 +1205,11 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				// payment form for the same reason it does at checkout. See
 				// GSWP_Verifier::fraud_verdict_admits_low_score().
 				if ( null !== $score && $score < $threshold && ! $this->verifier->fraud_verdict_admits_low_score() ) {
+					// Only non-strict forms reach this branch.
+					if ( $this->low_score_files_as_spam( $form_id ) ) {
+						return $this->admit_as_spam( $validation_result, $form_id, $score, $threshold );
+					}
+
 					$this->record_rejection( $form_id, 'low score' );
 
 					return $this->reject(
@@ -1144,6 +1231,23 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				);
 
 				return $validation_result;
+			}
+
+			// A low score is the one verdict that is a guess about a person
+			// rather than a fact about a token, and a refresh cannot change
+			// it: a volunteer on a VPN or a locked-down phone is refused on
+			// every attempt and goes away. Where the form moves no money and
+			// creates no account, a false positive costs a reviewer a click in
+			// the Spam folder; a refusal costs the organisation the person.
+			if ( 'recaptcha_low_score' === $result->get_error_code() && ! $strict && $this->low_score_files_as_spam( $form_id ) ) {
+				$score = $this->verifier->get_last_score();
+
+				return $this->admit_as_spam(
+					$validation_result,
+					$form_id,
+					null === $score ? 0.0 : $score,
+					floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) )
+				);
 			}
 
 			$this->record_rejection( $form_id, $result->get_error_code() );
@@ -1203,6 +1307,164 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		$this->errors[ $form_id ]      = $message;
 
 		return $validation_result;
+	}
+
+	/**
+	 * Whether a low score on this (non-strict) form files the entry as spam
+	 * rather than refusing it.
+	 *
+	 * @param int $form_id Form id.
+	 * @return bool
+	 */
+	private function low_score_files_as_spam( $form_id ) {
+		/**
+		 * Filter whether a low reCAPTCHA score on a Gravity Form that takes no
+		 * payment and creates no account is admitted and filed as spam. Return
+		 * false to refuse the submission instead, as before 2.31.0.
+		 *
+		 * @param bool $as_spam Whether to file as spam.
+		 * @param int  $form_id Form id.
+		 */
+		return (bool) apply_filters( 'gswp_gf_low_score_as_spam', true, $form_id );
+	}
+
+	/**
+	 * Admit a low-scoring submission and mark it for the Spam folder.
+	 *
+	 * The visitor sees the normal confirmation. Gravity Forms sends no
+	 * notifications and runs no feeds for a spam entry, so nothing downstream
+	 * acts on it until a person restores it.
+	 *
+	 * @param array $validation_result GF validation result.
+	 * @param int   $form_id           Form id.
+	 * @param float $score             Google's score.
+	 * @param float $threshold         The form's threshold.
+	 * @return array Unchanged validation result.
+	 */
+	private function admit_as_spam( $validation_result, $form_id, $score, $threshold ) {
+		$this->pending_spam[ $form_id ] = sprintf(
+			/* translators: 1: reCAPTCHA score, 2: configured threshold. */
+			__( 'reCAPTCHA scored this submission %1$.2f, below the %2$.2f threshold for this form. If it is genuine, mark it as not spam.', 'google-security-for-wordpress' ),
+			$score,
+			$threshold
+		);
+
+		$this->record_rejection( $form_id, 'low score (filed as spam)' );
+
+		$this->log(
+			sprintf(
+				'Gravity Forms #%d scored %.2f (< %.2f). Admitted and filed as spam; the form takes no payment and creates no account.',
+				$form_id,
+				$score,
+				$threshold
+			)
+		);
+
+		return $validation_result;
+	}
+
+	/**
+	 * Mark an entry as spam when its submission was admitted on a low score.
+	 *
+	 * @param bool  $is_spam Whether an earlier check already flagged it.
+	 * @param array $form    Form definition.
+	 * @param array $entry   Entry.
+	 * @return bool
+	 */
+	public function flag_spam( $is_spam, $form, $entry = array() ) {
+		$form_id = is_array( $form ) && isset( $form['id'] ) ? (int) $form['id'] : 0;
+
+		if ( $is_spam || empty( $this->pending_spam[ $form_id ] ) ) {
+			return $is_spam;
+		}
+
+		if ( method_exists( 'GFCommon', 'set_spam_filter' ) ) {
+			GFCommon::set_spam_filter( $form_id, 'Google Security reCAPTCHA', $this->pending_spam[ $form_id ] );
+		}
+
+		return true;
+	}
+
+	/**
+	 * Whether this request is the GF Stripe Payment Element's pre-submit check.
+	 *
+	 * Verified against GF Stripe 6.0.3: the browser posts the whole form to
+	 * admin-ajax with action=gfstripe_validate_form, which calls
+	 * GFAPI::validate_form() before any PaymentIntent is confirmed.
+	 *
+	 * @return bool
+	 */
+	private function is_stripe_precheck() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- read only to classify the request; GF Stripe checks its own nonce.
+		return wp_doing_ajax() && isset( $_POST['action'] ) && 'gfstripe_validate_form' === $_POST['action'];
+	}
+
+	/**
+	 * Transient key for a token's pre-check verdict.
+	 *
+	 * @param string $token Token.
+	 * @return string
+	 */
+	private function precheck_key( $token ) {
+		return self::PRECHECK_PREFIX . substr( hash( 'sha256', (string) $token ), 0, 32 );
+	}
+
+	/**
+	 * Keep the verdict the pre-check reached, for the follow-up request.
+	 *
+	 * @param int    $form_id           Form id.
+	 * @param string $token             Token the pre-check spent.
+	 * @param array  $validation_result Result after scoring.
+	 */
+	private function remember_precheck_verdict( $form_id, $token, $validation_result ) {
+		$ok = ! isset( $validation_result['is_valid'] ) || false !== $validation_result['is_valid'];
+
+		set_transient(
+			$this->precheck_key( $token ),
+			array(
+				'form'       => (int) $form_id,
+				'ok'         => $ok,
+				'message'    => isset( $this->errors[ $form_id ] ) ? (string) $this->errors[ $form_id ] : '',
+				'assessment' => isset( $this->pending_assessment[ $form_id ] ) ? (string) $this->pending_assessment[ $form_id ] : '',
+			),
+			self::PRECHECK_TTL
+		);
+	}
+
+	/**
+	 * Redeem a pre-check verdict for this form and token, if one is held.
+	 *
+	 * A passing verdict is single use: it admits the one completion request
+	 * and is gone, so a token cannot buy more than the one submission it was
+	 * scored for. A failing verdict is kept, so a re-post of the same token
+	 * shows the visitor the real reason instead of a DUPE "expired".
+	 *
+	 * Only verdicts reached in a pre-check are ever stored, so no other form
+	 * or request path is affected.
+	 *
+	 * @param int    $form_id Form id.
+	 * @param string $token   Submitted token.
+	 * @return array{ok:bool,message:string,assessment:string}|null
+	 */
+	private function redeem_precheck_verdict( $form_id, $token ) {
+		$key     = $this->precheck_key( $token );
+		$verdict = get_transient( $key );
+
+		if ( ! is_array( $verdict ) || ! isset( $verdict['form'], $verdict['ok'] ) || (int) $verdict['form'] !== (int) $form_id ) {
+			return null;
+		}
+
+		if ( $verdict['ok'] ) {
+			delete_transient( $key );
+		}
+
+		return array(
+			'ok'         => (bool) $verdict['ok'],
+			'message'    => '' !== (string) $verdict['message']
+				? (string) $verdict['message']
+				: __( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' ),
+			'assessment' => isset( $verdict['assessment'] ) ? (string) $verdict['assessment'] : '',
+		);
 	}
 
 	/**
@@ -1307,10 +1569,17 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	/**
 	 * Build transactionData for a payment form from its payment feed mapping.
 	 *
-	 * UNVERIFIED: feed meta keys are inferred. Returning an empty array is
-	 * safe — GSWP_Verifier enforces Google's documented minimum (billing region
-	 * + postal code + payment method) and omits transaction data entirely when
-	 * it is unmet, degrading to a plain score rather than an API error.
+	 * Until 2.31.0 this read feed keys that do not exist (`billingInformation_zip`
+	 * and friends; GF Stripe stores `billingInformation_address_zip`), and the
+	 * Payment Element feed has no address mapping at all — so no Gravity Forms
+	 * Stripe payment ever carried transactionData, and the 2.28.0 rule that a
+	 * cleared fraud verdict outranks a low score could never apply to one. A low
+	 * score refused the payment outright. Keys are now verified against GF
+	 * Stripe 6.0.3, and when the feed maps no address the form's own Address
+	 * field is used.
+	 *
+	 * Returning an empty array is safe — the assessment degrades to a plain
+	 * score rather than an API error.
 	 *
 	 * @param array $form    Form definition.
 	 * @param int   $form_id Form id.
@@ -1353,30 +1622,19 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 		// The operator has already mapped these fields so the gateway knows who
 		// is paying. Reusing that mapping avoids a second, drift-prone mapping
 		// UI of our own.
-		$billing = array_filter(
-			array(
-				'recipient'          => trim( $this->mapped( $meta, 'billingInformation_first_name' ) . ' ' . $this->mapped( $meta, 'billingInformation_last_name' ) ),
-				'locality'           => $this->mapped( $meta, 'billingInformation_city' ),
-				'administrativeArea' => $this->mapped( $meta, 'billingInformation_state' ),
-				'regionCode'         => $this->mapped( $meta, 'billingInformation_country' ),
-				'postalCode'         => $this->mapped( $meta, 'billingInformation_zip' ),
-			),
-			static function ( $value ) {
-				return '' !== $value;
-			}
-		);
-
-		$line1 = $this->mapped( $meta, 'billingInformation_address' );
-		if ( '' !== $line1 ) {
-			$billing['address'] = array( $line1 );
+		$billing = $this->billing_from_feed( $meta );
+		if ( empty( $billing['regionCode'] ) || empty( $billing['postalCode'] ) ) {
+			$billing = $this->billing_from_address_field( $form );
 		}
 
 		if ( empty( $billing['regionCode'] ) || empty( $billing['postalCode'] ) ) {
+			$this->note_missing_transaction_data( $form_id, 'no billing country and postal code could be read from the payment feed or an Address field' );
 			return array();
 		}
 
 		$total = $this->order_total( $form );
 		if ( null === $total ) {
+			$this->note_missing_transaction_data( $form_id, 'the order total could not be computed' );
 			return array();
 		}
 
@@ -1387,7 +1645,10 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			'billingAddress' => $billing,
 		);
 
-		$email = $this->mapped( $meta, 'billingInformation_email' );
+		$email = $this->first_mapped( $meta, array( 'customerInformation_email', 'billingInformation_email' ) );
+		if ( '' === $email ) {
+			$email = $this->first_posted_of_type( $form, 'email' );
+		}
 		if ( '' !== $email ) {
 			$transaction['user'] = array( 'email' => $email );
 		}
@@ -1422,6 +1683,201 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	}
 
 	/**
+	 * The first of several feed mappings that resolves to a submitted value.
+	 *
+	 * @param array    $meta Feed meta.
+	 * @param string[] $keys Mapping keys, preferred first.
+	 * @return string Submitted value, or ''.
+	 */
+	private function first_mapped( $meta, $keys ) {
+		foreach ( $keys as $key ) {
+			$value = $this->mapped( $meta, $key );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Billing address from a payment feed's field map.
+	 *
+	 * The `billingInformation_address_*` keys are GF Stripe 6.0.3's (Stripe
+	 * Card field feeds; a Payment Element feed has no address map). The
+	 * unprefixed ones are the GF payment add-on framework's defaults, used by
+	 * the other gateways.
+	 *
+	 * @param array $meta Feed meta.
+	 * @return array Partial reCAPTCHA Enterprise TransactionData.Address.
+	 */
+	private function billing_from_feed( $meta ) {
+		$billing = array_filter(
+			array(
+				'recipient'          => trim( $this->mapped( $meta, 'billingInformation_first_name' ) . ' ' . $this->mapped( $meta, 'billingInformation_last_name' ) ),
+				'locality'           => $this->first_mapped( $meta, array( 'billingInformation_address_city', 'billingInformation_city' ) ),
+				'administrativeArea' => $this->first_mapped( $meta, array( 'billingInformation_address_state', 'billingInformation_state' ) ),
+				'regionCode'         => $this->region_code( $this->first_mapped( $meta, array( 'billingInformation_address_country', 'billingInformation_country' ) ) ),
+				'postalCode'         => $this->first_mapped( $meta, array( 'billingInformation_address_zip', 'billingInformation_zip' ) ),
+			),
+			static function ( $value ) {
+				return '' !== $value;
+			}
+		);
+
+		$lines = array_values(
+			array_filter(
+				array(
+					$this->first_mapped( $meta, array( 'billingInformation_address_line1', 'billingInformation_address' ) ),
+					$this->first_mapped( $meta, array( 'billingInformation_address_line2', 'billingInformation_address2' ) ),
+				),
+				'strlen'
+			)
+		);
+		if ( $lines ) {
+			$billing['address'] = $lines;
+		}
+
+		return $billing;
+	}
+
+	/**
+	 * Billing address from the form's first Address field.
+	 *
+	 * GF posts an Address field as input_{id}_1 (street) … _3 (city), _4
+	 * (state), _5 (ZIP), _6 (country name). US and Canadian address types post
+	 * no country input.
+	 *
+	 * @param array $form Form definition.
+	 * @return array Partial reCAPTCHA Enterprise TransactionData.Address.
+	 */
+	private function billing_from_address_field( $form ) {
+		if ( empty( $form['fields'] ) || ! is_array( $form['fields'] ) ) {
+			return array();
+		}
+
+		foreach ( $form['fields'] as $field ) {
+			if ( ! is_object( $field ) || ! isset( $field->type ) || 'address' !== $field->type ) {
+				continue;
+			}
+
+			$id   = (int) $field->id;
+			$part = function ( $n ) use ( $id ) {
+				$name = 'input_' . $id . '_' . $n;
+				// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Gravity Forms validates its own nonce before validation runs.
+				return isset( $_POST[ $name ] ) && is_scalar( $_POST[ $name ] ) ? sanitize_text_field( wp_unslash( $_POST[ $name ] ) ) : '';
+			};
+
+			$type    = isset( $field->addressType ) ? (string) $field->addressType : 'international';
+			$country = $part( 6 );
+			if ( '' === $country ) {
+				if ( 'us' === $type ) {
+					$country = 'US';
+				} elseif ( 'canadian' === $type ) {
+					$country = 'CA';
+				} elseif ( ! empty( $field->defaultCountry ) ) {
+					$country = (string) $field->defaultCountry;
+				}
+			}
+
+			$billing = array_filter(
+				array(
+					'locality'           => $part( 3 ),
+					'administrativeArea' => $part( 4 ),
+					'regionCode'         => $this->region_code( $country, $field ),
+					'postalCode'         => $part( 5 ),
+				),
+				static function ( $value ) {
+					return '' !== $value;
+				}
+			);
+
+			$lines = array_values( array_filter( array( $part( 1 ), $part( 2 ) ), 'strlen' ) );
+			if ( $lines ) {
+				$billing['address'] = $lines;
+			}
+
+			return $billing;
+		}
+
+		return array();
+	}
+
+	/**
+	 * Normalise a country to the two-letter region code Google expects.
+	 *
+	 * GF posts the country's display name ("United States"); a code passes
+	 * through.
+	 *
+	 * @param string     $country Country name or code.
+	 * @param object|null $field  Address field, when known.
+	 * @return string Region code, or '' when it cannot be resolved.
+	 */
+	private function region_code( $country, $field = null ) {
+		$country = trim( (string) $country );
+
+		if ( '' === $country ) {
+			return '';
+		}
+		if ( preg_match( '/^[A-Za-z]{2}$/', $country ) ) {
+			return strtoupper( $country );
+		}
+
+		if ( ! is_object( $field ) || ! method_exists( $field, 'get_country_code' ) ) {
+			$field = class_exists( 'GF_Field_Address' ) ? new GF_Field_Address() : null;
+		}
+
+		$code = $field ? $field->get_country_code( $country ) : '';
+
+		return is_string( $code ) && preg_match( '/^[A-Za-z]{2}$/', $code ) ? strtoupper( $code ) : '';
+	}
+
+	/**
+	 * The submitted value of the form's first field of a type.
+	 *
+	 * @param array  $form Form definition.
+	 * @param string $type GF field type.
+	 * @return string Submitted value, or ''.
+	 */
+	private function first_posted_of_type( $form, $type ) {
+		if ( empty( $form['fields'] ) || ! is_array( $form['fields'] ) ) {
+			return '';
+		}
+
+		foreach ( $form['fields'] as $field ) {
+			if ( is_object( $field ) && isset( $field->type ) && $type === $field->type ) {
+				return $this->mapped( array( 'k' => (string) $field->id ), 'k' );
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Say, once a day per form, that a payment form is scored without
+	 * transactionData — so the operator knows Transaction defense cannot clear
+	 * a low score on it.
+	 *
+	 * @param int    $form_id Form id.
+	 * @param string $why     Cause.
+	 */
+	private function note_missing_transaction_data( $form_id, $why ) {
+		$key = 'gswp_gf_no_txn_' . (int) $form_id;
+		if ( get_transient( $key ) ) {
+			return;
+		}
+		set_transient( $key, 1, DAY_IN_SECONDS );
+
+		$this->log(
+			sprintf(
+				'Gravity Forms #%d is a payment form but its assessments carry no transactionData: %s. Transaction defense cannot score these payments, so a low reCAPTCHA score refuses them on its own. Add an Address field to the form, or map billing fields in the payment feed.',
+				(int) $form_id,
+				$why
+			)
+		);
+	}
+
+	/**
 	 * Order total for the submission being validated.
 	 *
 	 * @param array $form Form definition.
@@ -1432,11 +1888,20 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			return null;
 		}
 
-		// GFCommon::get_order_total() accepts the submitted values during
-		// validation via GF's own field-value resolution.
-		$total = GFCommon::get_order_total( $form, array() );
+		// GFCommon::get_order_total() reads product values from the entry it
+		// is given. Before 2.31.0 this passed an empty array, which totals 0
+		// (and warns on a missing currency key) — so every payment form's
+		// assessment told Google the payment was worth nothing. During
+		// validation there is no entry yet; GFFormsModel::create_lead() builds
+		// one from the submitted values, which is what GF itself does here.
+		if ( ! class_exists( 'GFFormsModel' ) || ! method_exists( 'GFFormsModel', 'create_lead' ) ) {
+			return null;
+		}
 
-		return is_numeric( $total ) ? (float) $total : null;
+		$lead  = GFFormsModel::create_lead( $form );
+		$total = is_array( $lead ) ? GFCommon::get_order_total( $form, $lead ) : null;
+
+		return is_numeric( $total ) && $total > 0 ? (float) $total : null;
 	}
 
 	/**
@@ -1461,6 +1926,10 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 			// Flagged rather than silent: a real breakage in token generation
 			// shows up as a burst of unverified entries instead of nothing.
 			gform_update_meta( $entry_id, self::META_UNVERIFIED, '1' );
+		}
+
+		if ( ! empty( $this->pending_spam[ $form_id ] ) ) {
+			gform_update_meta( $entry_id, self::META_SPAM_REASON, $this->pending_spam[ $form_id ] );
 		}
 	}
 

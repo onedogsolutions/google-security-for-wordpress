@@ -111,6 +111,10 @@ function rejectionLabel( rejection ) {
 		recaptcha_missing: __( 'no token', 'google-security-for-wordpress' ),
 		'missing token': __( 'no token', 'google-security-for-wordpress' ),
 		'low score': __( 'low score', 'google-security-for-wordpress' ),
+		'low score (filed as spam)': __(
+			'low score — filed as spam',
+			'google-security-for-wordpress'
+		),
 		'transaction risk': __(
 			'transaction risk',
 			'google-security-for-wordpress'
@@ -311,7 +315,7 @@ export default function FormProtection( { settings, onChange } ) {
 									</p>
 									<p className="mt-1 text-xs text-gray-500">
 										{ __(
-											'A submission scoring below its threshold is rejected as spam. Each class of form has its own dial, and each form plugin has its own set of them, so tightening one to keep fake signups out does not silently tighten your contact forms — or the other plugin’s forms — with it. A signed-in user editing their own profile, or changing their own password, is scored but never blocked for a missing token.',
+											'A submission scoring below its threshold is refused on a form that takes payment or creates an account. On any other form it is accepted and filed in the form plugin’s Spam folder for review, so a real person on a VPN or a locked-down phone is not turned away. Each class of form has its own dial, and each form plugin has its own set of them, so tightening one to keep fake signups out does not silently tighten your contact forms — or the other plugin’s forms — with it. A signed-in user editing their own profile, or changing their own password, is scored but never blocked for a missing token.',
 											'google-security-for-wordpress'
 										) }
 									</p>
