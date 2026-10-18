@@ -8,7 +8,7 @@
 // throwaway forms (and a Stripe feed on one), runs every scenario, then deletes
 // them and restores the options it touched. Nothing reaches Google or Stripe.
 //
-// Written for v2.31.0. Two field reports from one live site:
+// Written for v2.31.0; §7b added in v2.31.1. Two field reports from one live site:
 //
 //  1. A volunteer applicant was refused "did not pass our automated security
 //     check" on every attempt. That is a low score, which a refresh cannot
@@ -110,6 +110,12 @@ $prop->setAccessible( true );
 // The verifier caches a token's verdict for the rest of the PHP request, so a
 // later scenario reusing a token would be answered from memory. Real requests
 // are separate processes; clear it between scenarios to match.
+$eprop = new ReflectionProperty( $provider, 'errors' );
+$eprop->setAccessible( true );
+$err   = function ( $form_id ) use ( $eprop, $provider ) {
+	$e = (array) $eprop->getValue( $provider );
+	return isset( $e[ $form_id ] ) ? (string) $e[ $form_id ] : '';
+};
 $vprop = new ReflectionProperty( $provider, 'verifier' );
 $vprop->setAccessible( true );
 $cache = new ReflectionProperty( 'GSWP_Verifier', 'token_cache' );
@@ -207,8 +213,9 @@ $stripe_input = array(
 	'input_3_5' => '78201',
 	'input_3_6' => 'United States',
 );
-$reset_post = function () use ( $vprop, $cache, $provider ) {
+$reset_post = function () use ( $vprop, $cache, $provider, $eprop ) {
 	$_POST = array();
+	$eprop->setValue( $provider, array() );
 	$cache->setValue( $vprop->getValue( $provider ), array() );
 	if ( class_exists( 'GFFormDisplay' ) ) {
 		GFFormDisplay::$submission = array();
@@ -298,12 +305,65 @@ $calls0          = $stub['calls'];
 $stub['next']    = array( 'score' => 0.2 );
 $r               = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-low' ) );
 $chk( '7 low score, no fraud verdict: pre-check refuses the payment', empty( $r['is_valid'] ) && 1 === $stub['calls'] - $calls0, wp_json_encode( $r['validation_messages'] ) );
+$precheck_msg = $err( $stripe_id );
 $reset_post();
 $as_precheck( false );
 $calls0       = $stub['calls'];
 $stub['next'] = array( 'valid' => false, 'reason' => 'DUPE' );
 $r            = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-low' ) );
 $chk( '7 native re-post refused without a second call', empty( $r['is_valid'] ) && 0 === $stub['calls'] - $calls0 );
+
+// --- 7b. The re-post carries a FRESH token: still the pre-check's refusal ------
+// v2.31.1. The bootstrap's re-mint can land before GF Stripe's native re-post,
+// so the re-post carries a new token with no verdict of its own. The companion
+// field gswp_gf_spent names the token the pre-check refused (tok-s-low, §7).
+$reset_post();
+$as_precheck( false );
+$calls0       = $stub['calls'];
+$stub['next'] = array( 'score' => 0.9 );
+$r            = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-fresh', 'gswp_gf_spent' => 'tok-s-low' ) );
+$chk( '7b re-post with fresh token + spent=refused token: refused, no call', empty( $r['is_valid'] ) && 0 === $stub['calls'] - $calls0 );
+$chk( '7b the replayed message is exactly the pre-check\'s', '' !== $precheck_msg && $err( $stripe_id ) === $precheck_msg, $err( $stripe_id ) );
+
+// A spent token with no verdict falls through to ordinary scoring.
+$reset_post();
+$calls0       = $stub['calls'];
+$stub['next'] = array( 'score' => 0.2 );
+$r            = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-fresh2', 'gswp_gf_spent' => 'tok-s-bogus' ) );
+$chk( '7b unknown spent token: fresh token is assessed', 1 === $stub['calls'] - $calls0 );
+
+// A spent PASS never admits anything, and is not consumed.
+$reset_post();
+$as_precheck( true );
+$_POST['action'] = 'gfstripe_validate_form';
+$stub['next']    = array( 'score' => 0.9 );
+$r               = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-ok2' ) );
+$chk( '7b setup: pre-check for tok-s-ok2 passes', ! empty( $r['is_valid'] ) );
+$reset_post();
+$as_precheck( false );
+$calls0       = $stub['calls'];
+$stub['next'] = array( 'score' => 0.2 );
+$r            = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-x', 'gswp_gf_spent' => 'tok-s-ok2' ) );
+$chk( '7b spent=passing token does not admit: fresh token assessed and refused', empty( $r['is_valid'] ) && 1 === $stub['calls'] - $calls0 );
+$chk( '7b the passing verdict is still held (not consumed)', false !== get_transient( GSWP_Provider_Gravity_Forms::PRECHECK_PREFIX . substr( hash( 'sha256', 'tok-s-ok2' ), 0, 32 ) ) );
+
+// Retry after a declined card: the next attempt is a PRE-CHECK, which never
+// replays — it scores its own fresh token even though spent names a refusal.
+$reset_post();
+$as_precheck( true );
+$_POST['action'] = 'gfstripe_validate_form';
+$calls0          = $stub['calls'];
+$stub['next']    = array( 'score' => 0.9 );
+$r               = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-retry', 'gswp_gf_spent' => 'tok-s-low' ) );
+$chk( '7b pre-check ignores spent: retry is assessed and passes', ! empty( $r['is_valid'] ) && 1 === $stub['calls'] - $calls0 );
+$as_precheck( false );
+
+// Form-bound: the Stripe form's refusal does not replay on another form.
+$reset_post();
+$calls0       = $stub['calls'];
+$stub['next'] = array( 'score' => 0.9 );
+$r            = GFAPI::validate_form( $volunteer_id, $volunteer_input( 'tok-v-cross' ) + array( 'gswp_gf_spent' => 'tok-s-low' ), array(), 0, 2 );
+$chk( '7b spent verdict from another form is ignored', ! empty( $r['is_valid'] ) && 1 === $stub['calls'] - $calls0 );
 
 // --- 8. Low score + cleared fraud verdict now admits a Stripe payment ----------
 $reset_post();
@@ -327,7 +387,7 @@ $as_precheck( false );
 remove_filter( 'pre_http_request', $http, 10 );
 GFAPI::delete_form( $volunteer_id );
 GFAPI::delete_form( $stripe_id );
-foreach ( array( 'tok-s-ok', 'tok-s-low', 'tok-s-vpn', 'tok-s-card' ) as $tok ) {
+foreach ( array( 'tok-s-ok', 'tok-s-low', 'tok-s-vpn', 'tok-s-card', 'tok-s-ok2', 'tok-s-retry' ) as $tok ) {
 	delete_transient( GSWP_Provider_Gravity_Forms::PRECHECK_PREFIX . substr( hash( 'sha256', $tok ), 0, 32 ) );
 }
 foreach ( $saved as $opt => $val ) {

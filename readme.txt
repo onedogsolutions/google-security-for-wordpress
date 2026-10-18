@@ -4,7 +4,7 @@ Tags: recaptcha, woocommerce, two-factor, 2fa, security
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.31.0
+Stable tag: 2.31.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,9 @@ Point integrations at a dedicated machine account and exempt only that account, 
 7. **Operate**: one named application password per tool per site; review "Last Used" periodically; rotate on a schedule; on any incident, revoke that single password (or delete the service account) without disrupting anyone's normal access.
 
 == Changelog ==
+
+= 2.31.1 =
+* Fixed: after a Gravity Forms Stripe Payment Element pre-check refused a payment, the form's automatic re-post could carry a freshly minted reCAPTCHA token and be assessed a second time instead of showing the pre-check's own refusal, which cost a second assessment and could show a different message. The token field now carries a companion field naming the token the click spent, and the re-post replays the pre-check's refusal without contacting Google. The companion can only ever repeat a refusal, never admit a submission. Retrying after a declined card is unchanged: each new attempt is still scored on its own fresh token.
 
 = 2.31.0 =
 * Changed: a low reCAPTCHA score on a Gravity Forms or Fluent Forms form that takes no payment and creates no account is no longer refused. The submission is accepted, the visitor sees the normal confirmation, and the entry is filed in the form plugin's Spam folder with a note giving the score and the threshold. A low score is a judgement about the visitor's browser and network, not about the submission, and a refresh cannot change it: a real person on a VPN or a locked-down phone was refused "did not pass our automated security check" on every attempt and had no way through. Gravity Forms sends no notifications and runs no feeds for a spam entry, so nothing acts on it until someone marks it not spam. Payment and account-creation forms still refuse a low score. Filters `gswp_gf_low_score_as_spam` and `gswp_ff_low_score_as_spam` restore the old refusal.

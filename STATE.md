@@ -2,7 +2,9 @@
 
 ## Release state
 
-**This branch carries v2.31.0**, which stops Gravity Forms and Fluent Forms refusing a real person over a low reCAPTCHA score on a form that takes no payment and creates no account (the entry is filed as spam instead), and fixes two Gravity Forms Stripe defects: the Payment Element's double validation re-scoring a spent token, and payment assessments that never carried transactionData. This is Phase 61 work. Unlike every release since 2.27, its server-side behaviour **has** been exercised on a live WordPress — the real verifier and the real Gravity Forms 3.1.3 / GF Stripe 6.0.3 pipeline on test.onedog.solutions, with only Google's HTTP response stubbed (`tests/manual/34`, 25/25). What has not met it is a browser, a real Google assessment, or the reporting site.
+**`main` is at v2.31.1**, which closes the one edge v2.31.0 left open on the GF Stripe Payment Element: after a **failed** pre-check, GF Stripe's native re-post could carry a freshly minted token and be scored a second time instead of replaying the pre-check's refusal. The token field now has a companion, `gswp_gf_spent`, that names the token the click spent, and a non-pre-check request whose own token has no verdict replays a failed pre-check found under it. This is Phase 62 work. **Server-side behaviour verified on test.onedog.solutions:** `tests/manual/34` passed **33/33**, including §7b, through the real verifier and the real GF 3.1.3 / GF Stripe 6.0.3 pipeline. The same run against the v2.31.0 provider fails exactly the two edge assertions, which reproduces the bug. A logged-out render confirmed the companion field and the bootstrap's `recordSpent()` reach the page. **Still not met:** a browser, a real Stripe charge, and a real Google score. A testing ZIP `google-security-for-wordpress-2.31.1.zip` was built from this commit.
+
+**v2.31.0 is the release before that**, which stops Gravity Forms and Fluent Forms refusing a real person over a low reCAPTCHA score on a form that takes no payment and creates no account (the entry is filed as spam instead), and fixes two Gravity Forms Stripe defects: the Payment Element's double validation re-scoring a spent token, and payment assessments that never carried transactionData. This is Phase 61 work. Unlike every release since 2.27, its server-side behaviour **has** been exercised on a live WordPress — the real verifier and the real Gravity Forms 3.1.3 / GF Stripe 6.0.3 pipeline on test.onedog.solutions, with only Google's HTTP response stubbed (`tests/manual/34`, 25/25). What has not met it is a browser, a real Google assessment, or the reporting site.
 
 **v2.31.0 also absorbs the never-merged v2.26.1 cleanup branch** (`claude/state-cleanup-plan-qf4v09`, Aug 2026; audit in `docs/plans/PLAN-repo-cleanup-and-outstanding-errors.md`). `main` shipped its own, different 2.26.1, so these two changes never reached it until now: the Gravity Forms `accepted_actions()` shim that accepted the legacy `submit` action on every non-payment form (marked "REMOVE IN 2.23.0") is removed, and the Form Protection panel shows the shared checkout threshold dial whenever a provider reports a payment form, which was otherwise unreachable on a site without WooCommerce. Plus `.distignore`. The branch's move of the old plan files into `docs/plans/` was dropped, because `main` had already deleted them.
 
@@ -60,7 +62,55 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 *(An earlier revision of this section claimed `main` had been stranded at v2.16.0 for thirteen releases and was missing the 2.17.0 checkout bypass fix. That was wrong. It was read from a remote-tracking ref that had not been fetched since the session began, so `origin/main` pointed at a long-superseded commit. `git push` reported the real one. Recorded rather than quietly deleted because the failure mode is worth keeping: **a stale `origin/*` ref reads exactly like a real branch, and a claim about repository state is only as current as the last fetch.** Fetch before asserting.)*
 
-## Current Phase: Phase 61 (low score files as spam; GF Stripe double validation and transactionData)
+## Current Phase: Phase 62 (replay a failed GF Stripe pre-check on the native re-post)
+
+### Phase 62 Modifications (v2.31.1)
+
+**The edge, from Phase 61.** On a Pay click, the bootstrap's capture-phase `click` listener schedules an async re-mint, and GF Stripe posts the form (token **T1**) to `gfstripe_validate_form`. We score T1 and store the verdict under `hash(T1)`. When that pre-check **fails**, GF Stripe re-posts natively (`event.target.submit()`) so GF renders the error. If the re-mint landed first, the re-post carries **T2**, which has no verdict, so T2 was scored from scratch. That meant a second Google call, a message that could differ from the pre-check's, a second `record_rejection()`, and a free second roll for a refused carding attempt.
+
+**Why the obvious fix stays rejected.** Holding T1 in the field until the outcome is known would break the commoner path, retry after a declined card. The pre-check passes, `confirmPayment()` declines client-side, nothing re-posts, and the next Pay click is another pre-check that needs a fresh token. Pre-checks never redeem, so a held T1 would DUPE. **The re-mint timing is left exactly as it was.**
+
+**Fix: post the spent token alongside the fresh one.** Plan: `PLAN-gf-stripe-repost-replay.md`.
+
+- `token_field()` renders a companion `<input type="hidden" name="gswp_gf_spent">` and marks the token input `data-gswp-spent-field="gswp_gf_spent"`.
+- The bootstrap's `replaceAfterSubmit()` now calls a new `recordSpent()` first. It copies the field's current value into the named companion **synchronously**, before the deferred re-mint can replace it. Fields without the attribute (every non-GF form) are untouched, the token field itself is never written here, and an empty token field never blanks the companion. The never-empty INVARIANT holds.
+- In `validate_submission()`, on a **non-pre-check** request whose own token has no stored verdict, a new `replay_failed_precheck()` looks up `gswp_gf_spent`. It returns the stored message only for a **failed** verdict bound to the same form. A pass under the spent key is never returned and never consumed. The replay records no second rejection and logs one line.
+
+**Why the client-controlled field is safe.** It can only make a request fail the way the browser's own earlier attempt already failed. Omitting or forging it falls through to ordinary scoring, which was the pre-2.31.1 behaviour. Pre-checks ignore it entirely, so a retry is always scored on its own token. A completion request redeems its own token's pass **before** the companion is consulted, so a paid completion whose draft still names an earlier refused token is unaffected. A double click during the pre-check moves the companion to the second click's token, which degrades to the old behaviour (scored once more) and never to a wrong admit.
+
+**Changes:**
+
+- `includes/class-gswp-provider-gravity-forms.php`: `SPENT_FIELD`, the companion field in `token_field()`, the spent lookup in `validate_submission()`, and `replay_failed_precheck()`.
+- `includes/class-gswp-recaptcha-loader.php`: `recordSpent()`, called from `replaceAfterSubmit()`.
+- `tests/manual/34`: new §7b. The re-post with fresh token plus spent refused token is refused with the pre-check's message and 0 calls. An unknown spent token falls through (1 call). A spent **pass** does not admit and is not consumed. A pre-check ignores spent (retry after decline, 1 call). The verdict is form-bound.
+- Version plumbing to 2.31.1.
+
+**Evidence, stated plainly.**
+- `php -l` is clean on all three touched PHP files, and `npm run build` succeeds.
+- The bootstrap was extracted from `get_bootstrap_js()`, passed `node --check`, and ran in jsdom against a hand-controlled `grecaptcha` stub: **10/10**. The companion holds T1 at the instant of the click. The token field stays T1 while the mint is pending and then becomes T2, never empty. The companion still names T1 after the re-mint and moves on the next click. A field without the attribute writes no companion but still re-mints. An empty field does not blank the companion.
+- A reflection harness on the real class with stubbed transients: **8/8**. A failed verdict replays its own message and is kept. A pass is never replayed nor consumed. Another form and an unknown token are ignored. An empty message falls back to the generic text. The replay is logged.
+- **Live on test.onedog.solutions** (WP 7.1.3, PHP 8.3, GF 3.1.3, GF Stripe 6.0.3, Enterprise key), via the Novamira MCP connection.
+  - **Deployment.** The session's own network could not reach the site (proxy 403 on upload), so the site pulled the PR commit from GitHub itself. `includes/`, `assets/`, the main file and `readme.txt` were overlaid, and md5s were checked against the commit. The site's `build/` was left at the v2.30.1 bundle: webpack output is reproducible and the site's matched v2.30.1 byte for byte, and this change touches no admin JS. Install the ZIP for the matching bundle. The prior plugin is backed up at `wp-content/gswp-backup-2.30.1/`.
+  - **`tests/manual/34`: ALL PASS, 33/33.**
+    - The §7b refused re-post with a fresh token makes **0** Google calls.
+    - Its message is byte-identical to the pre-check's: *"This submission did not pass our automated security check…"*.
+    - An unknown spent token is assessed.
+    - A spent pass neither admits nor is consumed.
+    - A pre-check with spent set is assessed and passes.
+    - The verdict is form-bound.
+    - §1–§9 from 2.31.0 still pass.
+  - **The first §7b run was weaker than it looked, and was fixed before being relied on.** Its message check read `validation_messages`, which is always empty for a provider rejection, so it could not fail. Nor did `reset_post()` clear the provider's `$errors`, so a stale message could also have satisfied a stricter check. Both are fixed in `4421574`.
+  - **Control.** The same test, with only the provider file swapped back to v2.31.0 (`039caeb`), **fails exactly two assertions**: the fresh-token re-post is assessed (1 call) and is not refused with the pre-check's message. Every other §7b assertion still passes, which is correct, because those paths were already safe. The live file was restored and its md5 rechecked.
+  - **Render.** The site has the GF provider switched **off** (`gswp_provider_gravity_forms_enabled = 0`), so for one request it was switched on and a temporary page carrying form #1 was published, fetched logged-out, then deleted, and the option restored to `0`. Both `<input name="gswp_gf_token" … data-gswp-spent-field="gswp_gf_spent">` and `<input name="gswp_gf_spent">` sit inside `gform_1`, and the served bootstrap's `replaceAfterSubmit()` calls `recordSpent(input)`.
+- **Not exercised:** a browser, real GF Stripe JS ordering, a real Stripe charge or decline, and a real Google score. The site has no Stripe-feed form; `tests/manual/34` creates and deletes its own.
+
+**The live checks that settle it** (`PLAN-gf-stripe-repost-replay.md` §5.4):
+1. Force a refused pre-check (checkout threshold 1.0) with the network throttled so the re-mint lands first. The re-post body should carry `gswp_gf_spent` equal to the pre-check's token, and the reCAPTCHA console should show **one** assessment for the attempt.
+2. Use a declined card (`4000 0000 0000 0002`), then a 4242 retry without a reload. The retry should succeed with no "expired", for **two** assessments total.
+3. Use the 3DS card (`4000 0027 6000 3184`). The entry should still carry the pre-check's assessment name.
+4. ~~Run `tests/manual/34`, including §7b.~~ Done on test.onedog.solutions, 33/33.
+
+## Historical Phase: Phase 61 (low score files as spam; GF Stripe double validation and transactionData)
 
 ### Phase 61 Modifications (v2.31.0)
 
@@ -89,7 +139,7 @@ It was numbered Phase 49 on its branch, which collided with the already-released
 
 **Not validated, and why it matters.** No browser reached the test site from the authoring session (network policy), so the client-side order — Stripe JS building `FormData` vs. our click handler re-minting — is source-read, not observed; nor is a real Google score, a real Stripe charge, 3-D Secure, or the SAPA site. The checks that settle it: (1) SAPA, `tests/manual/33`, then the reCAPTCHA console for actions `submit`/`checkout` — score histogram, `reasons`, and `userIpAddress` vs. the entry IP (an edge IP means configure the CDN toggle); (2) a real volunteer submission from a VPN lands in Spam with the note and no notification; (3) a real GF Stripe test-mode payment, 4242 and 3DS `4000 0027 6000 3184`, produces one assessment per attempt, the entry carries the pre-check assessment and is annotated LEGITIMATE; (4) a declined card then a retry does not show "expired".
 
-**Residual edge, deliberately left.** After a failed pre-check, if our click handler's re-mint lands before GF Stripe's native re-post, that re-post carries a fresh token and is scored again rather than replaying the cached verdict. Holding the token back would break the commoner retry-after-decline path (the next pre-check would DUPE), so it is not done.
+**Residual edge — closed in v2.31.1 (Phase 62).** After a failed pre-check, if our click handler's re-mint lands before GF Stripe's native re-post, that re-post carries a fresh token and is scored again rather than replaying the cached verdict. Holding the token back would break the commoner retry-after-decline path (the next pre-check would DUPE), so it is not done.
 
 ## Historical Phase: Phase 60 (Xootix lost-password token injection)
 
