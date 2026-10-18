@@ -63,6 +63,16 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	const TOKEN_FIELD = 'gswp_gf_token';
 
 	/**
+	 * Name of the companion field holding the token the last click spent.
+	 *
+	 * A back-reference and nothing more: it lets the GF Stripe re-post that
+	 * follows a FAILED pre-check replay that refusal even when the bootstrap
+	 * has already put a fresh token in TOKEN_FIELD. It can only ever replay a
+	 * failure, never admit anything. See replay_failed_precheck().
+	 */
+	const SPENT_FIELD = 'gswp_gf_spent';
+
+	/**
 	 * Entry meta key holding the assessment resource name.
 	 */
 	const META_ASSESSMENT = 'gswp_assessment_name';
@@ -1015,10 +1025,12 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 	 */
 	private function token_field( $form_id ) {
 		return sprintf(
-			'<input type="hidden" name="%s" class="g-recaptcha-response" data-recaptcha-action="%s" value="" />',
+			'<input type="hidden" name="%1$s" class="g-recaptcha-response" data-recaptcha-action="%2$s" data-gswp-spent-field="%3$s" value="" />'
+			. '<input type="hidden" name="%3$s" value="" />',
 			esc_attr( self::TOKEN_FIELD ),
 			// Same resolver validate_submission() uses. See action_for().
-			esc_attr( $this->action_for( $form_id ) )
+			esc_attr( $this->action_for( $form_id ) ),
+			esc_attr( self::SPENT_FIELD )
 		);
 	}
 
@@ -1144,6 +1156,20 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				}
 
 				return $this->reject( $validation_result, $redeemed['message'], $form_id );
+			}
+
+			// After a failed pre-check GF Stripe re-posts the form natively to
+			// render the error. If the bootstrap's re-mint landed first, that
+			// re-post carries a fresh token with no verdict of its own, and
+			// scoring it would give the attempt a second roll. The companion
+			// field still names the token the pre-check refused.
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Gravity Forms validates its own nonce before this filter runs.
+			$spent = isset( $_POST[ self::SPENT_FIELD ] ) ? sanitize_text_field( wp_unslash( $_POST[ self::SPENT_FIELD ] ) ) : '';
+			if ( '' !== $spent && $spent !== $token ) {
+				$replayed = $this->replay_failed_precheck( $form_id, $spent );
+				if ( null !== $replayed ) {
+					return $this->reject( $validation_result, $replayed, $form_id );
+				}
 			}
 		}
 
@@ -1453,6 +1479,40 @@ class GSWP_Provider_Gravity_Forms implements GSWP_Form_Provider {
 				: __( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' ),
 			'assessment' => isset( $verdict['assessment'] ) ? (string) $verdict['assessment'] : '',
 		);
+	}
+
+	/**
+	 * The message of a FAILED pre-check verdict held for a spent token.
+	 *
+	 * Reached only from a non-pre-check request whose own token has no
+	 * verdict. A passing verdict is never returned or consumed here: the
+	 * companion field is client-controlled, so it may only ever make a
+	 * request fail the way its own earlier attempt already failed. Omitting
+	 * or forging it falls through to ordinary scoring. No rejection is
+	 * recorded; the pre-check already recorded this one.
+	 *
+	 * @param int    $form_id Form id.
+	 * @param string $spent   Token the companion field names.
+	 * @return string|null Message to replay, or null to score normally.
+	 */
+	private function replay_failed_precheck( $form_id, $spent ) {
+		$verdict = get_transient( $this->precheck_key( $spent ) );
+
+		if ( ! is_array( $verdict ) || ! isset( $verdict['form'], $verdict['ok'] )
+			|| (int) $verdict['form'] !== (int) $form_id || $verdict['ok'] ) {
+			return null;
+		}
+
+		$this->log(
+			sprintf(
+				'Gravity Forms #%d: the re-post after a failed Stripe pre-check carried a fresh token; replayed the pre-check\'s refusal without assessing it.',
+				$form_id
+			)
+		);
+
+		return '' !== (string) $verdict['message']
+			? (string) $verdict['message']
+			: __( 'We could not verify this submission. Please refresh the page and try again.', 'google-security-for-wordpress' );
 	}
 
 	/**

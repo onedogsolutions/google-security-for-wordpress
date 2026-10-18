@@ -694,6 +694,24 @@ class GSWP_Recaptcha_Loader {
 				}
 			}
 
+			// A field that names a companion (data-gswp-spent-field) gets the
+			// value it is about to lose copied there, synchronously, before the
+			// re-mint can replace it. The GF Stripe re-post after a failed
+			// pre-check then names the token that was refused even when it
+			// already carries a fresh one, and the server replays the refusal
+			// rather than scoring the attempt twice. Fields without the
+			// attribute are untouched.
+			function recordSpent(input) {
+				var name = input.getAttribute('data-gswp-spent-field');
+				if (!name || !input.value || !input.form) {
+					return;
+				}
+				var spent = input.form.querySelector('input[name="' + name + '"]');
+				if (spent) {
+					spent.value = input.value;
+				}
+			}
+
 			// The token that just left with a submission is spent: v3 tokens are
 			// single use. Deferred a tick so the in-flight submission serializes
 			// the current value first.
@@ -701,6 +719,7 @@ class GSWP_Recaptcha_Loader {
 				if (!input) {
 					return;
 				}
+				recordSpent(input);
 				window.setTimeout(function() {
 					replaceToken(input);
 				}, 0);

@@ -1,5 +1,7 @@
 # Plan: replay a failed GF Stripe pre-check on the native re-post (v2.31.1)
 
+**Status: implemented in v2.31.1 (Phase 62).** Live checks in §5.4 are still outstanding.
+
 Builds on v2.31.0 (`claude/youthful-maxwell-uds025`, not yet on `main`). Closes the
 "Residual edge, deliberately left" in STATE.md Phase 61.
 
