@@ -12,7 +12,7 @@ upgrade.** Its bindings were originally written from vendor documentation that
 could not be opened directly during development (2.23.0), partially corrected
 against one live install (2.23.1), and then corrected against the actual
 Fluent Forms and Fluent Forms Pro source directly (2.23.2) — see
-`PLAN-fluent-forms-source-corrections.md` for the full defect list. **2.23.2
+`docs/plans/PLAN-fluent-forms-source-corrections.md` for the full defect list. **2.23.2
 fixed eight defects, three of them in the request path**, the most serious
 being that every Fluent Forms User Update (profile-edit) form was classified
 as an account-creation form and rejected a signed-in visitor's own edit on a
