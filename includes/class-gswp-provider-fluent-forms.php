@@ -134,6 +134,11 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	const META_ANNOTATED = 'gswp_annotated';
 
 	/**
+	 * Submission meta key holding why this plugin filed it as spam.
+	 */
+	const META_SPAM_REASON = 'gswp_spam_reason';
+
+	/**
 	 * Option recording, per form, when a token field was last successfully
 	 * injected on a real front-end render.
 	 *
@@ -252,6 +257,14 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 	 * @var array<int,bool>
 	 */
 	private $pending_unverified = array();
+
+	/**
+	 * Forms admitted this request on a low score, to be filed as spam. Keyed
+	 * by form id; the value is the reason recorded on the submission.
+	 *
+	 * @var array<int,string>
+	 */
+	private $pending_spam = array();
 
 	/**
 	 * {@inheritDoc}
@@ -1259,6 +1272,14 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 		// See whitelist_token_field() for why this is required, not optional.
 		add_filter( 'fluentform/white_listed_fields', array( $this, 'whitelist_token_field' ), 10, 2 );
 
+		// A low score on a form that neither takes payment nor creates an
+		// account files the submission as spam instead of refusing the
+		// visitor. VERIFIED against Fluent Forms 6.2.16:
+		// SubmissionHandlerService::prepareInsertData() returns its row through
+		// this filter, and the same 'status' => 'spam' is what its own Akismet
+		// and CleanTalk checks set.
+		add_filter( 'fluentform/filter_insert_data', array( $this, 'flag_spam' ), 20, 1 );
+
 		// Persist the assessment name and any fail-open flag onto the entry.
 		add_action( 'fluentform/submission_inserted', array( $this, 'store_submission_meta' ), 10, 3 );
 
@@ -1609,6 +1630,10 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			return $errors;
 		}
 
+		// A verdict belongs to one submission. Nothing from an earlier
+		// submission of this form in the same request may reach this one.
+		unset( $this->pending_spam[ $form_id ] );
+
 		// Never re-judge a submission Fluent Forms has already rejected.
 		if ( ! empty( $errors ) ) {
 			return $errors;
@@ -1706,6 +1731,11 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 				// payment form for the same reason it does at checkout. See
 				// GSWP_Verifier::fraud_verdict_admits_low_score().
 				if ( null !== $score && $score < $threshold && ! $this->verifier->fraud_verdict_admits_low_score() ) {
+					// Only non-strict forms reach this branch.
+					if ( $this->low_score_files_as_spam( $form_id ) ) {
+						return $this->admit_as_spam( $errors, $form_id, $score, $threshold );
+					}
+
 					$this->record_rejection( $form_id, 'low score' );
 
 					return $this->reject(
@@ -1727,6 +1757,20 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 				);
 
 				return $errors;
+			}
+
+			// See GSWP_Provider_Gravity_Forms::score_submission(): a low score
+			// is a guess about a person that a refresh cannot change, so a form
+			// that moves no money and creates no account files it as spam.
+			if ( 'recaptcha_low_score' === $result->get_error_code() && ! $strict && $this->low_score_files_as_spam( $form_id ) ) {
+				$score = $this->verifier->get_last_score();
+
+				return $this->admit_as_spam(
+					$errors,
+					$form_id,
+					null === $score ? 0.0 : $score,
+					floatval( get_option( 'gswp_threshold_' . $context, '0.5' ) )
+				);
 			}
 
 			$this->record_rejection( $form_id, $result->get_error_code() );
@@ -2186,6 +2230,78 @@ class GSWP_Provider_Fluent_Forms implements GSWP_Form_Provider {
 			// shows up as a burst of unverified submissions instead of nothing.
 			$this->set_submission_meta( $submission_id, self::META_UNVERIFIED, '1' );
 		}
+
+		if ( ! empty( $this->pending_spam[ $form_id ] ) ) {
+			$this->set_submission_meta( $submission_id, self::META_SPAM_REASON, $this->pending_spam[ $form_id ] );
+		}
+	}
+
+	/**
+	 * Whether a low score on this (non-strict) form files the submission as
+	 * spam rather than refusing it.
+	 *
+	 * @param int $form_id Form id.
+	 * @return bool
+	 */
+	private function low_score_files_as_spam( $form_id ) {
+		/**
+		 * Filter whether a low reCAPTCHA score on a Fluent Form that takes no
+		 * payment and creates no account is admitted and filed as spam. Return
+		 * false to refuse the submission instead, as before 2.31.0.
+		 *
+		 * @param bool $as_spam Whether to file as spam.
+		 * @param int  $form_id Form id.
+		 */
+		return (bool) apply_filters( 'gswp_ff_low_score_as_spam', true, $form_id );
+	}
+
+	/**
+	 * Admit a low-scoring submission and mark it for the spam list.
+	 *
+	 * @param array $errors    Validation errors (empty on this path).
+	 * @param int   $form_id   Form id.
+	 * @param float $score     Google's score.
+	 * @param float $threshold The form's threshold.
+	 * @return array Unchanged errors.
+	 */
+	private function admit_as_spam( $errors, $form_id, $score, $threshold ) {
+		$this->pending_spam[ $form_id ] = sprintf(
+			/* translators: 1: reCAPTCHA score, 2: configured threshold. */
+			__( 'reCAPTCHA scored this submission %1$.2f, below the %2$.2f threshold for this form. If it is genuine, mark it as not spam.', 'google-security-for-wordpress' ),
+			$score,
+			$threshold
+		);
+
+		$this->record_rejection( $form_id, 'low score (filed as spam)' );
+
+		$this->log(
+			sprintf(
+				'Fluent Forms #%d scored %.2f (< %.2f). Admitted and filed as spam; the form takes no payment and creates no account.',
+				$form_id,
+				$score,
+				$threshold
+			)
+		);
+
+		return $errors;
+	}
+
+	/**
+	 * Set the spam status on a submission row admitted on a low score.
+	 *
+	 * @param array $data Row about to be inserted.
+	 * @return array
+	 */
+	public function flag_spam( $data ) {
+		$form_id = is_array( $data ) && isset( $data['form_id'] ) ? (int) $data['form_id'] : 0;
+
+		if ( ! $form_id || empty( $this->pending_spam[ $form_id ] ) ) {
+			return $data;
+		}
+
+		$data['status'] = 'spam';
+
+		return $data;
 	}
 
 	/**

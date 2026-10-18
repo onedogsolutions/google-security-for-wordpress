@@ -111,6 +111,10 @@ function rejectionLabel( rejection ) {
 		recaptcha_missing: __( 'no token', 'google-security-for-wordpress' ),
 		'missing token': __( 'no token', 'google-security-for-wordpress' ),
 		'low score': __( 'low score', 'google-security-for-wordpress' ),
+		'low score (filed as spam)': __(
+			'low score — filed as spam',
+			'google-security-for-wordpress'
+		),
 		'transaction risk': __(
 			'transaction risk',
 			'google-security-for-wordpress'
@@ -134,8 +138,7 @@ export default function FormProtection( { settings, onChange } ) {
 	// "Token seen", rejections, "Its own reCAPTCHA") reverted to its
 	// pre-save state immediately after Save, even though the setting had
 	// already been persisted correctly server-side.
-	const audit =
-		settings.form_providers ||
+	const audit = settings.form_providers ||
 		adminData.formProviders || { enabled: true, providers: {} };
 	const providers = Object.values( audit.providers || {} );
 
@@ -233,6 +236,17 @@ export default function FormProtection( { settings, onChange } ) {
 				{ providers.map( ( provider ) => {
 					const ineligible = ( provider.ineligible || [] ).length;
 					const prefix = prefixFor( provider.id );
+					// context_for() resolves any payment form to 'checkout' in both
+					// providers, scored against the single shared gswp_threshold_checkout
+					// option — the same dial WooCommerce Checkout uses. That dial is
+					// otherwise rendered only under the WooCommerce checkpoint group in
+					// PageToggles.jsx, which does not render at all on a site with no
+					// WooCommerce. A payment form under a form provider on such a site
+					// had no reachable control for the threshold governing it, while
+					// this panel showed four dials that do not apply to it.
+					const hasPaymentForm = ( provider.forms || [] ).some(
+						( form ) => form.context === 'checkout'
+					);
 
 					return (
 						<div key={ provider.id } className="mt-8">
@@ -311,7 +325,7 @@ export default function FormProtection( { settings, onChange } ) {
 									</p>
 									<p className="mt-1 text-xs text-gray-500">
 										{ __(
-											'A submission scoring below its threshold is rejected as spam. Each class of form has its own dial, and each form plugin has its own set of them, so tightening one to keep fake signups out does not silently tighten your contact forms — or the other plugin’s forms — with it. A signed-in user editing their own profile, or changing their own password, is scored but never blocked for a missing token.',
+											'A submission scoring below its threshold is refused on a form that takes payment or creates an account. On any other form it is accepted and filed in the form plugin’s Spam folder for review, so a real person on a VPN or a locked-down phone is not turned away. Each class of form has its own dial, and each form plugin has its own set of them, so tightening one to keep fake signups out does not silently tighten your contact forms — or the other plugin’s forms — with it. A signed-in user editing their own profile, or changing their own password, is scored but never blocked for a missing token.',
 											'google-security-for-wordpress'
 										) }
 									</p>
@@ -350,6 +364,23 @@ export default function FormProtection( { settings, onChange } ) {
 													'google-security-for-wordpress'
 												),
 											},
+											// Not prefixed per provider: unlike the dials above,
+											// this is one option shared with WooCommerce Checkout
+											// (see the hasPaymentForm note above). Shown only when
+											// this provider actually has a payment form, so a site
+											// with only contact forms is not shown a dial with
+											// nothing under it.
+											...( hasPaymentForm
+												? [
+														{
+															key: 'threshold_checkout',
+															label: __(
+																'Payment forms (shared with WooCommerce checkout)',
+																'google-security-for-wordpress'
+															),
+														},
+												  ]
+												: [] ),
 										].map( ( dial ) => {
 											const value =
 												parseFloat(
