@@ -110,6 +110,12 @@ $prop->setAccessible( true );
 // The verifier caches a token's verdict for the rest of the PHP request, so a
 // later scenario reusing a token would be answered from memory. Real requests
 // are separate processes; clear it between scenarios to match.
+$eprop = new ReflectionProperty( $provider, 'errors' );
+$eprop->setAccessible( true );
+$err   = function ( $form_id ) use ( $eprop, $provider ) {
+	$e = (array) $eprop->getValue( $provider );
+	return isset( $e[ $form_id ] ) ? (string) $e[ $form_id ] : '';
+};
 $vprop = new ReflectionProperty( $provider, 'verifier' );
 $vprop->setAccessible( true );
 $cache = new ReflectionProperty( 'GSWP_Verifier', 'token_cache' );
@@ -207,8 +213,9 @@ $stripe_input = array(
 	'input_3_5' => '78201',
 	'input_3_6' => 'United States',
 );
-$reset_post = function () use ( $vprop, $cache, $provider ) {
+$reset_post = function () use ( $vprop, $cache, $provider, $eprop ) {
 	$_POST = array();
+	$eprop->setValue( $provider, array() );
 	$cache->setValue( $vprop->getValue( $provider ), array() );
 	if ( class_exists( 'GFFormDisplay' ) ) {
 		GFFormDisplay::$submission = array();
@@ -298,6 +305,7 @@ $calls0          = $stub['calls'];
 $stub['next']    = array( 'score' => 0.2 );
 $r               = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-low' ) );
 $chk( '7 low score, no fraud verdict: pre-check refuses the payment', empty( $r['is_valid'] ) && 1 === $stub['calls'] - $calls0, wp_json_encode( $r['validation_messages'] ) );
+$precheck_msg = $err( $stripe_id );
 $reset_post();
 $as_precheck( false );
 $calls0       = $stub['calls'];
@@ -314,9 +322,8 @@ $as_precheck( false );
 $calls0       = $stub['calls'];
 $stub['next'] = array( 'score' => 0.9 );
 $r            = GFAPI::validate_form( $stripe_id, $stripe_input + array( 'gswp_gf_token' => 'tok-s-fresh', 'gswp_gf_spent' => 'tok-s-low' ) );
-$msgs         = isset( $r['validation_messages'] ) ? wp_json_encode( $r['validation_messages'] ) : '';
-$chk( '7b re-post with fresh token + spent=refused token: refused, no call', empty( $r['is_valid'] ) && 0 === $stub['calls'] - $calls0, $msgs );
-$chk( '7b the replayed message is the pre-check\'s, not "expired"', false === stripos( $msgs, 'expired' ), $msgs );
+$chk( '7b re-post with fresh token + spent=refused token: refused, no call', empty( $r['is_valid'] ) && 0 === $stub['calls'] - $calls0 );
+$chk( '7b the replayed message is exactly the pre-check\'s', '' !== $precheck_msg && $err( $stripe_id ) === $precheck_msg, $err( $stripe_id ) );
 
 // A spent token with no verdict falls through to ordinary scoring.
 $reset_post();
